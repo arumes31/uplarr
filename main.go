@@ -14,7 +14,31 @@ import (
 	"time"
 )
 
-// ... existing code ...
+//go:embed static/*
+var staticAssets embed.FS
+
+type FS interface {
+	ReadFile(name string) ([]byte, error)
+	Open(name string) (fs.File, error)
+}
+
+var appFS FS = staticAssets
+
+type Config struct {
+	LocalDir string
+	WebPort  string
+}
+
+type UploadRequest struct {
+	Host              string `json:"host"`
+	Port              int    `json:"port"`
+	User              string `json:"user"`
+	Password          string `json:"password"`
+	KeyPath           string `json:"key_path"`
+	RemoteDir         string `json:"remote_dir"`
+	DeleteAfterVerify bool   `json:"delete_after_verify"`
+	MaxRetries        int    `json:"max_retries"`
+}
 
 var (
 	logClients = make(map[chan string]bool)
@@ -42,35 +66,6 @@ func logError(msg string) {
 	formatted := fmt.Sprintf(`{"level":"error", "time":"%s", "msg":"%s"}`, time.Now().Format(time.RFC3339), msg)
 	log.Println(formatted)
 	broadcastLog(formatted)
-}
-
-func SetupApp(config Config) (*http.ServeMux, error) {
-	// ... (rest of SetupApp remains similar but with new endpoints)
-
-//go:embed static/*
-var staticAssets embed.FS
-
-type FS interface {
-	ReadFile(name string) ([]byte, error)
-	Open(name string) (fs.File, error)
-}
-
-var appFS FS = staticAssets
-
-type Config struct {
-	LocalDir string
-	WebPort  string
-}
-
-type UploadRequest struct {
-	Host              string `json:"host"`
-	Port              int    `json:"port"`
-	User              string `json:"user"`
-	Password          string `json:"password"`
-	KeyPath           string `json:"key_path"`
-	RemoteDir         string `json:"remote_dir"`
-	DeleteAfterVerify bool   `json:"delete_after_verify"`
-	MaxRetries        int    `json:"max_retries"`
 }
 
 func getEnv(key, fallback string) string {
@@ -140,6 +135,10 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
 		c := make(chan string, 10)
 		mu.Lock()
 		logClients[c] = true
@@ -152,10 +151,15 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			close(c)
 		}()
 
-		for msg := range c {
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case msg := <-c:
+				fmt.Fprintf(w, "data: %s\n\n", msg)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
 			}
 		}
 	})
@@ -252,6 +256,9 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 	return mux, nil
 }
 
+var sftpClientConnect = func(s *SFTPClient) error { return s.Connect() }
+var sftpClientUpload = func(s *SFTPClient, localPath string, maxRetries int) error { return s.UploadFileWithRetry(localPath, maxRetries) }
+
 func ProcessUploads(config Config, req UploadRequest) []string {
 	var errs []string
 	client := SFTPClient{
@@ -264,17 +271,17 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 		DeleteAfterVerify: req.DeleteAfterVerify,
 	}
 
-	if err := client.Connect(); err != nil {
+	if err := sftpClientConnect(&client); err != nil {
 		msg := fmt.Sprintf("SFTP connection failed: %v", err)
-		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		logError(msg)
 		return []string{msg}
 	}
 	defer client.Close()
 
-	files, err := os.ReadDir(config.LocalDir)
+	files, err := osReadDir(config.LocalDir)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to read local directory: %v", err)
-		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		logError(msg)
 		return []string{msg}
 	}
 
@@ -289,9 +296,9 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 			retries = 3
 		}
 
-		if err := client.UploadFileWithRetry(localPath, retries); err != nil {
+		if err := sftpClientUpload(&client, localPath, retries); err != nil {
 			msg := fmt.Sprintf("Failed to upload %s: %v", f.Name(), err)
-			log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+			logError(msg)
 			errs = append(errs, msg)
 		}
 	}
@@ -299,10 +306,12 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 }
 
 var httpListen = http.ListenAndServe
+var osExit = os.Exit
 
 func main() {
 	if err := Run(); err != nil {
-		log.Fatalf(`{"level":"error", "msg":"Application failed", "error":"%v"}`, err)
+		log.Printf(`{"level":"error", "msg":"Application failed", "error":"%v"}`, err)
+		osExit(1)
 	}
 }
 

@@ -1,8 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -13,19 +13,22 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/crypto/ssh"
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
-// generateMockServerKey generates a random RSA private key for the mock server.
+// generateMockServerKey generates a random ed25519 private key for the mock server.
 func generateMockServerKey() ([]byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	privDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	privDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
 	privBlock := pem.Block{
-		Type:    "RSA PRIVATE KEY",
+		Type:    "PRIVATE KEY",
 		Headers: nil,
 		Bytes:   privDER,
 	}
@@ -40,6 +43,12 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 				return nil, nil
 			}
 			return nil, fmt.Errorf("password rejected")
+		},
+		PublicKeyCallback: func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
+			if c.User() == user {
+				return nil, nil // accept any key for the test user
+			}
+			return nil, fmt.Errorf("key rejected")
 		},
 	}
 
@@ -140,6 +149,35 @@ func TestSFTPClientConnect(t *testing.T) {
 	}
 	if err := clientInvalid.Connect(); err == nil {
 		t.Fatal("Expected connect to fail with wrong password")
+	}
+
+	// Test Public Key auth
+	keyBytes, _ := generateMockServerKey()
+	keyPath := filepath.Join(tempDir, "id_rsa")
+	os.WriteFile(keyPath, keyBytes, 0600)
+
+	clientKey := SFTPClient{
+		Host:    "127.0.0.1",
+		Port:    port,
+		User:    "user1",
+		KeyPath: keyPath,
+	}
+	if err := clientKey.Connect(); err != nil {
+		t.Fatalf("Expected connect with key to succeed: %v", err)
+	}
+	clientKey.Close()
+
+	// Test invalid key content
+	invalidKeyPath := filepath.Join(tempDir, "id_rsa_invalid")
+	os.WriteFile(invalidKeyPath, []byte("invalid"), 0600)
+	clientKeyInvalidContent := SFTPClient{
+		Host:    "127.0.0.1",
+		Port:    port,
+		User:    "user1",
+		KeyPath: invalidKeyPath,
+	}
+	if err := clientKeyInvalidContent.Connect(); err == nil {
+		t.Fatal("Expected connect to fail with invalid key content")
 	}
 }
 
@@ -275,6 +313,28 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 		t.Errorf("Expected size mismatch, got %v", err)
 	}
 	mockC.statFile.size = 10
+
+	// 7. Delete fail coverage
+	client.DeleteAfterVerify = true
+	oldRemove := osRemove
+	osRemove = func(name string) error { return fmt.Errorf("remove error") }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success even if remove fails, got %v", err)
+	}
+	
+	// 8. Delete success coverage
+	osRemove = func(name string) error { return nil }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success on delete, got %v", err)
+	}
+	osRemove = oldRemove
+
+	// 9. UploadFileWithRetry failure path
+	osOpen = func(name string) (File, error) { return nil, fmt.Errorf("open fail") }
+	if err := client.UploadFileWithRetry(testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
+		t.Errorf("Expected retry fail, got %v", err)
+	}
+	osOpen = oldOpen
 }
 
 func TestSFTPClientConnect_MockErrors(t *testing.T) {

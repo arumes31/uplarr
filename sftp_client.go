@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -130,6 +129,8 @@ var osOpen = func(name string) (File, error) {
 	return os.Open(name)
 }
 
+var osRemove = os.Remove
+
 func (s *SFTPClient) UploadFile(localPath string) error {
 	fileName := filepath.Base(localPath)
 	remotePath := filepath.Join(s.RemoteDir, fileName)
@@ -176,7 +177,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	localFile.Close()
 
 	if s.DeleteAfterVerify {
-		if err := os.Remove(localPath); err != nil {
+		if err := osRemove(localPath); err != nil {
 			logError(fmt.Sprintf("Failed to delete local file %s: %v", localPath, err))
 		} else {
 			logInfo(fmt.Sprintf("Deleted local file %s", fileName))
