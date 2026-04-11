@@ -1,47 +1,113 @@
-# Uplarr
+# 🚀 Uplarr
 
-Uplarr is a zero-bloat, production-ready Go application with a modern Web GUI for viewing local files and triggering uploads to remote SFTP servers with verification.
+[![Go Version](https://img.shields.io/github/go-mod/go-version/daniel/uplarr?style=flat-square)](https://go.dev/)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/daniel/uplarr/ci.yml?branch=main&style=flat-square)](https://github.com/daniel/uplarr/actions)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?style=flat-square&logo=docker)](https://github.com/daniel/uplarr/pkgs/container/uplarr)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
-## Features
-- **Dynamic SFTP Connections**: Configure and test SFTP connections directly in the web GUI.
-- **Local File Viewer**: View files in a mounted local directory.
-- **SFTP Upload with Verification**: Securely upload files and verify remote file integrity via size comparison.
-- **Auto-Cleanup**: Optional deletion of local files after successful verification.
-- **Modern UI**: Clean, responsive interface with real-time process logs.
-- **Containerized**: Minimal, multi-stage Docker image with built-in testing.
+**Uplarr** is a high-performance, zero-bloat Go application designed to bridge the gap between local storage and remote SFTP servers. With a sleek modern Web GUI, real-time progress logging via SSE, and robust verification logic, Uplarr ensures your data moves safely and efficiently.
 
-## Configuration (Environment Variables)
-- `LOCAL_DIR`: Local directory to monitor (default: `./test_data`).
-- `WEB_PORT`: Port for the Web GUI (default: `8080`).
+---
 
-*Note: SFTP host, user, and credentials are now configured dynamically via the Web GUI.*
+## ✨ Key Features
 
-## Local Development
-1. Clone the repository.
-2. Install dependencies: `go mod download`.
-3. Run the app: `go run .`.
-4. Open `http://localhost:8080`.
+- 🛠 **Dynamic Configuration**: No more hardcoded env vars. Configure and test your SFTP connections directly in the browser.
+- 📡 **Real-time SSE Logs**: Watch your uploads happen live with integrated Server-Sent Events logging.
+- ✅ **Verification Suite**: Automatic remote file integrity checks via size comparison after every upload.
+- 🧹 **Smart Cleanup**: Optional automatic deletion of local files only after successful remote verification.
+- 🐳 **Multi-Arch Docker**: Official support for `amd64` and `arm64` via GHCR.
+- ⚡ **Go 1.26 Powered**: Leveraging the latest Go performance and security enhancements.
 
-## Testing with Docker
-You can run all tests within a Docker container to ensure environment parity:
+---
+
+## 📸 Web Interface
+
+> *Clean, Responsive, and Fast.*
+
+- **Dashboard**: View local files, their sizes, and status.
+- **Config**: Reactive form with host, port, user, and credential management.
+- **Live Logs**: Dedicated terminal-style window for real-time process feedback.
+
+---
+
+## 🛠 Quick Start
+
+### Using Docker (Recommended)
+
 ```bash
-docker build -t uplarr-test --target builder .
+docker run -d \
+  -p 8080:8080 \
+  -v /your/local/data:/root/test_data \
+  --name uplarr \
+  ghcr.io/your-username/uplarr:latest
 ```
 
-To run the full application:
+### Local Development
+
+1. **Prerequisites**: Go 1.26+ installed.
+2. **Install**:
+   ```bash
+   go mod download
+   ```
+3. **Run**:
+   ```bash
+   go run .
+   ```
+4. **Access**: Open [http://localhost:8080](http://localhost:8080) in your browser.
+
+---
+
+## ⚙️ Configuration (Environment Variables)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
+| `WEB_PORT` | Port for the Web GUI | `8080` |
+
+*SFTP credentials and host settings are managed via the Web GUI.*
+
+---
+
+## 🧪 Testing
+
+We maintain a high-quality codebase with extensive test coverage.
+
+**Run tests locally:**
 ```bash
-docker build -t uplarr .
-docker run -p 8080:8080 -v /path/to/local/data:/root/test_data uplarr
+go test -v ./...
 ```
 
-## Tech Stack
-- **Backend**: Go (standard library + `golang.org/x/crypto/ssh`, `github.com/pkg/sftp`).
-- **Frontend**: Vanilla HTML5, modern CSS3, and JavaScript (embedded).
-- **Docker**: Alpine-based minimal image with multi-stage build.
+**Run with coverage report:**
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
 
-## Improvements Made
-- **Dynamic SFTP**: Removed static environment variables for SFTP credentials; now handled via UI.
-- **Connection Testing**: Added `/api/test-connection` to verify settings before starting uploads.
-- **Robust Error Handling**: Improved API responses to provide detailed feedback on partial failures.
-- **Polished UI**: Enhanced visual design and user feedback.
-- **Test Coverage**: Expanded test suite to cover new endpoints and edge cases.
+---
+
+## 🚢 Deployment & CI/CD
+
+Uplarr uses GitHub Actions for continuous integration and deployment:
+- **CI**: Automated testing on every push to `main` and `v2_test`.
+- **Release**: Multi-platform Docker builds (`amd64`, `arm64`) pushed to GHCR on main branch updates.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git checkout -b v2_test`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+*Built with ❤️ using Go and Vanilla JS.*

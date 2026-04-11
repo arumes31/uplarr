@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,48 @@ import (
 	"testing"
 	"time"
 )
+
+func TestRun_Failures(t *testing.T) {
+	// Test SetupApp failure in Run
+	os.Setenv("LOCAL_DIR", "/invalid/path/\x00")
+	os.Setenv("WEB_PORT", "8081")
+	err := Run()
+	if err == nil || !strings.Contains(err.Error(), "setup failed") {
+		t.Errorf("Expected setup failure, got %v", err)
+	}
+	os.Unsetenv("LOCAL_DIR")
+	os.Unsetenv("WEB_PORT")
+
+	// Test ListenAndServe failure in Run
+	oldListen := httpListen
+	httpListen = func(addr string, handler http.Handler) error {
+		fmt.Printf("MOCK CALLED: %s\n", addr)
+		return fmt.Errorf("listen error")
+	}
+	defer func() { httpListen = oldListen }()
+
+	tempDir, _ := os.MkdirTemp("", "run_test")
+	defer os.RemoveAll(tempDir)
+	os.Setenv("LOCAL_DIR", tempDir)
+	os.Setenv("WEB_PORT", "8082")
+	defer os.Unsetenv("LOCAL_DIR")
+	defer os.Unsetenv("WEB_PORT")
+
+	err = Run()
+	if err == nil || !strings.Contains(err.Error(), "listen error") {
+		t.Errorf("Expected listen error, got %v", err)
+	}
+}
+
+func TestSetupApp_MkdirFail(t *testing.T) {
+	config := Config{
+		LocalDir: "/invalid/path/\x00",
+	}
+	_, err := SetupApp(config)
+	if err == nil {
+		t.Error("Expected SetupApp to fail with invalid path")
+	}
+}
 
 func TestGetEnvFunctions(t *testing.T) {
 	os.Setenv("TEST_INT", "123")
@@ -117,6 +160,16 @@ func TestSetupApp(t *testing.T) {
 		t.Errorf("Expected 2 items, got %d", len(files))
 	}
 
+	// Test /api/files ReadDir fail
+	oldReadDir := osReadDir
+	osReadDir = func(name string) ([]os.DirEntry, error) { return nil, fmt.Errorf("readdir fail") }
+	rrFiles3 := httptest.NewRecorder()
+	mux.ServeHTTP(rrFiles3, reqFiles)
+	if rrFiles3.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status 500 for readdir fail, got %d", rrFiles3.Code)
+	}
+	osReadDir = oldReadDir
+
 	// Test /api/test-connection POST (fail connect)
 	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password"}`
 	reqTestConn, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
@@ -150,15 +203,27 @@ func TestSetupApp(t *testing.T) {
 	if rrUploadBad.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for bad JSON, got %d", rrUploadBad.Code)
 	}
+
+	// Test index.html read error
+	oldFS := appFS
+	appFS = mockErrFS{}
+	defer func() { appFS = oldFS }()
+
+	reqRoot, _ := http.NewRequest("GET", "/", nil)
+	rrRoot := httptest.NewRecorder()
+	mux.ServeHTTP(rrRoot, reqRoot)
+	if rrRoot.Code != http.StatusInternalServerError {
+		t.Errorf("Expected status 500 for index.html read error, got %d", rrRoot.Code)
+	}
 }
 
 type mockErrFS struct{}
 
 func (m mockErrFS) ReadFile(name string) ([]byte, error) {
-	return nil, os.ErrNotExist
+	return nil, fmt.Errorf("read error")
 }
 func (m mockErrFS) Open(name string) (fs.File, error) {
-	return nil, os.ErrNotExist
+	return nil, fmt.Errorf("open error")
 }
 
 func TestProcessUploads(t *testing.T) {
@@ -213,6 +278,15 @@ func TestProcessUploads(t *testing.T) {
 	errsReadDir := ProcessUploads(configReadDirErr, req)
 	if len(errsReadDir) == 0 {
 		t.Errorf("Expected error for ReadDir failure")
+	}
+}
+
+func TestProcessUploads_ConnectFail(t *testing.T) {
+	config := Config{LocalDir: os.TempDir()}
+	req := UploadRequest{Host: "invalid"}
+	errs := ProcessUploads(config, req)
+	if len(errs) == 0 || !strings.Contains(errs[0], "SFTP connection failed") {
+		t.Errorf("Expected connection failure error, got %v", errs)
 	}
 }
 

@@ -10,16 +10,14 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+coverage
 
-# Dependency directories
-vendor/
+# Dependency directories (remove the comment below to include it)
+# vendor/
 
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Docker and temporary files
+# Uplarr specific
 test_data/
-tmp/
+uplarr
 .qodo/
+.DS_Store
+.env

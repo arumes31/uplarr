@@ -24,6 +24,26 @@ document.addEventListener('DOMContentLoaded', () => {
         logContainer.scrollTop = logContainer.scrollHeight;
     };
 
+    // SSE Connection for live logs
+    const connectSSE = () => {
+        const eventSource = new EventSource('/api/logs');
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addLog(data.msg, data.level);
+            } catch (e) {
+                addLog(event.data, 'info');
+            }
+        };
+
+        eventSource.onerror = (err) => {
+            console.error("SSE Error:", err);
+            eventSource.close();
+            setTimeout(connectSSE, 3000); // Reconnect after 3s
+        };
+    };
+
     const fetchFiles = async () => {
         try {
             const response = await fetch('/api/files');
@@ -77,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const config = getFormData();
         testBtn.disabled = true;
-        addLog('Testing connection...', 'info');
+        // addLog('Testing connection...', 'info'); // Handled by SSE now
 
         try {
             const response = await fetch('/api/test-connection', {
@@ -88,13 +108,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (response.ok) {
-                addLog('SFTP connection successful!', 'success');
                 showStatus('Connection successful!', 'success');
             } else {
                 throw new Error(result.error || 'Connection failed');
             }
         } catch (err) {
-            addLog(`Connection Error: ${err.message}`, 'error');
             showStatus(`Connection Error: ${err.message}`, 'error');
         } finally {
             testBtn.disabled = false;
@@ -110,7 +128,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const config = getFormData();
         uploadBtn.disabled = true;
         statusMsg.classList.add('hidden');
-        addLog('Starting SFTP upload process...', 'info');
 
         try {
             const response = await fetch('/api/upload', {
@@ -121,19 +138,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (response.ok) {
-                addLog(`Upload process completed: ${result.message}`, 'success');
                 showStatus(result.message, 'success');
                 setTimeout(fetchFiles, 2000);
-            } else if (response.status === 207) { // Multi-Status
-                addLog(`Upload completed with some errors`, 'warn');
+            } else if (response.status === 207) {
                 showStatus(result.message, 'error');
-                result.errors.forEach(err => addLog(err, 'error'));
                 setTimeout(fetchFiles, 2000);
             } else {
                 throw new Error(result.error || 'Upload failed');
             }
         } catch (err) {
-            addLog(`Upload Error: ${err.message}`, 'error');
             showStatus(`Error: ${err.message}`, 'error');
         } finally {
             uploadBtn.disabled = false;
@@ -146,4 +159,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial load
     fetchFiles();
+    connectSSE();
 });

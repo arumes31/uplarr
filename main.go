@@ -10,7 +10,42 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"time"
 )
+
+// ... existing code ...
+
+var (
+	logClients = make(map[chan string]bool)
+	mu         sync.Mutex
+)
+
+func broadcastLog(msg string) {
+	mu.Lock()
+	defer mu.Unlock()
+	for c := range logClients {
+		select {
+		case c <- msg:
+		default:
+		}
+	}
+}
+
+func logInfo(msg string) {
+	formatted := fmt.Sprintf(`{"level":"info", "time":"%s", "msg":"%s"}`, time.Now().Format(time.RFC3339), msg)
+	log.Println(formatted)
+	broadcastLog(formatted)
+}
+
+func logError(msg string) {
+	formatted := fmt.Sprintf(`{"level":"error", "time":"%s", "msg":"%s"}`, time.Now().Format(time.RFC3339), msg)
+	log.Println(formatted)
+	broadcastLog(formatted)
+}
+
+func SetupApp(config Config) (*http.ServeMux, error) {
+	// ... (rest of SetupApp remains similar but with new endpoints)
 
 //go:embed static/*
 var staticAssets embed.FS
@@ -73,6 +108,8 @@ type FileInfo struct {
 	IsDir bool   `json:"is_dir"`
 }
 
+var osReadDir = os.ReadDir
+
 func SetupApp(config Config) (*http.ServeMux, error) {
 	if err := os.MkdirAll(config.LocalDir, 0755); err != nil {
 		return nil, err
@@ -97,8 +134,34 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		w.Write(index)
 	})
 
+	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		c := make(chan string, 10)
+		mu.Lock()
+		logClients[c] = true
+		mu.Unlock()
+
+		defer func() {
+			mu.Lock()
+			delete(logClients, c)
+			mu.Unlock()
+			close(c)
+		}()
+
+		for msg := range c {
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	})
+
 	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
-		files, err := os.ReadDir(config.LocalDir)
+		files, err := osReadDir(config.LocalDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -117,7 +180,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			})
 		}
 		if fileInfos == nil {
-			fileInfos = []FileInfo{} // Ensure we return [] instead of null
+			fileInfos = []FileInfo{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -146,6 +209,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		}
 
 		if err := client.Connect(); err != nil {
+			logError(fmt.Sprintf("Connection test failed for %s: %v", req.Host, err))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Connection failed: %v", err)})
@@ -153,6 +217,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		}
 		defer client.Close()
 
+		logInfo(fmt.Sprintf("Connection test successful for %s", req.Host))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
 	})
@@ -169,6 +234,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 
+		logInfo("Starting upload process...")
 		errs := ProcessUploads(config, req)
 		w.Header().Set("Content-Type", "application/json")
 		if len(errs) > 0 {
@@ -232,19 +298,25 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 	return errs
 }
 
+var httpListen = http.ListenAndServe
+
 func main() {
+	if err := Run(); err != nil {
+		log.Fatalf(`{"level":"error", "msg":"Application failed", "error":"%v"}`, err)
+	}
+}
+
+func Run() error {
 	config := Config{
-		LocalDir:          getEnv("LOCAL_DIR", "./test_data"),
-		WebPort:           getEnv("WEB_PORT", "8080"),
+		LocalDir: getEnv("LOCAL_DIR", "./test_data"),
+		WebPort:  getEnv("WEB_PORT", "8080"),
 	}
 
 	mux, err := SetupApp(config)
 	if err != nil {
-		log.Fatalf(`{"level":"error", "msg":"Setup failed", "error":"%v"}`, err)
+		return fmt.Errorf("setup failed: %v", err)
 	}
 
 	log.Printf(`{"level":"info", "msg":"Server starting on port %s"}`, config.WebPort)
-	if err := http.ListenAndServe(":"+config.WebPort, mux); err != nil {
-		log.Fatalf(`{"level":"fatal", "msg":"Server failed", "error":"%v"}`, err)
-	}
+	return httpListen(":"+config.WebPort, mux)
 }
