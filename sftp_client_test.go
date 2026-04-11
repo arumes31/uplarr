@@ -225,7 +225,7 @@ func TestSFTPClientUpload(t *testing.T) {
 		Port:      port,
 		User:      "user1",
 		Password:  "pass1",
-		RemoteDir: "/",
+		RemoteDir: ".",
 	}
 	client.Connect()
 	defer client.Close()

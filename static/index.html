@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>Uplarr</h1>
-            <p>View local files and trigger SFTP upload.</p>
+            <p>Direct local files to SFTP with verification.</p>
         </header>
 
         <section class="file-list-section">
@@ -24,7 +24,7 @@
                         <tr>
                             <th>File Name</th>
                             <th>Size</th>
-                            <th>Status</th>
+                            <th>Type</th>
                         </tr>
                     </thead>
                     <tbody id="file-list-body">
@@ -37,48 +37,51 @@
         <section class="config-section">
             <h2>SFTP Configuration</h2>
             <form id="sftp-form">
-                <div class="form-group">
-                    <label for="host">Host:</label>
-                    <input type="text" id="host" name="host" placeholder="e.g. sftp.example.com" required>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="host">Host:</label>
+                        <input type="text" id="host" name="host" placeholder="sftp.example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="port">Port:</label>
+                        <input type="number" id="port" name="port" value="22" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="user">Username:</label>
+                        <input type="text" id="user" name="user" placeholder="user" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" placeholder="Key or password">
+                    </div>
+                    <div class="form-group">
+                        <label for="key_path">Private Key Path:</label>
+                        <input type="text" id="key_path" name="key_path" placeholder="/path/to/key (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label for="remote_dir">Remote Directory:</label>
+                        <input type="text" id="remote_dir" name="remote_dir" value="/upload" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="max_retries">Max Retries:</label>
+                        <input type="number" id="max_retries" name="max_retries" value="3" required>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="delete_after_verify" name="delete_after_verify">
+                        <label for="delete_after_verify">Delete local file after successful verification</label>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="port">Port:</label>
-                    <input type="number" id="port" name="port" value="22" required>
-                </div>
-                <div class="form-group">
-                    <label for="user">Username:</label>
-                    <input type="text" id="user" name="user" placeholder="user" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" placeholder="leave blank if using key">
-                </div>
-                <div class="form-group">
-                    <label for="key_path">Private Key Path (Server Local):</label>
-                    <input type="text" id="key_path" name="key_path" placeholder="/path/to/key (optional)">
-                </div>
-                <div class="form-group">
-                    <label for="remote_dir">Remote Directory:</label>
-                    <input type="text" id="remote_dir" name="remote_dir" value="/upload" required>
-                </div>
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="delete_after_verify" name="delete_after_verify">
-                    <label for="delete_after_verify">Delete Local File After Verify</label>
-                </div>
-                <div class="form-group">
-                    <label for="max_retries">Max Retries:</label>
-                    <input type="number" id="max_retries" name="max_retries" value="3" required>
+
+                <div class="button-group">
+                    <button type="button" id="test-btn" class="secondary-btn">Test Connection</button>
+                    <button type="button" id="upload-btn" class="primary-btn">Start Upload Process</button>
                 </div>
             </form>
-        </section>
-
-        <section class="actions-section">
-            <button id="upload-btn" class="primary-btn">Trigger SFTP Upload</button>
             <div id="status-message" class="status-msg hidden"></div>
         </section>
 
         <section class="logs-section">
-            <h3>Progress Logs</h3>
+            <h3>Process Logs</h3>
             <div id="log-container" class="log-window"></div>
         </section>
     </div>

@@ -1,25 +1,20 @@
 # Uplarr
 
-Uplarr is a zero-bloat, production-ready Go application with a built-in Web GUI for viewing local files and triggering uploads to a remote SFTP server with verification.
+Uplarr is a zero-bloat, production-ready Go application with a modern Web GUI for viewing local files and triggering uploads to remote SFTP servers with verification.
 
 ## Features
+- **Dynamic SFTP Connections**: Configure and test SFTP connections directly in the web GUI.
 - **Local File Viewer**: View files in a mounted local directory.
-- **SFTP Upload**: Securely upload files to a remote server.
-- **Verification**: Verifies remote file size against local file size.
-- **Cleanup**: Optionally delete local files after successful verification.
-- **Zero Bloat**: No external frontend dependencies, minimal backend dependencies.
-- **Dockerized**: Multi-stage, multi-architecture (x86/ARM) Docker support.
+- **SFTP Upload with Verification**: Securely upload files and verify remote file integrity via size comparison.
+- **Auto-Cleanup**: Optional deletion of local files after successful verification.
+- **Modern UI**: Clean, responsive interface with real-time process logs.
+- **Containerized**: Minimal, multi-stage Docker image with built-in testing.
 
 ## Configuration (Environment Variables)
-- `SFTP_HOST`: SFTP server hostname (default: `localhost`).
-- `SFTP_PORT`: SFTP server port (default: `22`).
-- `SFTP_USER`: SFTP username (default: `user`).
-- `SFTP_PASSWORD`: SFTP password (default: `password`).
-- `SFTP_KEY_PATH`: Path to private SSH key (optional).
 - `LOCAL_DIR`: Local directory to monitor (default: `./test_data`).
-- `REMOTE_DIR`: Remote directory on SFTP server (default: `/upload`).
-- `DELETE_AFTER_VERIFY`: If `true`, deletes local files after successful upload (default: `false`).
 - `WEB_PORT`: Port for the Web GUI (default: `8080`).
+
+*Note: SFTP host, user, and credentials are now configured dynamically via the Web GUI.*
 
 ## Local Development
 1. Clone the repository.
@@ -27,26 +22,26 @@ Uplarr is a zero-bloat, production-ready Go application with a built-in Web GUI 
 3. Run the app: `go run .`.
 4. Open `http://localhost:8080`.
 
-## Testing with Docker Compose
-To test the integration locally with a mock SFTP server:
+## Testing with Docker
+You can run all tests within a Docker container to ensure environment parity:
 ```bash
-mkdir -p test_data
-echo "Hello World" > test_data/test.txt
-docker-compose up --build
+docker build -t uplarr-test --target builder .
 ```
-Access the UI at `http://localhost:8080`.
 
-## Multi-Architecture Build
-To build and push the image for both x86 and ARM:
+To run the full application:
 ```bash
-# 1. Create a new builder
-docker buildx create --use
-
-# 2. Build and push the image
-docker buildx build --platform linux/amd64,linux/arm64 -t your-username/uplarr:latest --push .
+docker build -t uplarr .
+docker run -p 8080:8080 -v /path/to/local/data:/root/test_data uplarr
 ```
 
 ## Tech Stack
 - **Backend**: Go (standard library + `golang.org/x/crypto/ssh`, `github.com/pkg/sftp`).
-- **Frontend**: Vanilla HTML5, CSS3, and JavaScript (embedded in binary).
-- **Docker**: Alpine-based minimal image.
+- **Frontend**: Vanilla HTML5, modern CSS3, and JavaScript (embedded).
+- **Docker**: Alpine-based minimal image with multi-stage build.
+
+## Improvements Made
+- **Dynamic SFTP**: Removed static environment variables for SFTP credentials; now handled via UI.
+- **Connection Testing**: Added `/api/test-connection` to verify settings before starting uploads.
+- **Robust Error Handling**: Improved API responses to provide detailed feedback on partial failures.
+- **Polished UI**: Enhanced visual design and user feedback.
+- **Test Coverage**: Expanded test suite to cover new endpoints and edge cases.

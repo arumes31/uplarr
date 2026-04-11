@@ -1,5 +1,5 @@
-# Stage 1: Build the Go binary
-FROM golang:1.22-alpine AS builder
+# Stage 1: Build & Test
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -10,14 +10,17 @@ RUN go mod download
 # Copy source code and static assets
 COPY . .
 
+# Run tests
+RUN go test -v ./...
+
 # Compile the binary statically
-RUN CGO_ENABLED=0 GOOS=linux go build -o uplarr .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o uplarr .
 
 # Stage 2: Final minimal image
 FROM alpine:latest
 
-# Install CA certificates for secure connections
-RUN apk --no-header add ca-certificates
+# Install CA certificates and tzdata for secure connections and time handling
+RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /root/
 

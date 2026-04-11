@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -123,6 +124,39 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		json.NewEncoder(w).Encode(fileInfos)
 	})
 
+	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req UploadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		client := SFTPClient{
+			Host:      req.Host,
+			Port:      strconv.Itoa(req.Port),
+			User:      req.User,
+			Password:  req.Password,
+			KeyPath:   req.KeyPath,
+			RemoteDir: req.RemoteDir,
+		}
+
+		if err := client.Connect(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Connection failed: %v", err)})
+			return
+		}
+		defer client.Close()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
+	})
+
 	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -135,16 +169,25 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 
-		ProcessUploads(config, req)
-
+		errs := ProcessUploads(config, req)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": "Upload process completed"})
+		if len(errs) > 0 {
+			w.WriteHeader(http.StatusMultiStatus)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"message": "Upload process completed with some errors",
+				"errors":  errs,
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{"message": "All files uploaded successfully"})
 	})
 
 	return mux, nil
 }
 
-func ProcessUploads(config Config, req UploadRequest) {
+func ProcessUploads(config Config, req UploadRequest) []string {
+	var errs []string
 	client := SFTPClient{
 		Host:              req.Host,
 		Port:              strconv.Itoa(req.Port),
@@ -156,15 +199,17 @@ func ProcessUploads(config Config, req UploadRequest) {
 	}
 
 	if err := client.Connect(); err != nil {
-		log.Printf(`{"level":"error", "msg":"SFTP connection failed", "error":"%v"}`, err)
-		return
+		msg := fmt.Sprintf("SFTP connection failed: %v", err)
+		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		return []string{msg}
 	}
 	defer client.Close()
 
 	files, err := os.ReadDir(config.LocalDir)
 	if err != nil {
-		log.Printf(`{"level":"error", "msg":"Failed to read local directory", "error":"%v"}`, err)
-		return
+		msg := fmt.Sprintf("Failed to read local directory: %v", err)
+		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		return []string{msg}
 	}
 
 	for _, f := range files {
@@ -175,13 +220,16 @@ func ProcessUploads(config Config, req UploadRequest) {
 		
 		retries := req.MaxRetries
 		if retries <= 0 {
-			retries = 3 // default retries
+			retries = 3
 		}
 
 		if err := client.UploadFileWithRetry(localPath, retries); err != nil {
-			log.Printf(`{"level":"error", "msg":"Failed to upload file after retries", "file":"%s", "error":"%v"}`, f.Name(), err)
+			msg := fmt.Sprintf("Failed to upload %s: %v", f.Name(), err)
+			log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+			errs = append(errs, msg)
 		}
 	}
+	return errs
 }
 
 func main() {

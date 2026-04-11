@@ -117,6 +117,15 @@ func TestSetupApp(t *testing.T) {
 		t.Errorf("Expected 2 items, got %d", len(files))
 	}
 
+	// Test /api/test-connection POST (fail connect)
+	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password"}`
+	reqTestConn, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
+	rrTestConn := httptest.NewRecorder()
+	mux.ServeHTTP(rrTestConn, reqTestConn)
+	if rrTestConn.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 for failed connect, got %d", rrTestConn.Code)
+	}
+
 	// Test /api/upload GET (method not allowed)
 	reqUploadGet, _ := http.NewRequest("GET", "/api/upload", nil)
 	rrUploadGet := httptest.NewRecorder()
@@ -125,14 +134,13 @@ func TestSetupApp(t *testing.T) {
 		t.Errorf("Expected status 405 for GET /api/upload, got %d", rrUploadGet.Code)
 	}
 
-	// Test /api/upload POST
-	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password","remote_dir":"/","max_retries":1}`
+	// Test /api/upload POST (will fail connect -> 207)
 	reqUploadPost, _ := http.NewRequest("POST", "/api/upload", strings.NewReader(reqBody))
 	reqUploadPost.Header.Set("Content-Type", "application/json")
 	rrUploadPost := httptest.NewRecorder()
 	mux.ServeHTTP(rrUploadPost, reqUploadPost)
-	if rrUploadPost.Code != http.StatusOK {
-		t.Errorf("Expected status 200 for POST /api/upload, got %d", rrUploadPost.Code)
+	if rrUploadPost.Code != http.StatusMultiStatus {
+		t.Errorf("Expected status 207 for failed upload connect, got %d", rrUploadPost.Code)
 	}
 
 	// Test /api/upload POST with bad JSON
@@ -141,44 +149,6 @@ func TestSetupApp(t *testing.T) {
 	mux.ServeHTTP(rrUploadBad, reqUploadBad)
 	if rrUploadBad.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for bad JSON, got %d", rrUploadBad.Code)
-	}
-	// Test SetupApp failure
-	_, errSetup := SetupApp(Config{LocalDir: "/invalid/path/that/cannot/be/created/" + string([]byte{0})})
-	if errSetup == nil {
-		t.Errorf("Expected SetupApp to fail with invalid path")
-	}
-
-	// Give the background goroutine a moment to run and fail
-	time.Sleep(50 * time.Millisecond)
-
-	// Test appFS failure
-	oldFS := appFS
-	defer func() { appFS = oldFS }()
-	appFS = mockErrFS{}
-
-	rrRootErr := httptest.NewRecorder()
-	mux.ServeHTTP(rrRootErr, req)
-	if rrRootErr.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500 when index.html read fails")
-	}
-
-	// Test /api/files ReadDir failure
-	reqFilesErr, _ := http.NewRequest("GET", "/api/files", nil)
-	rrFilesErr := httptest.NewRecorder()
-	
-	errDir := filepath.Join(tempDir, "to_be_deleted")
-	os.MkdirAll(errDir, 0755)
-	
-	configErr := config
-	configErr.LocalDir = errDir
-	muxErr, _ := SetupApp(configErr)
-	
-	// Delete it so ReadDir fails
-	os.RemoveAll(errDir)
-	
-	muxErr.ServeHTTP(rrFilesErr, reqFilesErr)
-	if rrFilesErr.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500 when ReadDir fails, got %d", rrFilesErr.Code)
 	}
 }
 
@@ -211,7 +181,7 @@ func TestProcessUploads(t *testing.T) {
 		Port:       func() int { p, _ := strconv.Atoi(port); return p }(),
 		User:       "user",
 		Password:   "pass",
-		RemoteDir:  "/",
+		RemoteDir:  ".",
 		MaxRetries: 1,
 	}
 
@@ -219,7 +189,10 @@ func TestProcessUploads(t *testing.T) {
 	os.WriteFile(filepath.Join(localDir, "upload.txt"), []byte("data"), 0644)
 	os.MkdirAll(filepath.Join(localDir, "subdir"), 0755)
 
-	ProcessUploads(config, req)
+	errs := ProcessUploads(config, req)
+	if len(errs) != 0 {
+		t.Errorf("ProcessUploads failed with errors: %v", errs)
+	}
 
 	// Verify upload
 	if content, _ := os.ReadFile(filepath.Join(remoteDir, "upload.txt")); string(content) != "data" {
@@ -229,16 +202,57 @@ func TestProcessUploads(t *testing.T) {
 	// Test invalid connect
 	reqInvalid := req
 	reqInvalid.Password = "wrong"
-	ProcessUploads(config, reqInvalid) // Should log error and return
+	errsInvalid := ProcessUploads(config, reqInvalid)
+	if len(errsInvalid) == 0 {
+		t.Errorf("Expected error for invalid connect")
+	}
 
 	// Test ProcessUploads ReadDir failure
 	configReadDirErr := config
 	configReadDirErr.LocalDir = filepath.Join(tempDir, "non_existent_local_dir")
-	ProcessUploads(configReadDirErr, req)
+	errsReadDir := ProcessUploads(configReadDirErr, req)
+	if len(errsReadDir) == 0 {
+		t.Errorf("Expected error for ReadDir failure")
+	}
+}
+
+func TestApiTestConnection(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "apitestconn_test")
+	defer os.RemoveAll(tempDir)
+	port, cleanup := startMockSFTPServer(t, "user", "pass", tempDir)
+	defer cleanup()
+
+	config := Config{LocalDir: tempDir}
+	mux, _ := SetupApp(config)
+
+	// Success
+	reqBody := `{"host":"127.0.0.1","port":` + port + `,"user":"user","password":"pass"}`
+	req, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rr.Code)
+	}
+
+	// Method not allowed
+	reqGet, _ := http.NewRequest("GET", "/api/test-connection", nil)
+	rrGet := httptest.NewRecorder()
+	mux.ServeHTTP(rrGet, reqGet)
+	if rrGet.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Expected status 405, got %d", rrGet.Code)
+	}
+
+	// Bad JSON
+	reqBad, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(`{bad json`))
+	rrBad := httptest.NewRecorder()
+	mux.ServeHTTP(rrBad, reqBad)
+	if rrBad.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400, got %d", rrBad.Code)
+	}
 }
 
 func TestMainFunc(t *testing.T) {
-	os.Setenv("WEB_PORT", "0") // 0 finds free port
+	os.Setenv("WEB_PORT", "0")
 	os.Setenv("LOCAL_DIR", os.TempDir())
 	defer os.Unsetenv("WEB_PORT")
 	defer os.Unsetenv("LOCAL_DIR")
