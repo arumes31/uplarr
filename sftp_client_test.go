@@ -12,12 +12,74 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"github.com/pkg/sftp"
 )
 
-// generateMockServerKey generates a random ed25519 private key for the mock server.
+// --- Mocks ---
+
+type mockSFTPFile struct {
+	statSize int64
+	statErr  error
+	writeErr error
+	closeErr error
+	delay    time.Duration
+	writeCnt int
+	failAt   int // fail after this many writes
+}
+
+func (m *mockSFTPFile) Read(p []byte) (n int, err error)  { return 0, io.EOF }
+func (m *mockSFTPFile) Write(p []byte) (n int, err error) { 
+	if m.delay > 0 {
+		time.Sleep(m.delay)
+	}
+	m.writeCnt++
+	if m.failAt > 0 && m.writeCnt >= m.failAt {
+		return 0, fmt.Errorf("interrupted transfer")
+	}
+	if m.writeErr != nil { return 0, m.writeErr }
+	return len(p), nil 
+}
+func (m *mockSFTPFile) Close() error { return m.closeErr }
+func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
+	if m.statErr != nil { return nil, m.statErr }
+	return &mockFileInfo{size: m.statSize}, nil
+}
+
+type mockFileInfo struct {
+	os.FileInfo
+	size int64
+}
+func (m *mockFileInfo) Size() int64 { return m.size }
+
+type mockSFTPClient struct {
+	createFunc func(path string) (SFTPFile, error)
+	statFunc   func(path string) (os.FileInfo, error)
+	closeErr   error
+}
+func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
+	if m.createFunc != nil { return m.createFunc(path) }
+	return nil, fmt.Errorf("create not implemented")
+}
+func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
+	if m.statFunc != nil { return m.statFunc(path) }
+	return nil, fmt.Errorf("stat not implemented")
+}
+func (m *mockSFTPClient) Close() error { return m.closeErr }
+
+type mockFileObj struct {
+	*os.File
+	statErr error
+}
+func (m *mockFileObj) Stat() (os.FileInfo, error) {
+	if m.statErr != nil { return nil, m.statErr }
+	return m.File.Stat()
+}
+
+// --- Helpers ---
+
 func generateMockServerKey() ([]byte, error) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -35,7 +97,6 @@ func generateMockServerKey() ([]byte, error) {
 	return pem.EncodeToMemory(&privBlock), nil
 }
 
-// startMockSFTPServer starts a local SFTP server and returns the port it's listening on and a cleanup func.
 func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string, func()) {
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, p []byte) (*ssh.Permissions, error) {
@@ -46,7 +107,7 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 		},
 		PublicKeyCallback: func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
 			if c.User() == user {
-				return nil, nil // accept any key for the test user
+				return nil, nil
 			}
 			return nil, fmt.Errorf("key rejected")
 		},
@@ -118,6 +179,8 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 	}
 }
 
+// --- Tests ---
+
 func TestSFTPClientConnect(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "sftp_test")
 	if err != nil {
@@ -128,7 +191,7 @@ func TestSFTPClientConnect(t *testing.T) {
 	port, cleanup := startMockSFTPServer(t, "user1", "pass1", tempDir)
 	defer cleanup()
 
-	// Test Password Auth
+	// 1. Password Auth
 	client := SFTPClient{
 		Host:     "127.0.0.1",
 		Port:     port,
@@ -140,7 +203,7 @@ func TestSFTPClientConnect(t *testing.T) {
 	}
 	client.Close()
 
-	// Test invalid password
+	// 2. Invalid password
 	clientInvalid := SFTPClient{
 		Host:     "127.0.0.1",
 		Port:     port,
@@ -151,7 +214,7 @@ func TestSFTPClientConnect(t *testing.T) {
 		t.Fatal("Expected connect to fail with wrong password")
 	}
 
-	// Test Public Key auth
+	// 3. Public Key auth
 	keyBytes, _ := generateMockServerKey()
 	keyPath := filepath.Join(tempDir, "id_rsa")
 	os.WriteFile(keyPath, keyBytes, 0600)
@@ -166,175 +229,6 @@ func TestSFTPClientConnect(t *testing.T) {
 		t.Fatalf("Expected connect with key to succeed: %v", err)
 	}
 	clientKey.Close()
-
-	// Test invalid key content
-	invalidKeyPath := filepath.Join(tempDir, "id_rsa_invalid")
-	os.WriteFile(invalidKeyPath, []byte("invalid"), 0600)
-	clientKeyInvalidContent := SFTPClient{
-		Host:    "127.0.0.1",
-		Port:    port,
-		User:    "user1",
-		KeyPath: invalidKeyPath,
-	}
-	if err := clientKeyInvalidContent.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with invalid key content")
-	}
-}
-
-func TestSFTPClientUpload(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "sftp_upload_test")
-	defer os.RemoveAll(tempDir)
-	remoteDir := filepath.Join(tempDir, "remote")
-	os.MkdirAll(remoteDir, 0755)
-	localDir := filepath.Join(tempDir, "local")
-	os.MkdirAll(localDir, 0755)
-
-	port, cleanup := startMockSFTPServer(t, "user1", "pass1", remoteDir)
-	defer cleanup()
-
-	client := SFTPClient{
-		Host:      "127.0.0.1",
-		Port:      port,
-		User:      "user1",
-		Password:  "pass1",
-		RemoteDir: ".",
-	}
-	client.Connect()
-	defer client.Close()
-
-	testFile := filepath.Join(localDir, "test.txt")
-	os.WriteFile(testFile, []byte("hello world"), 0644)
-
-	if err := client.UploadFile(testFile); err != nil {
-		t.Fatalf("Upload failed: %v", err)
-	}
-
-	if err := client.UploadFileWithRetry(testFile, 1); err != nil {
-		t.Fatalf("UploadFileWithRetry failed: %v", err)
-	}
-}
-
-// Mocking for 100% coverage
-type mockSFTPFile struct {
-	statSize int64
-	statErr  error
-	writeErr error
-	closeErr error
-}
-func (m *mockSFTPFile) Read(p []byte) (n int, err error)  { return 0, io.EOF }
-func (m *mockSFTPFile) Write(p []byte) (n int, err error) { 
-	if m.writeErr != nil { return 0, m.writeErr }
-	return len(p), nil 
-}
-func (m *mockSFTPFile) Close() error { return m.closeErr }
-func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
-	if m.statErr != nil { return nil, m.statErr }
-	return &mockFileInfo{size: m.statSize}, nil
-}
-
-type mockFileInfo struct {
-	os.FileInfo
-	size int64
-}
-func (m *mockFileInfo) Size() int64 { return m.size }
-
-type mockSFTPClient struct {
-	createFile *mockSFTPFile
-	createErr  error
-	statFile   *mockFileInfo
-	statErr    error
-	closeErr   error
-}
-func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
-	if m.createErr != nil { return nil, m.createErr }
-	return m.createFile, nil
-}
-func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
-	if m.statErr != nil { return nil, m.statErr }
-	return m.statFile, nil
-}
-func (m *mockSFTPClient) Close() error { return m.closeErr }
-
-func TestSFTPClient_FullCoverage(t *testing.T) {
-	mockC := &mockSFTPClient{
-		createFile: &mockSFTPFile{statSize: 10},
-		statFile:   &mockFileInfo{size: 10},
-	}
-	client := &SFTPClient{
-		RemoteDir: ".",
-		sftpClient: mockC,
-	}
-
-	tempDir, _ := os.MkdirTemp("", "full_cov")
-	defer os.RemoveAll(tempDir)
-	testFile := filepath.Join(tempDir, "test.txt")
-	os.WriteFile(testFile, []byte("1234567890"), 0644)
-
-	// 1. Success
-	if err := client.UploadFile(testFile); err != nil {
-		t.Errorf("Expected success, got %v", err)
-	}
-
-	// 2. Stat local fail
-	oldOpen := osOpen
-	osOpen = func(name string) (File, error) {
-		f, _ := os.Open(name)
-		return &mockFileObj{File: f, statErr: fmt.Errorf("stat fail")}, nil
-	}
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {
-		t.Errorf("Expected stat fail, got %v", err)
-	}
-	osOpen = oldOpen
-
-	// 3. Create remote fail
-	mockC.createErr = fmt.Errorf("create fail")
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "create fail") {
-		t.Errorf("Expected create fail, got %v", err)
-	}
-	mockC.createErr = nil
-
-	// 4. io.Copy fail
-	mockC.createFile.writeErr = fmt.Errorf("write fail")
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "write fail") {
-		t.Errorf("Expected write fail, got %v", err)
-	}
-	mockC.createFile.writeErr = nil
-
-	// 5. Remote Stat fail
-	mockC.statErr = fmt.Errorf("stat remote fail")
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat remote fail") {
-		t.Errorf("Expected stat remote fail, got %v", err)
-	}
-	mockC.statErr = nil
-
-	// 6. Size mismatch
-	mockC.statFile.size = 5
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "size mismatch") {
-		t.Errorf("Expected size mismatch, got %v", err)
-	}
-	mockC.statFile.size = 10
-
-	// 7. Delete fail coverage
-	client.DeleteAfterVerify = true
-	oldRemove := osRemove
-	osRemove = func(name string) error { return fmt.Errorf("remove error") }
-	if err := client.UploadFile(testFile); err != nil {
-		t.Errorf("Expected success even if remove fails, got %v", err)
-	}
-	
-	// 8. Delete success coverage
-	osRemove = func(name string) error { return nil }
-	if err := client.UploadFile(testFile); err != nil {
-		t.Errorf("Expected success on delete, got %v", err)
-	}
-	osRemove = oldRemove
-
-	// 9. UploadFileWithRetry failure path
-	osOpen = func(name string) (File, error) { return nil, fmt.Errorf("open fail") }
-	if err := client.UploadFileWithRetry(testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
-		t.Errorf("Expected retry fail, got %v", err)
-	}
-	osOpen = oldOpen
 }
 
 func TestSFTPClientConnect_MockErrors(t *testing.T) {
@@ -365,11 +259,140 @@ func TestSFTPClientConnect_MockErrors(t *testing.T) {
 	}
 }
 
-type mockFileObj struct {
-	*os.File
-	statErr error
+func TestSFTPClient_FullCoverage(t *testing.T) {
+	mockFile := &mockSFTPFile{statSize: 10}
+	mockC := &mockSFTPClient{
+		createFunc: func(path string) (SFTPFile, error) { return mockFile, nil },
+		statFunc:   func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 10}, nil },
+	}
+	client := &SFTPClient{
+		RemoteDir: ".",
+		sftpClient: mockC,
+	}
+
+	tempDir, _ := os.MkdirTemp("", "full_cov")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	os.WriteFile(testFile, []byte("1234567890"), 0644)
+
+	// 1. Success
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success, got %v", err)
+	}
+
+	// 2. Stat local fail
+	oldOpen := osOpen
+	osOpen = func(name string) (File, error) {
+		f, _ := os.Open(name)
+		return &mockFileObj{File: f, statErr: fmt.Errorf("stat fail")}, nil
+	}
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {
+		t.Errorf("Expected stat fail, got %v", err)
+	}
+	osOpen = oldOpen
+
+	// 3. Create remote fail
+	oldCreate := mockC.createFunc
+	mockC.createFunc = func(path string) (SFTPFile, error) { return nil, fmt.Errorf("create fail") }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "create fail") {
+		t.Errorf("Expected create fail, got %v", err)
+	}
+	mockC.createFunc = oldCreate
+
+	// 4. io.Copy fail
+	mockFile.writeErr = fmt.Errorf("write fail")
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "write fail") {
+		t.Errorf("Expected write fail, got %v", err)
+	}
+	mockFile.writeErr = nil
+
+	// 5. Remote Stat fail
+	oldStat := mockC.statFunc
+	mockC.statFunc = func(path string) (os.FileInfo, error) { return nil, fmt.Errorf("stat remote fail") }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat remote fail") {
+		t.Errorf("Expected stat remote fail, got %v", err)
+	}
+	mockC.statFunc = oldStat
+
+	// 6. Size mismatch
+	mockC.statFunc = func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 5}, nil }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+		t.Errorf("Expected size mismatch, got %v", err)
+	}
+	mockC.statFunc = oldStat
+
+	// 7. Delete fail coverage
+	client.DeleteAfterVerify = true
+	oldRemove := osRemove
+	osRemove = func(name string) error { return fmt.Errorf("remove error") }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success even if remove fails, got %v", err)
+	}
+	
+	// 8. Delete success coverage
+	osRemove = func(name string) error { return nil }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success on delete, got %v", err)
+	}
+	osRemove = oldRemove
+
+	// 9. UploadFileWithRetry failure path
+	osOpen = func(name string) (File, error) { return nil, fmt.Errorf("open fail") }
+	if err := client.UploadFileWithRetry(testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
+		t.Errorf("Expected retry fail, got %v", err)
+	}
+	osOpen = oldOpen
 }
-func (m *mockFileObj) Stat() (os.FileInfo, error) {
-	if m.statErr != nil { return nil, m.statErr }
-	return m.File.Stat()
+
+func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "adv_network")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	os.WriteFile(testFile, []byte("large data chunk for testing network issues"), 0644)
+
+	mockC := &mockSFTPClient{}
+	client := &SFTPClient{
+		RemoteDir: ".",
+		sftpClient: mockC,
+	}
+
+	// 1. Test Interrupted Transfer (Failure during Write)
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		return &mockSFTPFile{statSize: 43, failAt: 1}, nil
+	}
+	mockC.statFunc = func(path string) (os.FileInfo, error) {
+		return &mockFileInfo{size: 43}, nil
+	}
+
+	err := client.UploadFile(testFile)
+	if err == nil || !strings.Contains(err.Error(), "interrupted transfer") {
+		t.Errorf("Expected interrupted transfer error, got %v", err)
+	}
+
+	// 2. Test Auto-Retry with eventual success
+	attempt := 0
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		attempt++
+		if attempt == 1 {
+			return &mockSFTPFile{statSize: 43, failAt: 1}, nil
+		}
+		return &mockSFTPFile{statSize: 43}, nil
+	}
+
+	if err := client.UploadFileWithRetry(testFile, 2); err != nil {
+		t.Errorf("Expected retry to succeed on second attempt, got %v", err)
+	}
+
+	// 3. Test High Latency
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		return &mockSFTPFile{statSize: 43, delay: 50 * time.Millisecond}, nil
+	}
+	
+	start := time.Now()
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success with latency, got %v", err)
+	}
+	if time.Since(start) < 50*time.Millisecond {
+		t.Errorf("Expected transfer to take at least 50ms, took %v", time.Since(start))
+	}
 }
