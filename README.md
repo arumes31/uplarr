@@ -1,8 +1,8 @@
 # 🚀 Uplarr
 
-[![Go Version](https://img.shields.io/github/go-mod/go-version/daniel/uplarr?style=flat-square)](https://go.dev/)
-[![CI Status](https://img.shields.io/github/actions/workflow/status/daniel/uplarr/ci.yml?branch=main&style=flat-square)](https://github.com/daniel/uplarr/actions)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?style=flat-square&logo=docker)](https://github.com/daniel/uplarr/pkgs/container/uplarr)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/arumes31/uplarr?style=flat-square)](https://go.dev/)
+[![CI Status](https://img.shields.io/github/actions/workflow/status/arumes31/uplarr/ci.yml?branch=main&style=flat-square)](https://github.com/arumes31/uplarr/actions)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue?style=flat-square&logo=docker)](https://github.com/arumes31/uplarr/pkgs/container/uplarr)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
 **Uplarr** is a high-performance, zero-bloat Go application designed to bridge the gap between local storage and remote SFTP servers. With a sleek modern Web GUI, real-time progress logging via SSE, and robust verification logic, Uplarr ensures your data moves safely and efficiently.
@@ -35,11 +35,12 @@
 ### Using Docker (Recommended)
 
 ```bash
+# Replace <your-username> with your actual GitHub username
 docker run -d \
   -p 8080:8080 \
   -v /your/local/data:/root/test_data \
   --name uplarr \
-  ghcr.io/your-username/uplarr:latest
+  ghcr.io/arumes31/uplarr:latest
 ```
 
 ### Local Development
@@ -64,7 +65,7 @@ docker run -d \
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
 
-*SFTP credentials and host settings are managed via the Web GUI.*
+*SFTP credentials, host settings, and host key verification are managed via the Web GUI.*
 
 ---
 
@@ -100,7 +101,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
 3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git checkout -b v2_test`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
 ---

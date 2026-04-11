@@ -17,7 +17,7 @@ RUN go test -v ./...
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o uplarr .
 
 # Stage 2: Final minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install CA certificates and tzdata for secure connections and time handling
 RUN apk --no-cache add ca-certificates tzdata

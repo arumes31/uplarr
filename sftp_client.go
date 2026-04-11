@@ -5,11 +5,13 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type SFTPFile interface {
@@ -36,15 +38,17 @@ func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
 }
 
 type SFTPClient struct {
-	Host              string
-	Port              string
-	User              string
-	Password          string
-	KeyPath           string
-	RemoteDir         string
-	DeleteAfterVerify bool
-	sshClient         *ssh.Client
-	sftpClient        SFTPClientInterface
+	Host                    string
+	Port                    string
+	User                    string
+	Password                string
+	KeyPath                 string
+	RemoteDir               string
+	DeleteAfterVerify       bool
+	KnownHostsPath          string
+	SkipHostKeyVerification bool
+	sshClient               *ssh.Client
+	sftpClient              SFTPClientInterface
 }
 
 var osReadFile = os.ReadFile
@@ -73,10 +77,23 @@ func (s *SFTPClient) Connect() error {
 		return fmt.Errorf("no authentication methods available")
 	}
 
+	var hostKeyCallback ssh.HostKeyCallback
+	if s.KnownHostsPath != "" {
+		cb, err := knownhosts.New(s.KnownHostsPath)
+		if err != nil {
+			return fmt.Errorf("failed to load known hosts: %v", err)
+		}
+		hostKeyCallback = cb
+	} else if s.SkipHostKeyVerification {
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		return fmt.Errorf("host key verification required (provide KnownHostsPath or SkipHostKeyVerification)")
+	}
+
 	config := &ssh.ClientConfig{
 		User:            s.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         10 * time.Second,
 	}
 
@@ -133,7 +150,7 @@ var osRemove = os.Remove
 
 func (s *SFTPClient) UploadFile(localPath string) error {
 	fileName := filepath.Base(localPath)
-	remotePath := filepath.Join(s.RemoteDir, fileName)
+	remotePath := path.Join(s.RemoteDir, fileName)
 
 	localFile, err := osOpen(localPath)
 	if err != nil {

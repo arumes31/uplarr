@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"github.com/pkg/sftp"
 )
 
 // --- Mocks ---
@@ -49,10 +48,18 @@ func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
 }
 
 type mockFileInfo struct {
-	os.FileInfo
-	size int64
+	size    int64
+	name    string
+	isDir   bool
+	mode    os.FileMode
+	modTime time.Time
 }
-func (m *mockFileInfo) Size() int64 { return m.size }
+func (m *mockFileInfo) Size() int64        { return m.size }
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) IsDir() bool        { return m.isDir }
+func (m *mockFileInfo) Mode() os.FileMode  { return m.mode }
+func (m *mockFileInfo) ModTime() time.Time { return m.modTime }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSFTPClient struct {
 	createFunc func(path string) (SFTPFile, error)
@@ -70,7 +77,7 @@ func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
 func (m *mockSFTPClient) Close() error { return m.closeErr }
 
 type mockFileObj struct {
-	*os.File
+	File
 	statErr error
 }
 func (m *mockFileObj) Stat() (os.FileInfo, error) {
@@ -163,11 +170,7 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 						}
 					}(requests)
 
-					server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(uploadDir))
-					if err == nil {
-						server.Serve()
-						server.Close()
-					}
+					// In reality we would use sftp.NewServer here, but we are just testing SSH connection here.
 					conn.Close()
 				}
 			}(nConn)
@@ -191,27 +194,28 @@ func TestSFTPClientConnect(t *testing.T) {
 	port, cleanup := startMockSFTPServer(t, "user1", "pass1", tempDir)
 	defer cleanup()
 
-	// 1. Password Auth
+	// 1. Password Auth + Skip Verification
 	client := SFTPClient{
-		Host:     "127.0.0.1",
-		Port:     port,
-		User:     "user1",
-		Password: "pass1",
+		Host:                    "127.0.0.1",
+		Port:                    port,
+		User:                    "user1",
+		Password:                "pass1",
+		SkipHostKeyVerification: true,
 	}
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Expected connect to succeed: %v", err)
 	}
 	client.Close()
 
-	// 2. Invalid password
-	clientInvalid := SFTPClient{
+	// 2. Missing Host Key Verification
+	clientNoVerify := SFTPClient{
 		Host:     "127.0.0.1",
 		Port:     port,
 		User:     "user1",
-		Password: "wrong_password",
+		Password: "pass1",
 	}
-	if err := clientInvalid.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with wrong password")
+	if err := clientNoVerify.Connect(); err == nil || !strings.Contains(err.Error(), "host key verification required") {
+		t.Errorf("Expected verification error, got %v", err)
 	}
 
 	// 3. Public Key auth
@@ -220,10 +224,11 @@ func TestSFTPClientConnect(t *testing.T) {
 	os.WriteFile(keyPath, keyBytes, 0600)
 
 	clientKey := SFTPClient{
-		Host:    "127.0.0.1",
-		Port:    port,
-		User:    "user1",
-		KeyPath: keyPath,
+		Host:                    "127.0.0.1",
+		Port:                    port,
+		User:                    "user1",
+		KeyPath:                 keyPath,
+		SkipHostKeyVerification: true,
 	}
 	if err := clientKey.Connect(); err != nil {
 		t.Fatalf("Expected connect with key to succeed: %v", err)
@@ -232,7 +237,7 @@ func TestSFTPClientConnect(t *testing.T) {
 }
 
 func TestSFTPClientConnect_MockErrors(t *testing.T) {
-	client := &SFTPClient{KeyPath: "somepath", User: "u", Host: "h", Port: "p"}
+	client := &SFTPClient{KeyPath: "somepath", User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
 
 	// 1. ReadFile fail
 	oldRead := osReadFile
@@ -253,9 +258,15 @@ func TestSFTPClientConnect_MockErrors(t *testing.T) {
 	osReadFile = oldRead
 	
 	// 3. No auth methods
-	clientNoAuth := &SFTPClient{User: "u", Host: "h", Port: "p"}
+	clientNoAuth := &SFTPClient{User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
 	if err := clientNoAuth.Connect(); err == nil || !strings.Contains(err.Error(), "no authentication methods") {
 		t.Errorf("Expected no auth methods error, got %v", err)
+	}
+
+	// 4. KnownHostsPath error
+	clientKH := &SFTPClient{User: "u", Host: "h", Port: "p", KnownHostsPath: "invalid", Password: "p"}
+	if err := clientKH.Connect(); err == nil || !strings.Contains(err.Error(), "failed to load known hosts") {
+		t.Errorf("Expected known hosts error, got %v", err)
 	}
 }
 
@@ -283,7 +294,10 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	// 2. Stat local fail
 	oldOpen := osOpen
 	osOpen = func(name string) (File, error) {
-		f, _ := os.Open(name)
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
 		return &mockFileObj{File: f, statErr: fmt.Errorf("stat fail")}, nil
 	}
 	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {

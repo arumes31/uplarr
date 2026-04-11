@@ -1,0 +1,21 @@
+name: Go Security Scan
+
+on:
+  push:
+    branches: [ main, v2_test ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '30 1 * * 1' # Weekly on Mondays
+
+jobs:
+  gosec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        with:
+          args: ./...

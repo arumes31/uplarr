@@ -28,6 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const connectSSE = () => {
         const eventSource = new EventSource('/api/logs');
         
+        const cleanup = () => {
+            eventSource.close();
+            window.removeEventListener('beforeunload', cleanup);
+        };
+
+        window.addEventListener('beforeunload', cleanup);
+
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -39,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         eventSource.onerror = (err) => {
             console.error("SSE Error:", err);
-            eventSource.close();
+            cleanup();
             setTimeout(connectSSE, 3000); // Reconnect after 3s
         };
     };

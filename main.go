@@ -56,16 +56,34 @@ func broadcastLog(msg string) {
 	}
 }
 
+type LogMessage struct {
+	Level string `json:"level"`
+	Time  string `json:"time"`
+	Msg   string `json:"msg"`
+	Error string `json:"error,omitempty"`
+}
+
+func logWithLevel(level, msg string, err error) {
+	entry := LogMessage{
+		Level: level,
+		Time:  time.Now().Format(time.RFC3339),
+		Msg:   msg,
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	
+	b, _ := json.Marshal(entry)
+	log.Println(string(b))
+	broadcastLog(string(b))
+}
+
 func logInfo(msg string) {
-	formatted := fmt.Sprintf(`{"level":"info", "time":"%s", "msg":"%s"}`, time.Now().Format(time.RFC3339), msg)
-	log.Println(formatted)
-	broadcastLog(formatted)
+	logWithLevel("info", msg, nil)
 }
 
 func logError(msg string) {
-	formatted := fmt.Sprintf(`{"level":"error", "time":"%s", "msg":"%s"}`, time.Now().Format(time.RFC3339), msg)
-	log.Println(formatted)
-	broadcastLog(formatted)
+	logWithLevel("error", msg, nil)
 }
 
 func getEnv(key, fallback string) string {
