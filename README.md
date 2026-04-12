@@ -73,6 +73,24 @@ docker run -d \
   ghcr.io/arumes31/uplarr:latest
 ```
 
+### Using Docker Compose
+
+Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  uplarr:
+    image: ghcr.io/arumes31/uplarr:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - LOCAL_DIR=/data
+    volumes:
+      - /path/to/local/data:/data:ro
+```
+
+Run with: `docker compose up -d`
+
 ### Local Development
 
 1. **Prerequisites**: Go 1.26+ installed.
