@@ -40,6 +40,8 @@ graph TD
 
 ## ✨ Key Features
 
+- 📦 **Background Queue**: Persistent task manager for background uploads with pause/resume support.
+- 📁 **File Management**: Create folders, rename, and delete files on both local and remote filesystems.
 - 📂 **WinSCP-Style Browser**: Advanced dual-pane interface for browsing local and remote files with full directory navigation.
 - 🖱️ **Drag & Drop**: Seamlessly upload files by dragging them from the local pane to the remote directory of your choice.
 - 🛠 **Dynamic Configuration**: Configure and test SFTP connections, including host key verification toggles, directly in the browser.

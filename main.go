@@ -41,10 +41,170 @@ type UploadRequest struct {
 	Overwrite               bool     `json:"overwrite"`
 	MaxRetries              int      `json:"max_retries"`
 	SkipHostKeyVerification bool     `json:"skip_host_key_verification"`
-	Files                   []string `json:"files"` // Support for specific file queueing
+	Files                   []string `json:"files"`
 	RateLimitKBps           int      `json:"rate_limit_kbps"`
 	MaxLatencyMs            int      `json:"max_latency_ms"`
 }
+
+type FileActionRequest struct {
+	Action    string        `json:"action"` // "delete", "rename", "mkdir"
+	Path      string        `json:"path"`
+	NewName   string        `json:"new_name,omitempty"`
+	Config    UploadRequest `json:"config,omitempty"` // For remote actions
+}
+
+// --- Queue Manager ---
+
+type TaskStatus string
+
+const (
+	TaskPending   TaskStatus = "Pending"
+	TaskRunning   TaskStatus = "Running"
+	TaskPaused    TaskStatus = "Paused"
+	TaskCompleted TaskStatus = "Completed"
+	TaskFailed    TaskStatus = "Failed"
+)
+
+type Task struct {
+	ID          string        `json:"id"`
+	FileName    string        `json:"file_name"`
+	Status      TaskStatus    `json:"status"`
+	Progress    int           `json:"progress"`
+	Error       string        `json:"error,omitempty"`
+	CreatedAt   time.Time     `json:"created_at"`
+	Config      UploadRequest `json:"-"`
+}
+
+type QueueManager struct {
+	tasks  []*Task
+	mu     sync.RWMutex
+	worker chan struct{}
+}
+
+func NewQueueManager() *QueueManager {
+	qm := &QueueManager{
+		tasks:  []*Task{},
+		worker: make(chan struct{}, 1),
+	}
+	go qm.processLoop()
+	return qm
+}
+
+func (qm *QueueManager) AddTask(fileName string, config UploadRequest) {
+	qm.mu.Lock()
+	task := &Task{
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		FileName:  fileName,
+		Status:    TaskPending,
+		CreatedAt: time.Now(),
+		Config:    config,
+	}
+	qm.tasks = append(qm.tasks, task)
+	qm.mu.Unlock()
+	qm.trigger()
+}
+
+func (qm *QueueManager) trigger() {
+	select {
+	case qm.worker <- struct{}{}:
+	default:
+	}
+}
+
+func (qm *QueueManager) processLoop() {
+	for range qm.worker {
+		qm.processNext()
+	}
+}
+
+func (qm *QueueManager) processNext() {
+	qm.mu.Lock()
+	var nextTask *Task
+	for _, t := range qm.tasks {
+		if t.Status == TaskPending {
+			nextTask = t
+			break
+		}
+	}
+	if nextTask == nil {
+		qm.mu.Unlock()
+		return
+	}
+	nextTask.Status = TaskRunning
+	qm.mu.Unlock()
+
+	logInfo(fmt.Sprintf("Starting task: %s", nextTask.FileName))
+	
+	// Execute task
+	client := SFTPClient{
+		Host:                    nextTask.Config.Host,
+		Port:                    strconv.Itoa(nextTask.Config.Port),
+		User:                    nextTask.Config.User,
+		Password:                nextTask.Config.Password,
+		KeyPath:                 nextTask.Config.KeyPath,
+		RemoteDir:               nextTask.Config.RemoteDir,
+		DeleteAfterVerify:       nextTask.Config.DeleteAfterVerify,
+		Overwrite:               nextTask.Config.Overwrite,
+		SkipHostKeyVerification: nextTask.Config.SkipHostKeyVerification,
+		RateLimitKBps:           nextTask.Config.RateLimitKBps,
+		MaxLatencyMs:            nextTask.Config.MaxLatencyMs,
+	}
+
+	err := func() error {
+		if err := client.Connect(); err != nil {
+			return err
+		}
+		defer client.Close()
+		
+		retries := nextTask.Config.MaxRetries
+		if retries <= 0 { retries = 3 }
+		
+		localPath := filepath.Join(globalConfig.LocalDir, nextTask.FileName)
+		return client.UploadFileWithRetry(localPath, retries)
+	}()
+
+	qm.mu.Lock()
+	if err != nil {
+		nextTask.Status = TaskFailed
+		nextTask.Error = err.Error()
+		logError(fmt.Sprintf("Task failed: %s - %v", nextTask.FileName, err))
+	} else {
+		nextTask.Status = TaskCompleted
+		logInfo(fmt.Sprintf("Task completed: %s", nextTask.FileName))
+	}
+	qm.mu.Unlock()
+
+	// Check if more tasks
+	qm.trigger()
+}
+
+func (qm *QueueManager) GetTasks() []*Task {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+	return qm.tasks
+}
+
+func (qm *QueueManager) ControlTask(id string, action string) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	for _, t := range qm.tasks {
+		if t.ID == id {
+			switch action {
+			case "pause":
+				if t.Status == TaskPending { t.Status = TaskPaused }
+			case "resume":
+				if t.Status == TaskPaused { t.Status = TaskPending; qm.trigger() }
+			case "remove":
+				// Logic to remove from slice
+			}
+		}
+	}
+}
+
+var globalQM *QueueManager
+var globalConfig Config
+
+// --- End Queue Manager ---
 
 var (
 	logClients = make(map[chan string]bool)
@@ -97,28 +257,6 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func getEnvBool(key string, fallback bool) bool {
-	if value, ok := os.LookupEnv(key); ok {
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return fallback
-		}
-		return b
-	}
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if value, ok := os.LookupEnv(key); ok {
-		i, err := strconv.Atoi(value)
-		if err != nil {
-			return fallback
-		}
-		return i
-	}
-	return fallback
-}
-
 type FileInfo struct {
 	Name  string `json:"name"`
 	Size  int64  `json:"size"`
@@ -128,6 +266,9 @@ type FileInfo struct {
 var osReadDir = os.ReadDir
 
 func SetupApp(config Config) (*http.ServeMux, error) {
+	globalConfig = config
+	globalQM = NewQueueManager()
+
 	if err := os.MkdirAll(config.LocalDir, 0750); err != nil {
 		return nil, err
 	}
@@ -148,7 +289,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write(index) // #nosec G104
+		_, _ = w.Write(index)
 	})
 
 	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +318,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			case <-r.Context().Done():
 				return
 			case msg := <-c:
-				_, _ = fmt.Fprintf(w, "data: %s\n\n", msg) // #nosec G104
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
 				}
@@ -189,11 +330,9 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		relPath := r.URL.Query().Get("path")
 		fullPath := filepath.Join(config.LocalDir, relPath)
 
-		// Security: ensure the path is within config.LocalDir
 		absLocalDir, _ := filepath.Abs(config.LocalDir)
 		absFullPath, err := filepath.Abs(fullPath)
 		if err != nil || !strings.HasPrefix(absFullPath, absLocalDir) {
-			// If it's outside, just use the root
 			fullPath = config.LocalDir
 			relPath = ""
 		}
@@ -207,18 +346,14 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		var fileInfos []FileInfo
 		for _, f := range files {
 			info, err := f.Info()
-			if err != nil {
-				continue
-			}
+			if err != nil { continue }
 			fileInfos = append(fileInfos, FileInfo{
 				Name:  f.Name(),
 				Size:  info.Size(),
 				IsDir: f.IsDir(),
 			})
 		}
-		if fileInfos == nil {
-			fileInfos = []FileInfo{}
-		}
+		if fileInfos == nil { fileInfos = []FileInfo{} }
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -227,50 +362,44 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		})
 	})
 
-	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var req UploadRequest
+	mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request) {
+		var req FileActionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 
-		client := SFTPClient{
-			Host:                    req.Host,
-			Port:                    strconv.Itoa(req.Port),
-			User:                    req.User,
-			Password:                req.Password,
-			KeyPath:                 req.KeyPath,
-			RemoteDir:               req.RemoteDir,
-			SkipHostKeyVerification: req.SkipHostKeyVerification,
-			RateLimitKBps:           req.RateLimitKBps,
-			MaxLatencyMs:            req.MaxLatencyMs,
-		}
-
-		if err := client.Connect(); err != nil {
-			logError(fmt.Sprintf("Connection test failed for %s: %v", req.Host, err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Connection failed: %v", err)}) // #nosec G104
+		fullPath := filepath.Join(config.LocalDir, req.Path)
+		// Security check
+		absLocalDir, _ := filepath.Abs(config.LocalDir)
+		absPath, _ := filepath.Abs(fullPath)
+		if !strings.HasPrefix(absPath, absLocalDir) {
+			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
 			return
 		}
-		defer client.Close()
 
-		logInfo(fmt.Sprintf("Connection test successful for %s", req.Host))
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"}) // #nosec G104
+		var err error
+		switch req.Action {
+		case "delete":
+			err = os.RemoveAll(fullPath)
+		case "rename":
+			newPath := filepath.Join(filepath.Dir(fullPath), req.NewName)
+			err = os.Rename(fullPath, newPath)
+		case "mkdir":
+			err = os.MkdirAll(fullPath, 0755)
+		default:
+			http.Error(w, "Invalid action", http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 	})
 
-	mux.HandleFunc("/api/remote/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
+	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
 		var req UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -278,12 +407,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		}
 
 		client := SFTPClient{
-			Host:                    req.Host,
-			Port:                    strconv.Itoa(req.Port),
-			User:                    req.User,
-			Password:                req.Password,
-			KeyPath:                 req.KeyPath,
-			RemoteDir:               req.RemoteDir,
+			Host: req.Host, Port: strconv.Itoa(req.Port), User: req.User, Password: req.Password, KeyPath: req.KeyPath,
 			SkipHostKeyVerification: req.SkipHostKeyVerification,
 		}
 
@@ -294,11 +418,29 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 		defer client.Close()
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
+	})
+
+	mux.HandleFunc("/api/remote/files", func(w http.ResponseWriter, r *http.Request) {
+		var req UploadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		client := SFTPClient{
+			Host: req.Host, Port: strconv.Itoa(req.Port), User: req.User, Password: req.Password, KeyPath: req.KeyPath,
+			SkipHostKeyVerification: req.SkipHostKeyVerification,
+		}
+
+		if err := client.Connect(); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		defer client.Close()
 
 		remotePath := r.URL.Query().Get("path")
-		if remotePath == "" {
-			remotePath = req.RemoteDir
-		}
+		if remotePath == "" { remotePath = req.RemoteDir }
 
 		files, err := client.ReadRemoteDir(remotePath)
 		if err != nil {
@@ -313,114 +455,105 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		})
 	})
 
-	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	mux.HandleFunc("/api/remote/files/action", func(w http.ResponseWriter, r *http.Request) {
+		var req FileActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 
+		client := SFTPClient{
+			Host: req.Config.Host, Port: strconv.Itoa(req.Config.Port), User: req.Config.User, Password: req.Config.Password, KeyPath: req.Config.KeyPath,
+			SkipHostKeyVerification: req.Config.SkipHostKeyVerification,
+		}
+
+		if err := client.Connect(); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		defer client.Close()
+
+		var err error
+		switch req.Action {
+		case "delete":
+			err = client.sftpClient.Remove(req.Path)
+		case "rename":
+			newPath := filepath.ToSlash(filepath.Join(filepath.Dir(req.Path), req.NewName))
+			err = client.sftpClient.Rename(req.Path, newPath)
+		case "mkdir":
+			err = client.sftpClient.Mkdir(req.Path)
+		default:
+			http.Error(w, "Invalid action", http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
 		var req UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 
-		logInfo("Starting upload process...")
-		errs := ProcessUploads(config, req)
-		w.Header().Set("Content-Type", "application/json")
-		if len(errs) > 0 {
-			w.WriteHeader(http.StatusMultiStatus)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{ // #nosec G104
-				"message": "Upload process completed with some errors",
-				"errors":  errs,
-			})
-			return
+		for _, file := range req.Files {
+			globalQM.AddTask(file, req)
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]string{"message": "All selected files processed successfully"}) // #nosec G104
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Tasks added to queue"})
+	})
+
+	mux.HandleFunc("/api/queue", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(globalQM.GetTasks())
+		} else if r.Method == http.MethodPost {
+			var req struct{ ID string `json:"id"`; Action string `json:"action"` }
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			globalQM.ControlTask(req.ID, req.Action)
+			w.WriteHeader(http.StatusOK)
+		}
 	})
 
 	return mux, nil
 }
 
-var sftpClientConnect = func(s *SFTPClient) error { return s.Connect() }
-var sftpClientUpload = func(s *SFTPClient, localPath string, maxRetries int) error { return s.UploadFileWithRetry(localPath, maxRetries) }
-
 func ProcessUploads(config Config, req UploadRequest) []string {
 	var errs []string
-	client := SFTPClient{
-		Host:                    req.Host,
-		Port:                    strconv.Itoa(req.Port),
-		User:                    req.User,
-		Password:                req.Password,
-		KeyPath:                 req.KeyPath,
-		RemoteDir:               req.RemoteDir,
-		DeleteAfterVerify:       req.DeleteAfterVerify,
-		Overwrite:               req.Overwrite,
-		SkipHostKeyVerification: req.SkipHostKeyVerification,
-		RateLimitKBps:           req.RateLimitKBps,
-		MaxLatencyMs:            req.MaxLatencyMs,
-	}
-
-	if err := sftpClientConnect(&client); err != nil {
-		msg := fmt.Sprintf("SFTP connection failed: %v", err)
-		logError(msg)
-		return []string{msg}
-	}
-	defer client.Close()
-
-	var filesToProcess []string
-	if len(req.Files) > 0 {
-		filesToProcess = req.Files
-	} else {
-		entries, err := osReadDir(config.LocalDir)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to read local directory: %v", err)
-			logError(msg)
-			return []string{msg}
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				filesToProcess = append(filesToProcess, e.Name())
-			}
-		}
-	}
-
-	for _, fileName := range filesToProcess {
-		// Securely join and clean the path
-		localPath := filepath.Join(config.LocalDir, fileName)
-		
-		// Ensure the resulting path is still within config.LocalDir
-		absLocalDir, err := filepath.Abs(config.LocalDir)
-		if err != nil {
-			logError(fmt.Sprintf("Failed to get absolute path of local dir: %v", err))
-			continue
-		}
-		absLocalPath, err := filepath.Abs(localPath)
-		if err != nil {
-			logError(fmt.Sprintf("Failed to get absolute path of file %s: %v", fileName, err))
-			continue
-		}
-
-		if !strings.HasPrefix(absLocalPath, absLocalDir) {
-			logError(fmt.Sprintf("Security Warning: Blocked traversal attempt for file: %s", fileName))
-			errs = append(errs, fmt.Sprintf("Access denied: %s is outside local directory", fileName))
-			continue
-		}
-
-		retries := req.MaxRetries
-		if retries <= 0 {
-			retries = 3
-		}
-
-		if err := sftpClientUpload(&client, localPath, retries); err != nil {
-			msg := fmt.Sprintf("Failed to upload %s: %v", fileName, err)
-			logError(msg)
-			errs = append(errs, msg)
-		}
+	for _, fileName := range req.Files {
+		globalQM.AddTask(fileName, req)
 	}
 	return errs
 }
+
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fallback
+		}
+		return b
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		i, err := strconv.Atoi(value)
+		if err != nil {
+			return fallback
+		}
+		return i
+	}
+	return fallback
+}
+
+var sftpClientConnect = func(s *SFTPClient) error { return s.Connect() }
+var sftpClientUpload = func(s *SFTPClient, localPath string, maxRetries int) error { return s.UploadFileWithRetry(localPath, maxRetries) }
 
 var httpListen = http.ListenAndServe
 var osExit = os.Exit

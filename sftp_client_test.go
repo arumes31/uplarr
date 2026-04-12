@@ -80,6 +80,9 @@ func (m *mockSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
 	if m.readDirFunc != nil { return m.readDirFunc(p) }
 	return []os.FileInfo{}, nil
 }
+func (m *mockSFTPClient) Mkdir(path string) error { return nil }
+func (m *mockSFTPClient) Remove(path string) error { return nil }
+func (m *mockSFTPClient) Rename(oldpath, newpath string) error { return nil }
 func (m *mockSFTPClient) Close() error { return m.closeErr }
 
 type mockFileObj struct {

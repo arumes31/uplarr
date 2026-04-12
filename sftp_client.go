@@ -25,6 +25,9 @@ type SFTPClientInterface interface {
 	Create(path string) (SFTPFile, error)
 	Stat(path string) (os.FileInfo, error)
 	ReadDir(p string) ([]os.FileInfo, error)
+	Remove(path string) error
+	Rename(oldpath, newpath string) error
+	Mkdir(path string) error
 	Close() error
 }
 
@@ -42,6 +45,18 @@ func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
 
 func (c *realSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
 	return c.Client.ReadDir(p)
+}
+
+func (c *realSFTPClient) Remove(path string) error {
+	return c.Client.Remove(path)
+}
+
+func (c *realSFTPClient) Rename(oldpath, newpath string) error {
+	return c.Client.Rename(oldpath, newpath)
+}
+
+func (c *realSFTPClient) Mkdir(path string) error {
+	return c.Client.Mkdir(path)
 }
 
 type SFTPClient struct {

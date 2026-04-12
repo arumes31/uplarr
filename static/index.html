@@ -23,6 +23,8 @@
                     <div class="pane-toolbar">
                         <button id="refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
                         <button id="up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                        <button id="mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
+                        <button id="delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
                     </div>
                     <div class="file-list-container">
                         <table id="file-table">
@@ -35,7 +37,7 @@
                                 </tr>
                             </thead>
                             <tbody id="file-list-body">
-                                <!-- Files will be loaded here -->
+                                <!-- Files -->
                             </tbody>
                         </table>
                     </div>
@@ -49,6 +51,8 @@
                     <div class="pane-toolbar">
                         <button id="remote-refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
                         <button id="remote-up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                        <button id="remote-mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
+                        <button id="remote-delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
                     </div>
                     <div class="file-list-container">
                         <table id="remote-file-table">
@@ -60,12 +64,32 @@
                                 </tr>
                             </thead>
                             <tbody id="remote-file-list-body">
-                                <!-- Remote files will be loaded here -->
+                                <!-- Remote files -->
                                 <tr><td colspan="3" class="empty-msg">Connect to SFTP to browse</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <!-- Background Queue Section -->
+        <section class="queue-section">
+            <h3>Background Queue</h3>
+            <div class="queue-table-container">
+                <table id="queue-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="queue-body">
+                        <!-- Queue tasks -->
+                    </tbody>
+                </table>
             </div>
         </section>
 
@@ -139,11 +163,15 @@
                         <input type="checkbox" id="delete_after_verify" name="delete_after_verify">
                         <label for="delete_after_verify">Delete local file after successful verification</label>
                     </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="overwrite" name="overwrite" checked>
+                        <label for="overwrite">Overwrite remote file if exists</label>
+                    </div>
                 </div>
 
                 <div class="button-group">
                     <button type="button" id="test-btn" class="secondary-btn">Test Connection</button>
-                    <button type="button" id="upload-btn" class="primary-btn">Start Upload Process</button>
+                    <button type="button" id="upload-btn" class="primary-btn">Queue Selected Files</button>
                 </div>
             </form>
             <div id="status-message" class="status-msg hidden"></div>

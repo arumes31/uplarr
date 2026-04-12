@@ -189,9 +189,45 @@ h2, h3 {
 .queue-item .status-pending { color: var(--warn-color); }
 .queue-item .status-done { color: var(--success-color); }
 
-.remote-pane {
-    position: relative;
+.queue-table-container {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
 }
+
+#queue-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+#queue-table th {
+    background-color: #f8fafc;
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 2px solid var(--border-color);
+}
+
+#queue-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.status-Pending { color: var(--warn-color); }
+.status-Running { color: var(--primary-color); font-weight: bold; }
+.status-Completed { color: var(--success-color); }
+.status-Failed { color: var(--error-color); }
+.status-Paused { color: #64748b; }
+
+.action-btn {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    margin-right: 0.25rem;
+}
+
+.icon-delete::before { content: "🗑️ "; }
+.icon-rename::before { content: "✏️ "; }
 
 .dragging {
     opacity: 0.5;

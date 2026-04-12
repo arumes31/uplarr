@@ -1,20 +1,31 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Elements
+    // Local Pane Elements
     const fileListBody = document.getElementById('file-list-body');
-    const remoteFileListBody = document.getElementById('remote-file-list-body');
     const refreshBtn = document.getElementById('refresh-btn');
     const upBtn = document.getElementById('up-btn');
+    const mkdirBtn = document.getElementById('mkdir-btn');
+    const deleteBtn = document.getElementById('delete-btn');
+    const localBreadcrumb = document.getElementById('local-breadcrumb');
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+    // Remote Pane Elements
+    const remoteFileListBody = document.getElementById('remote-file-list-body');
     const remoteRefreshBtn = document.getElementById('remote-refresh-btn');
     const remoteUpBtn = document.getElementById('remote-up-btn');
+    const remoteMkdirBtn = document.getElementById('remote-mkdir-btn');
+    const remoteDeleteBtn = document.getElementById('remote-delete-btn');
+    const remoteBreadcrumb = document.getElementById('remote-breadcrumb');
+    const remoteDropZone = document.getElementById('remote-drop-zone');
+
+    // Queue Elements
+    const queueBody = document.getElementById('queue-body');
+
+    // Shared Elements
     const testBtn = document.getElementById('test-btn');
     const uploadBtn = document.getElementById('upload-btn');
     const statusMsg = document.getElementById('status-message');
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
-    const localBreadcrumb = document.getElementById('local-breadcrumb');
-    const remoteBreadcrumb = document.getElementById('remote-breadcrumb');
-    const selectAllCheckbox = document.getElementById('select-all-checkbox');
-    const remoteDropZone = document.getElementById('remote-drop-zone');
 
     // Modal Elements
     const dropModal = document.getElementById('drop-modal');
@@ -27,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPath = '';
     let remoteCurrentPath = '';
     let queuedFiles = new Map(); // path -> fileInfo
-    let dropData = null; // Stores data about the current drag-and-drop operation
+    let dropData = null;
 
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
@@ -70,28 +81,21 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     };
 
+    // --- Local Files ---
+
     const fetchFiles = async (path = '') => {
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
             const data = await response.json();
-            
             currentPath = data.current_path;
             localBreadcrumb.textContent = '/' + currentPath;
-            
             fileListBody.innerHTML = '';
-            if (data.files.length === 0) {
-                fileListBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Empty directory</td></tr>';
-                return;
-            }
-
+            
             data.files.forEach(file => {
                 const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
                 const row = document.createElement('tr');
                 row.draggable = !file.is_dir;
-                if (file.is_dir) {
-                    row.className = 'clickable-row folder-row';
-                }
-                
+                if (file.is_dir) row.className = 'clickable-row folder-row';
                 const isChecked = queuedFiles.has(fullRelPath) ? 'checked' : '';
                 const iconClass = file.is_dir ? 'icon-folder' : 'icon-file';
 
@@ -104,293 +108,194 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (file.is_dir) {
                     row.addEventListener('click', (e) => {
-                        if (e.target.type !== 'checkbox') {
-                            fetchFiles(fullRelPath);
-                        }
+                        if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
                     });
                 } else {
                     row.addEventListener('dragstart', (e) => {
-                        e.dataTransfer.setData('text/plain', JSON.stringify({
-                            path: fullRelPath,
-                            name: file.name,
-                            size: file.size
-                        }));
+                        e.dataTransfer.setData('text/plain', JSON.stringify({ path: fullRelPath, name: file.name, size: file.size }));
                         row.classList.add('dragging');
                     });
                     row.addEventListener('dragend', () => row.classList.remove('dragging'));
                 }
-
                 fileListBody.appendChild(row);
             });
 
             document.querySelectorAll('.file-checkbox').forEach(cb => {
                 cb.addEventListener('change', (e) => {
                     const path = e.target.getAttribute('data-path');
-                    const name = e.target.getAttribute('data-name');
-                    if (e.target.checked) {
-                        queuedFiles.set(path, { name });
-                    } else {
-                        queuedFiles.delete(path);
-                    }
+                    if (e.target.checked) queuedFiles.set(path, { name: e.target.getAttribute('data-name') });
+                    else queuedFiles.delete(path);
                     updateUploadButtonText();
                 });
             });
-            
             selectAllCheckbox.checked = false;
-        } catch (err) {
-            addLog(`Error fetching local files: ${err.message}`, 'error');
-        }
+        } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
     };
 
-    const fetchRemoteFiles = async (path = null) => {
-        if (!sftpForm.checkValidity()) {
-            sftpForm.reportValidity();
-            return;
+    mkdirBtn.addEventListener('click', async () => {
+        const name = prompt("Enter folder name:");
+        if (!name) return;
+        const res = await fetch('/api/files/action', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'mkdir', path: currentPath ? `${currentPath}/${name}` : name })
+        });
+        if (res.ok) fetchFiles(currentPath);
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+        if (queuedFiles.size === 0) return alert("Select files to delete first.");
+        if (!confirm(`Delete ${queuedFiles.size} items?`)) return;
+        for (const path of queuedFiles.keys()) {
+            await fetch('/api/files/action', { method: 'POST', body: JSON.stringify({ action: 'delete', path }) });
         }
+        queuedFiles.clear();
+        fetchFiles(currentPath);
+    });
+
+    // --- Remote Files ---
+
+    const fetchRemoteFiles = async (path = null) => {
+        if (!sftpForm.checkValidity()) return sftpForm.reportValidity();
         const config = getFormData();
         const targetPath = path !== null ? path : (remoteCurrentPath || config.remote_dir);
-        
         try {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
             });
-            
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error || 'Failed to fetch remote files');
-            }
-
+            if (!response.ok) throw new Error((await response.json()).error || 'Failed to fetch remote files');
             const data = await response.json();
             remoteCurrentPath = data.current_path;
             remoteBreadcrumb.textContent = remoteCurrentPath;
-            
             remoteFileListBody.innerHTML = '';
-            if (!data.files || data.files.length === 0) {
-                remoteFileListBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">Empty directory</td></tr>';
-                return;
-            }
-
+            
             data.files.forEach(file => {
                 const row = document.createElement('tr');
-                if (file.is_dir) {
-                    row.className = 'clickable-row folder-row';
-                }
-                
+                if (file.is_dir) row.className = 'clickable-row folder-row';
                 const iconClass = file.is_dir ? 'icon-folder' : 'icon-file';
                 row.innerHTML = `
                     <td class="col-name"><span class="${iconClass}"></span>${file.name}</td>
                     <td class="col-size">${file.is_dir ? '-' : formatSize(file.size)}</td>
                     <td class="col-type">${file.is_dir ? 'Directory' : 'File'}</td>
                 `;
-
                 if (file.is_dir) {
                     row.addEventListener('click', () => {
-                        const newPath = remoteCurrentPath.endsWith('/') ? 
-                            remoteCurrentPath + file.name : 
-                            remoteCurrentPath + '/' + file.name;
+                        const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                         fetchRemoteFiles(newPath);
                     });
                 }
-
                 remoteFileListBody.appendChild(row);
             });
         } catch (err) {
-            addLog(`Error fetching remote files: ${err.message}`, 'error');
+            addLog(`Remote fetch error: ${err.message}`, 'error');
             remoteFileListBody.innerHTML = `<tr><td colspan="3" class="log-error">Error: ${err.message}</td></tr>`;
         }
     };
 
-    // Drag and Drop Logic
-    remoteDropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        remoteDropZone.classList.add('drop-target');
+    remoteMkdirBtn.addEventListener('click', async () => {
+        const name = prompt("Enter remote folder name:");
+        if (!name) return;
+        const config = getFormData();
+        const path = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + name : remoteCurrentPath + '/' + name;
+        const res = await fetch('/api/remote/files/action', {
+            method: 'POST', body: JSON.stringify({ action: 'mkdir', path, config })
+        });
+        if (res.ok) fetchRemoteFiles(remoteCurrentPath);
     });
 
-    remoteDropZone.addEventListener('dragleave', () => {
-        remoteDropZone.classList.remove('drop-target');
-    });
+    // --- Drag & Drop ---
 
+    remoteDropZone.addEventListener('dragover', (e) => { e.preventDefault(); remoteDropZone.classList.add('drop-target'); });
+    remoteDropZone.addEventListener('dragleave', () => remoteDropZone.classList.remove('drop-target'));
     remoteDropZone.addEventListener('drop', (e) => {
         e.preventDefault();
         remoteDropZone.classList.remove('drop-target');
-        
         try {
-            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-            dropData = data;
-            modalFileInfo.textContent = `File: ${data.name} (${formatSize(data.size)}) to ${remoteCurrentPath}`;
+            dropData = JSON.parse(e.dataTransfer.getData('text/plain'));
+            modalFileInfo.textContent = `Upload ${dropData.name} to ${remoteCurrentPath}?`;
             dropModal.classList.remove('hidden');
-        } catch (err) {
-            console.error('Invalid drop data', err);
-        }
-    });
-
-    modalCancelBtn.addEventListener('click', () => {
-        dropModal.classList.add('hidden');
-        dropData = null;
+        } catch (err) {}
     });
 
     modalConfirmBtn.addEventListener('click', async () => {
-        if (!dropData) return;
-        
         const config = getFormData();
         config.files = [dropData.path];
         config.remote_dir = remoteCurrentPath;
         config.delete_after_verify = modalDeleteLocal.checked;
         config.overwrite = modalOverwriteRemote.checked;
-        
         dropModal.classList.add('hidden');
-        showStatus(`Uploading ${dropData.name}...`, 'success');
-        
-        try {
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            const result = await response.json();
-            if (response.ok) {
-                showStatus(result.message, 'success');
-                fetchRemoteFiles(remoteCurrentPath);
-                fetchFiles(currentPath);
-            } else {
-                throw new Error(result.error || result.message || 'Upload failed');
-            }
-        } catch (err) {
-            addLog(`Upload Error: ${err.message}`, 'error');
-            showStatus(`Error: ${err.message}`, 'error');
-        } finally {
-            dropData = null;
-        }
+        const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+        if (res.ok) { showStatus("Task queued", "success"); fetchQueue(); }
     });
 
-    selectAllCheckbox.addEventListener('change', (e) => {
-        const checkboxes = document.querySelectorAll('.file-checkbox:not(:disabled)');
-        checkboxes.forEach(cb => {
-            cb.checked = e.target.checked;
-            const path = cb.getAttribute('data-path');
-            const name = cb.getAttribute('data-name');
-            if (e.target.checked) {
-                queuedFiles.set(path, { name });
-            } else {
-                queuedFiles.delete(path);
-            }
+    modalCancelBtn.addEventListener('click', () => dropModal.classList.add('hidden'));
+
+    // --- Queue ---
+
+    const fetchQueue = async () => {
+        const res = await fetch('/api/queue');
+        const tasks = await res.json();
+        queueBody.innerHTML = '';
+        tasks.reverse().forEach(task => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${task.file_name}</td>
+                <td class="status-${task.status}">${task.status} ${task.error ? `(${task.error})` : ''}</td>
+                <td>${new Date(task.created_at).toLocaleTimeString()}</td>
+                <td>
+                    ${task.status === 'Pending' ? `<button onclick="controlTask('${task.id}', 'pause')">Pause</button>` : ''}
+                    ${task.status === 'Paused' ? `<button onclick="controlTask('${task.id}', 'resume')">Resume</button>` : ''}
+                </td>
+            `;
+            queueBody.appendChild(row);
         });
-        updateUploadButtonText();
-    });
-
-    const updateUploadButtonText = () => {
-        if (queuedFiles.size > 0) {
-            uploadBtn.textContent = `Upload ${queuedFiles.size} Selected Files`;
-        } else {
-            uploadBtn.textContent = "Upload All Files in Current Dir";
-        }
     };
 
-    const showStatus = (message, type) => {
-        statusMsg.textContent = message;
+    window.controlTask = async (id, action) => {
+        await fetch('/api/queue', { method: 'POST', body: JSON.stringify({ id, action }) });
+        fetchQueue();
+    };
+
+    // --- Init ---
+
+    testBtn.addEventListener('click', async () => {
+        const config = getFormData();
+        const res = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+        if (res.ok) { showStatus("Connected", "success"); fetchRemoteFiles(); }
+        else showStatus("Failed", "error");
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+        const config = getFormData();
+        if (queuedFiles.size === 0) {
+            // Queue all in current dir logic can be added here
+        }
+        await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+        queuedFiles.clear();
+        updateUploadButtonText();
+        fetchQueue();
+    });
+
+    refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
+    remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
+    
+    const updateUploadButtonText = () => {
+        uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
+    };
+
+    const showStatus = (msg, type) => {
+        statusMsg.textContent = msg;
         statusMsg.className = `status-msg ${type}`;
         statusMsg.classList.remove('hidden');
     };
 
-    const testConnection = async () => {
-        if (!sftpForm.checkValidity()) {
-            sftpForm.reportValidity();
-            return;
-        }
-        const config = getFormData();
-        testBtn.disabled = true;
-        try {
-            const response = await fetch('/api/test-connection', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            const result = await response.json();
-            if (response.ok) {
-                showStatus('Connection successful!', 'success');
-                fetchRemoteFiles();
-            } else throw new Error(result.error || 'Connection failed');
-        } catch (err) {
-            showStatus(`Connection Error: ${err.message}`, 'error');
-        } finally {
-            testBtn.disabled = false;
-        }
-    };
-
-    const triggerUpload = async () => {
-        if (!sftpForm.checkValidity()) {
-            sftpForm.reportValidity();
-            return;
-        }
-        const config = getFormData();
-        uploadBtn.disabled = true;
-        statusMsg.classList.add('hidden');
-        try {
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            const result = await response.json();
-            if (response.status === 207) {
-                showStatus(result.message, 'error');
-                if (result.errors) result.errors.forEach(err => addLog(err, 'error'));
-            } else if (response.ok) {
-                showStatus(result.message, 'success');
-                queuedFiles.clear();
-                updateUploadButtonText();
-                fetchRemoteFiles(remoteCurrentPath);
-            } else {
-                throw new Error(result.error || 'Upload failed');
-            }
-            setTimeout(() => fetchFiles(currentPath), 2000);
-        } catch (err) {
-            addLog(`Upload Error: ${err.message}`, 'error');
-            showStatus(`Error: ${err.message}`, 'error');
-        } finally {
-            uploadBtn.disabled = false;
-        }
-    };
-
-    refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
-    upBtn.addEventListener('click', () => {
-        if (!currentPath) return;
-        const parts = currentPath.split('/');
-        parts.pop();
-        fetchFiles(parts.join('/'));
-    });
-
-    remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
-    remoteUpBtn.addEventListener('click', () => {
-        if (!remoteCurrentPath || remoteCurrentPath === '/') return;
-        const parts = remoteCurrentPath.split('/');
-        parts.pop();
-        let parent = parts.join('/');
-        if (parent === '') parent = '/';
-        fetchRemoteFiles(parent);
-    });
-
-    testBtn.addEventListener('click', testConnection);
-    uploadBtn.addEventListener('click', triggerUpload);
-
-    const connectSSE = () => {
-        const eventSource = new EventSource('/api/logs');
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                addLog(data.msg, data.level);
-            } catch (e) {
-                addLog(event.data, 'info');
-            }
-        };
-        eventSource.onerror = () => {
-            eventSource.close();
-            setTimeout(connectSSE, 3000);
-        };
-    };
-
     fetchFiles();
+    setInterval(fetchQueue, 2000);
+    
+    // SSE
+    const connectSSE = () => {
+        const es = new EventSource('/api/logs');
+        es.onmessage = (e) => { try { const d = JSON.parse(e.data); addLog(d.msg, d.level); } catch(err) {} };
+        es.onerror = () => { es.close(); setTimeout(connectSSE, 3000); };
+    };
     connectSSE();
 });
