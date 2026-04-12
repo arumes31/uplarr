@@ -74,7 +74,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	})
 
 	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
-		relPath := r.URL.Query().Get("path")
+		relPath := filepath.Clean(r.URL.Query().Get("path"))
+		if relPath == "." {
+			relPath = ""
+		}
 		fullPath := filepath.Join(config.LocalDir, relPath)
 
 		absLocalDir, _ := filepath.Abs(config.LocalDir)
@@ -238,30 +241,44 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		client := sftpclient.SFTPClient{
 			Host: req.Config.Host, Port: strconv.Itoa(req.Config.Port), User: req.Config.User, Password: req.Config.Password, KeyPath: req.Config.KeyPath,
 			SkipHostKeyVerification: req.Config.SkipHostKeyVerification,
+			RemoteDir:               req.Config.RemoteDir,
 		}
 
 		if err := client.Connect(); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		defer client.Close()
 
-		var err error
+		// Remote security check: ensure req.Path is within RemoteDir
+		rel, err := filepath.Rel(client.RemoteDir, req.Path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.HasPrefix(rel, "../") {
+			http.Error(w, "Unauthorized remote path", http.StatusUnauthorized)
+			return
+		}
+
+		var errAct error
 		switch req.Action {
 		case "delete":
-			err = client.Remove(req.Path)
+			errAct = client.Remove(req.Path)
 		case "rename":
+			if req.NewName == "" || req.NewName == "." || req.NewName == ".." || strings.Contains(req.NewName, "/") {
+				http.Error(w, "Invalid new name", http.StatusBadRequest)
+				return
+			}
 			newPath := filepath.ToSlash(filepath.Join(filepath.Dir(req.Path), req.NewName))
-			err = client.Rename(req.Path, newPath)
+			errAct = client.Rename(req.Path, newPath)
 		case "mkdir":
-			err = client.Mkdir(req.Path)
+			errAct = client.Mkdir(req.Path)
 		default:
 			http.Error(w, "Invalid action", http.StatusBadRequest)
 			return
 		}
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errAct != nil {
+			http.Error(w, errAct.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
