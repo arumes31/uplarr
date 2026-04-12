@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let remoteCurrentPath = '';
     let queuedFiles = new Map(); // path -> fileInfo
     let dropData = null;
+    let localFilesList = [];
 
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
@@ -70,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
             user: formData.get('user'),
             password: formData.get('password'),
             key_path: formData.get('key_path'),
+            known_hosts_path: formData.get('known_hosts_path'),
             remote_dir: formData.get('remote_dir'),
             delete_after_verify: formData.get('delete_after_verify') === 'on',
             overwrite: formData.get('overwrite') === 'on',
@@ -81,6 +83,16 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     };
 
+    const showStatus = (msg, type) => {
+        statusMsg.textContent = msg;
+        statusMsg.className = `status-msg ${type}`;
+        statusMsg.classList.remove('hidden');
+    };
+
+    const updateUploadButtonText = () => {
+        uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
+    };
+
     // --- Local Files ---
 
     const fetchFiles = async (path = '') => {
@@ -89,67 +101,119 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             currentPath = data.current_path;
             localBreadcrumb.textContent = '/' + currentPath;
+            localFilesList = data.files || [];
             fileListBody.innerHTML = '';
             
-            data.files.forEach(file => {
+            localFilesList.forEach(file => {
                 const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
                 const row = document.createElement('tr');
-                row.draggable = !file.is_dir;
-                if (file.is_dir) row.className = 'clickable-row folder-row';
-                const isChecked = queuedFiles.has(fullRelPath) ? 'checked' : '';
-                const iconClass = file.is_dir ? 'icon-folder' : 'icon-file';
-
-                row.innerHTML = `
-                    <td class="col-check"><input type="checkbox" class="file-checkbox" data-path="${fullRelPath}" data-name="${file.name}" data-isdir="${file.is_dir}" ${isChecked} ${file.is_dir ? 'disabled' : ''}></td>
-                    <td class="col-name"><span class="${iconClass}"></span>${file.name}</td>
-                    <td class="col-size">${file.is_dir ? '-' : formatSize(file.size)}</td>
-                    <td class="col-type">${file.is_dir ? 'Directory' : 'File'}</td>
-                `;
-
+                
                 if (file.is_dir) {
+                    row.className = 'clickable-row folder-row';
                     row.addEventListener('click', (e) => {
                         if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
                     });
                 } else {
+                    row.draggable = true;
                     row.addEventListener('dragstart', (e) => {
                         e.dataTransfer.setData('text/plain', JSON.stringify({ path: fullRelPath, name: file.name, size: file.size }));
                         row.classList.add('dragging');
                     });
                     row.addEventListener('dragend', () => row.classList.remove('dragging'));
                 }
+
+                // Checkbox Cell
+                const tdCheck = document.createElement('td');
+                tdCheck.className = 'col-check';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'file-checkbox';
+                cb.dataset.path = fullRelPath;
+                cb.dataset.name = file.name;
+                if (file.is_dir) cb.disabled = true;
+                if (queuedFiles.has(fullRelPath)) cb.checked = true;
+                
+                cb.addEventListener('change', (e) => {
+                    if (e.target.checked) queuedFiles.set(fullRelPath, { name: file.name });
+                    else queuedFiles.delete(fullRelPath);
+                    updateUploadButtonText();
+                });
+                tdCheck.appendChild(cb);
+
+                // Name Cell
+                const tdName = document.createElement('td');
+                tdName.className = 'col-name';
+                const icon = document.createElement('span');
+                icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+                tdName.appendChild(icon);
+                tdName.appendChild(document.createTextNode(file.name));
+
+                // Size Cell
+                const tdSize = document.createElement('td');
+                tdSize.className = 'col-size';
+                tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
+
+                // Type Cell
+                const tdType = document.createElement('td');
+                tdType.className = 'col-type';
+                tdType.textContent = file.is_dir ? 'Directory' : 'File';
+
+                row.appendChild(tdCheck);
+                row.appendChild(tdName);
+                row.appendChild(tdSize);
+                row.appendChild(tdType);
                 fileListBody.appendChild(row);
             });
 
-            document.querySelectorAll('.file-checkbox').forEach(cb => {
-                cb.addEventListener('change', (e) => {
-                    const path = e.target.getAttribute('data-path');
-                    if (e.target.checked) queuedFiles.set(path, { name: e.target.getAttribute('data-name') });
-                    else queuedFiles.delete(path);
-                    updateUploadButtonText();
-                });
-            });
             selectAllCheckbox.checked = false;
         } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
     };
+
+    refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
+    upBtn.addEventListener('click', () => {
+        if (!currentPath || currentPath === '.') return;
+        const parts = currentPath.split(/[\\\/]/);
+        parts.pop();
+        fetchFiles(parts.join('/'));
+    });
 
     mkdirBtn.addEventListener('click', async () => {
         const name = prompt("Enter folder name:");
         if (!name) return;
         const res = await fetch('/api/files/action', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'mkdir', path: currentPath ? `${currentPath}/${name}` : name })
         });
         if (res.ok) fetchFiles(currentPath);
+        else addLog(`Mkdir failed: ${res.statusText}`, 'error');
     });
 
     deleteBtn.addEventListener('click', async () => {
         if (queuedFiles.size === 0) return alert("Select files to delete first.");
         if (!confirm(`Delete ${queuedFiles.size} items?`)) return;
         for (const path of queuedFiles.keys()) {
-            await fetch('/api/files/action', { method: 'POST', body: JSON.stringify({ action: 'delete', path }) });
+            await fetch('/api/files/action', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', path }) 
+            });
         }
         queuedFiles.clear();
+        updateUploadButtonText();
         fetchFiles(currentPath);
+    });
+
+    selectAllCheckbox.addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.querySelectorAll('#file-list-body .file-checkbox:not(:disabled)').forEach(cb => {
+            cb.checked = checked;
+            const path = cb.dataset.path;
+            const name = cb.dataset.name;
+            if (checked) queuedFiles.set(path, { name });
+            else queuedFiles.delete(path);
+        });
+        updateUploadButtonText();
     });
 
     // --- Remote Files ---
@@ -162,34 +226,76 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
             });
-            if (!response.ok) throw new Error((await response.json()).error || 'Failed to fetch remote files');
             const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
+            
             remoteCurrentPath = data.current_path;
             remoteBreadcrumb.textContent = remoteCurrentPath;
             remoteFileListBody.innerHTML = '';
             
+            if (!data.files || data.files.length === 0) {
+                const row = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 3;
+                td.className = 'empty-msg';
+                td.textContent = 'Empty directory';
+                row.appendChild(td);
+                remoteFileListBody.appendChild(row);
+                return;
+            }
+
             data.files.forEach(file => {
                 const row = document.createElement('tr');
-                if (file.is_dir) row.className = 'clickable-row folder-row';
-                const iconClass = file.is_dir ? 'icon-folder' : 'icon-file';
-                row.innerHTML = `
-                    <td class="col-name"><span class="${iconClass}"></span>${file.name}</td>
-                    <td class="col-size">${file.is_dir ? '-' : formatSize(file.size)}</td>
-                    <td class="col-type">${file.is_dir ? 'Directory' : 'File'}</td>
-                `;
                 if (file.is_dir) {
+                    row.className = 'clickable-row folder-row';
                     row.addEventListener('click', () => {
                         const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                         fetchRemoteFiles(newPath);
                     });
                 }
+                
+                const tdName = document.createElement('td');
+                tdName.className = 'col-name';
+                const icon = document.createElement('span');
+                icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+                tdName.appendChild(icon);
+                tdName.appendChild(document.createTextNode(file.name));
+
+                const tdSize = document.createElement('td');
+                tdSize.className = 'col-size';
+                tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
+
+                const tdType = document.createElement('td');
+                tdType.className = 'col-type';
+                tdType.textContent = file.is_dir ? 'Directory' : 'File';
+
+                row.appendChild(tdName);
+                row.appendChild(tdSize);
+                row.appendChild(tdType);
                 remoteFileListBody.appendChild(row);
             });
         } catch (err) {
             addLog(`Remote fetch error: ${err.message}`, 'error');
-            remoteFileListBody.innerHTML = `<tr><td colspan="3" class="log-error">Error: ${err.message}</td></tr>`;
+            remoteFileListBody.innerHTML = '';
+            const row = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 3;
+            td.className = 'log-error';
+            td.textContent = `Error: ${err.message}`;
+            row.appendChild(td);
+            remoteFileListBody.appendChild(row);
         }
     };
+
+    remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
+    remoteUpBtn.addEventListener('click', () => {
+        if (!remoteCurrentPath || remoteCurrentPath === '/') return;
+        const parts = remoteCurrentPath.split('/');
+        parts.pop();
+        let parent = parts.join('/');
+        if (parent === '') parent = '/';
+        fetchRemoteFiles(parent);
+    });
 
     remoteMkdirBtn.addEventListener('click', async () => {
         const name = prompt("Enter remote folder name:");
@@ -197,9 +303,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const config = getFormData();
         const path = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + name : remoteCurrentPath + '/' + name;
         const res = await fetch('/api/remote/files/action', {
-            method: 'POST', body: JSON.stringify({ action: 'mkdir', path, config })
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'mkdir', path, config })
         });
         if (res.ok) fetchRemoteFiles(remoteCurrentPath);
+        else addLog(`Remote mkdir failed`, 'error');
+    });
+
+    remoteDeleteBtn.addEventListener('click', async () => {
+        alert("Remote multi-delete not implemented yet. Use drag-and-drop or single actions if available.");
     });
 
     // --- Drag & Drop ---
@@ -217,14 +330,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     modalConfirmBtn.addEventListener('click', async () => {
+        if (!dropData) return;
         const config = getFormData();
         config.files = [dropData.path];
         config.remote_dir = remoteCurrentPath;
         config.delete_after_verify = modalDeleteLocal.checked;
         config.overwrite = modalOverwriteRemote.checked;
         dropModal.classList.add('hidden');
-        const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+        const res = await fetch('/api/upload', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(config) 
+        });
         if (res.ok) { showStatus("Task queued", "success"); fetchQueue(); }
+        else addLog("Failed to queue task", "error");
     });
 
     modalCancelBtn.addEventListener('click', () => dropModal.classList.add('hidden'));
@@ -232,70 +351,130 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Queue ---
 
     const fetchQueue = async () => {
-        const res = await fetch('/api/queue');
-        const tasks = await res.json();
-        queueBody.innerHTML = '';
-        tasks.reverse().forEach(task => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${task.file_name}</td>
-                <td class="status-${task.status}">${task.status} ${task.error ? `(${task.error})` : ''}</td>
-                <td>${new Date(task.created_at).toLocaleTimeString()}</td>
-                <td>
-                    ${task.status === 'Pending' ? `<button onclick="controlTask('${task.id}', 'pause')">Pause</button>` : ''}
-                    ${task.status === 'Paused' ? `<button onclick="controlTask('${task.id}', 'resume')">Resume</button>` : ''}
-                </td>
-            `;
-            queueBody.appendChild(row);
-        });
+        try {
+            const res = await fetch('/api/queue');
+            const tasks = await res.json();
+            queueBody.innerHTML = '';
+            tasks.reverse().forEach(task => {
+                const row = document.createElement('tr');
+                
+                const tdFile = document.createElement('td');
+                tdFile.textContent = task.file_name;
+                
+                const tdStatus = document.createElement('td');
+                tdStatus.className = `status-${task.status}`;
+                tdStatus.textContent = task.status + (task.error ? ` (${task.error})` : '');
+                
+                const tdCreated = document.createElement('td');
+                tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
+                
+                const tdActions = document.createElement('td');
+                if (task.status === 'Pending') {
+                    const btn = document.createElement('button');
+                    btn.textContent = 'Pause';
+                    btn.addEventListener('click', () => controlTask(task.id, 'pause'));
+                    tdActions.appendChild(btn);
+                } else if (task.status === 'Paused') {
+                    const btn = document.createElement('button');
+                    btn.textContent = 'Resume';
+                    btn.addEventListener('click', () => controlTask(task.id, 'resume'));
+                    tdActions.appendChild(btn);
+                }
+                const remBtn = document.createElement('button');
+                remBtn.textContent = 'Remove';
+                remBtn.disabled = (task.status === 'Running');
+                remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
+                tdActions.appendChild(remBtn);
+
+                row.appendChild(tdFile);
+                row.appendChild(tdStatus);
+                row.appendChild(tdCreated);
+                row.appendChild(tdActions);
+                queueBody.appendChild(row);
+            });
+        } catch (e) {}
     };
 
-    window.controlTask = async (id, action) => {
-        await fetch('/api/queue', { method: 'POST', body: JSON.stringify({ id, action }) });
+    const controlTask = async (id, action) => {
+        const res = await fetch('/api/queue', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, action }) 
+        });
+        if (!res.ok) {
+            const data = await res.json();
+            alert(`Action failed: ${data.error || res.statusText}`);
+        }
         fetchQueue();
     };
 
-    // --- Init ---
+    // --- Actions ---
 
     testBtn.addEventListener('click', async () => {
         const config = getFormData();
-        const res = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
-        if (res.ok) { showStatus("Connected", "success"); fetchRemoteFiles(); }
-        else showStatus("Failed", "error");
+        testBtn.disabled = true;
+        try {
+            const res = await fetch('/api/test-connection', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(config) 
+            });
+            const data = await res.json();
+            if (res.ok) { showStatus("Connected", "success"); fetchRemoteFiles(); }
+            else showStatus(`Failed: ${data.error || "Unknown error"}`, "error");
+        } catch (e) { showStatus("Request failed", "error"); }
+        testBtn.disabled = false;
     });
 
     uploadBtn.addEventListener('click', async () => {
-        const config = getFormData();
         if (queuedFiles.size === 0) {
-            // Queue all in current dir logic can be added here
+            // Queue all files in current local directory
+            localFilesList.forEach(file => {
+                if (!file.is_dir) {
+                    const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+                    queuedFiles.set(fullPath, { name: file.name });
+                }
+            });
         }
-        await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
-        queuedFiles.clear();
-        updateUploadButtonText();
-        fetchQueue();
+        if (queuedFiles.size === 0) return alert("No files to upload.");
+
+        const config = getFormData();
+        uploadBtn.disabled = true;
+        try {
+            const res = await fetch('/api/upload', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(config) 
+            });
+            if (res.ok) {
+                showStatus("Tasks added to background queue", "success");
+                queuedFiles.clear();
+                updateUploadButtonText();
+                fetchQueue();
+            } else {
+                const data = await res.json();
+                showStatus(`Failed to queue: ${data.error || "Unknown error"}`, "error");
+            }
+        } catch (e) { showStatus("Upload request failed", "error"); }
+        uploadBtn.disabled = false;
     });
 
-    refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
-    remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
-    
-    const updateUploadButtonText = () => {
-        uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
-    };
-
-    const showStatus = (msg, type) => {
-        statusMsg.textContent = msg;
-        statusMsg.className = `status-msg ${type}`;
-        statusMsg.classList.remove('hidden');
-    };
-
+    // --- Init ---
     fetchFiles();
-    setInterval(fetchQueue, 2000);
+    setInterval(fetchQueue, 3000);
     
     // SSE
     const connectSSE = () => {
         const es = new EventSource('/api/logs');
-        es.onmessage = (e) => { try { const d = JSON.parse(e.data); addLog(d.msg, d.level); } catch(err) {} };
-        es.onerror = () => { es.close(); setTimeout(connectSSE, 3000); };
+        es.onmessage = (e) => { 
+            try { 
+                const d = JSON.parse(e.data); 
+                addLog(d.msg, d.level); 
+            } catch(err) {
+                addLog(e.data, 'info');
+            } 
+        };
+        es.onerror = () => { es.close(); setTimeout(connectSSE, 5000); };
     };
     connectSSE();
 });

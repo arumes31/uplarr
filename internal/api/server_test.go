@@ -67,11 +67,18 @@ func TestSetupApp(t *testing.T) {
 	}
 
 	// Add file and directory
-	os.WriteFile(filepath.Join(tempDir, "test.txt"), []byte("hello"), 0644)
-	os.Mkdir(filepath.Join(tempDir, "testdir"), 0755)
+	if err := os.WriteFile(filepath.Join(tempDir, "test.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tempDir, "testdir"), 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
 
 	rrFiles2 := httptest.NewRecorder()
 	mux.ServeHTTP(rrFiles2, reqFiles)
+	if rrFiles2.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 for /api/files with content, got %d", rrFiles2.Code)
+	}
 	if err := json.NewDecoder(rrFiles2.Body).Decode(&response); err != nil {
 		t.Errorf("Failed to decode JSON: %v", err)
 	}
@@ -89,12 +96,16 @@ func TestSetupApp(t *testing.T) {
 	}
 
 	// Test /api/upload POST (Queue)
-	reqUploadPost, _ := http.NewRequest("POST", "/api/upload", strings.NewReader(reqBody))
+	reqBodyUpload := `{"host":"127.0.0.1","port":22,"user":"user","password":"password","skip_host_key_verification":true,"files":["test.txt"]}`
+	reqUploadPost, _ := http.NewRequest("POST", "/api/upload", strings.NewReader(reqBodyUpload))
 	reqUploadPost.Header.Set("Content-Type", "application/json")
 	rrUploadPost := httptest.NewRecorder()
 	mux.ServeHTTP(rrUploadPost, reqUploadPost)
 	if rrUploadPost.Code != http.StatusOK {
 		t.Errorf("Expected status 200 for queued upload, got %d", rrUploadPost.Code)
+	}
+	if len(qm.GetTasks()) != 1 {
+		t.Errorf("Expected 1 task in queue, got %d", len(qm.GetTasks()))
 	}
 
 	// Test /api/remote/files (fail connect)

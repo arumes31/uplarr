@@ -471,7 +471,13 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 	}
 
 	// This should log "Latency high" and throttle down.
+	start = time.Now()
 	if err := clientDynamic.UploadFile(testFile); err != nil {
 		t.Fatalf("Dynamic upload failed: %v", err)
+	}
+	duration = time.Since(start)
+	// With 200ms delay per chunk, and 60KB/32KB read buffer, we expect at least 200ms
+	if duration < 200*time.Millisecond {
+		t.Errorf("Expected adaptive throttling delay, but transfer was too fast: %v", duration)
 	}
 }

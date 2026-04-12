@@ -81,7 +81,12 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		fullPath := filepath.Join(config.LocalDir, relPath)
 
 		absLocalDir, _ := filepath.Abs(config.LocalDir)
+		absLocalDir, _ = filepath.EvalSymlinks(absLocalDir)
 		absFullPath, err := filepath.Abs(fullPath)
+		if err == nil {
+			absFullPath, err = filepath.EvalSymlinks(absFullPath)
+		}
+
 		if err != nil {
 			fullPath = absLocalDir
 			relPath = ""
@@ -117,31 +122,38 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			"files":        fileInfos,
 		})
 	})
+mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request) {
+	var req models.FileActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request) {
-		var req models.FileActionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
-			return
-		}
+	fullPath := filepath.Join(config.LocalDir, req.Path)
+	// Security check
+	absLocalDir, err := filepath.Abs(config.LocalDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	absLocalDir, _ = filepath.EvalSymlinks(absLocalDir)
 
-		fullPath := filepath.Join(config.LocalDir, req.Path)
-		absLocalDir, err := filepath.Abs(config.LocalDir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		absPath, err := filepath.Abs(fullPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	absPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// EvalSymlinks might fail if path doesn't exist yet (mkdir), so we check error
+	if evalPath, err := filepath.EvalSymlinks(absPath); err == nil {
+		absPath = evalPath
+	}
 
-		rel, err := filepath.Rel(absLocalDir, absPath)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
-			return
-		}
+	rel, err := filepath.Rel(absLocalDir, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		http.Error(w, "Unauthorized path", http.StatusUnauthorized)
+		return
+	}
+
 
 		if rel == "." || rel == "" {
 			if req.Action == "delete" || req.Action == "rename" {
@@ -199,32 +211,38 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 	mux.HandleFunc("/api/remote/files", func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
+		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Bad request: " + err.Error()})
 			return
 		}
 
 		client := sftpclient.SFTPClient{
 			Host: req.Host, Port: strconv.Itoa(req.Port), User: req.User, Password: req.Password, KeyPath: req.KeyPath,
 			SkipHostKeyVerification: req.SkipHostKeyVerification,
+			RemoteDir:               req.RemoteDir,
 		}
 
 		if err := client.Connect(); err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		defer client.Close()
 
 		remotePath := r.URL.Query().Get("path")
-		if remotePath == "" { remotePath = req.RemoteDir }
+		if remotePath == "" {
+			remotePath = req.RemoteDir
+		}
 
 		files, err := client.ReadRemoteDir(remotePath)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"current_path": remotePath,
 			"files":        files,
@@ -320,6 +338,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				return
 			}
 			w.WriteHeader(http.StatusOK)
+		} else {
+			w.Header().Set("Allow", "GET, POST")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
 		}
 	})
 
