@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
 
+    let queuedFiles = new Set();
+
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
@@ -18,8 +20,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const addLog = (message, type = 'info') => {
         const entry = document.createElement('div');
         entry.className = `log-entry log-${type}`;
-        const time = new Date().toLocaleTimeString();
-        entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'log-time';
+        timeSpan.textContent = `[${new Date().toLocaleTimeString()}] `;
+        
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = message;
+        
+        entry.appendChild(timeSpan);
+        entry.appendChild(msgSpan);
+        
         logContainer.appendChild(entry);
         logContainer.scrollTop = logContainer.scrollHeight;
     };
@@ -58,21 +69,41 @@ document.addEventListener('DOMContentLoaded', () => {
             
             fileListBody.innerHTML = '';
             if (files.length === 0) {
-                fileListBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No files found in local directory</td></tr>';
+                fileListBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No files found in local directory</td></tr>';
                 return;
             }
 
             files.forEach(file => {
                 const row = document.createElement('tr');
+                const isChecked = queuedFiles.has(file.name) ? 'checked' : '';
                 row.innerHTML = `
+                    <td><input type="checkbox" class="file-checkbox" data-name="${file.name}" ${isChecked}></td>
                     <td>${file.name}</td>
                     <td>${formatSize(file.size)}</td>
                     <td>${file.is_dir ? 'Directory' : 'File'}</td>
                 `;
                 fileListBody.appendChild(row);
             });
+
+            document.querySelectorAll('.file-checkbox').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    const name = e.target.getAttribute('data-name');
+                    if (e.target.checked) queuedFiles.add(name);
+                    else queuedFiles.delete(name);
+                    updateUploadButtonText();
+                });
+            });
+            updateUploadButtonText();
         } catch (err) {
             addLog(`Error fetching files: ${err.message}`, 'error');
+        }
+    };
+
+    const updateUploadButtonText = () => {
+        if (queuedFiles.size > 0) {
+            uploadBtn.textContent = `Upload ${queuedFiles.size} Selected Files`;
+        } else {
+            uploadBtn.textContent = "Upload All Files";
         }
     };
 
@@ -86,7 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
             key_path: formData.get('key_path'),
             remote_dir: formData.get('remote_dir'),
             delete_after_verify: formData.get('delete_after_verify') === 'on',
-            max_retries: parseInt(formData.get('max_retries'))
+            max_retries: parseInt(formData.get('max_retries')),
+            skip_host_key_verification: formData.get('skip_host_key_verification') === 'on',
+            files: Array.from(queuedFiles)
         };
     };
 
@@ -104,7 +137,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const config = getFormData();
         testBtn.disabled = true;
-        // addLog('Testing connection...', 'info'); // Handled by SSE now
 
         try {
             const response = await fetch('/api/test-connection', {
@@ -144,16 +176,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
 
-            if (response.ok) {
-                showStatus(result.message, 'success');
-                setTimeout(fetchFiles, 2000);
-            } else if (response.status === 207) {
+            if (response.status === 207) {
                 showStatus(result.message, 'error');
+                if (result.errors) {
+                    result.errors.forEach(err => addLog(err, 'error'));
+                }
+                setTimeout(fetchFiles, 2000);
+            } else if (response.ok) {
+                showStatus(result.message, 'success');
+                queuedFiles.clear();
                 setTimeout(fetchFiles, 2000);
             } else {
                 throw new Error(result.error || 'Upload failed');
             }
         } catch (err) {
+            addLog(`Upload Error: ${err.message}`, 'error');
             showStatus(`Error: ${err.message}`, 'error');
         } finally {
             uploadBtn.disabled = false;

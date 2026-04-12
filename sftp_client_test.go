@@ -325,6 +325,13 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	}
 	mockFile.writeErr = nil
 
+	// 4b. remote close fail
+	mockFile.closeErr = fmt.Errorf("remote close fail")
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "remote close fail") {
+		t.Errorf("Expected remote close fail, got %v", err)
+	}
+	mockFile.closeErr = nil
+
 	// 5. Remote Stat fail
 	oldStat := mockC.statFunc
 	mockC.statFunc = func(path string) (os.FileInfo, error) { return nil, fmt.Errorf("stat remote fail") }

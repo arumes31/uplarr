@@ -30,8 +30,6 @@ func TestRun_Failures(t *testing.T) {
 	os.Setenv("LOCAL_DIR", tmpFile.Name())
 	os.Setenv("WEB_PORT", "8081")
 	err := Run()
-	// On some OSes MkdirAll on a file might fail or return error later.
-	// We expect either setup failed or listen error (if setup somehow worked)
 	if err == nil {
 		t.Errorf("Expected failure when LOCAL_DIR is a file, got nil")
 	}
@@ -189,11 +187,11 @@ func TestSetupApp(t *testing.T) {
 	}
 	osReadDir = oldReadDir
 
-	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password"}`
+	// Test /api/test-connection POST (fail connect)
+	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password","skip_host_key_verification":true}`
 	reqTestConn, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
 	rrTestConn := httptest.NewRecorder()
 	mux.ServeHTTP(rrTestConn, reqTestConn)
-	// Failed because we don't have mock server here, but it should hit the verification error if not set
 	if rrTestConn.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status 401 for failed connect, got %d", rrTestConn.Code)
 	}
@@ -261,12 +259,13 @@ func TestProcessUploads(t *testing.T) {
 	}
 
 	req := UploadRequest{
-		Host:       "127.0.0.1",
-		Port:       func() int { p, _ := strconv.Atoi(port); return p }(),
-		User:       "user",
-		Password:   "pass",
-		RemoteDir:  ".",
-		MaxRetries: 1,
+		Host:                    "127.0.0.1",
+		Port:                    func() int { p, _ := strconv.Atoi(port); return p }(),
+		User:                    "user",
+		Password:                "pass",
+		RemoteDir:               ".",
+		MaxRetries:              1,
+		SkipHostKeyVerification: true,
 	}
 
 	// Create test file
@@ -277,11 +276,6 @@ func TestProcessUploads(t *testing.T) {
 	if len(errs) != 0 {
 		t.Errorf("ProcessUploads failed with errors: %v", errs)
 	}
-
-	// Verify upload
-	// Note: Our mock server in sftp_client_test doesn't actually write files to disk yet.
-	// But it does verify size if we use SFTPClient.UploadFile.
-	// ProcessUploads uses sftpClientUpload mockable var.
 }
 
 func TestApiLogs(t *testing.T) {
@@ -349,7 +343,7 @@ func TestApiUpload_Success(t *testing.T) {
 	sftpClientConnect = func(s *SFTPClient) error { return nil }
 	defer func() { sftpClientConnect = oldConnect }()
 
-	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password"}`
+	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password","skip_host_key_verification":true}`
 	reqUploadPost, _ := http.NewRequest("POST", "/api/upload", strings.NewReader(reqBody))
 	reqUploadPost.Header.Set("Content-Type", "application/json")
 	rrUploadPost := httptest.NewRecorder()
@@ -369,7 +363,7 @@ func TestProcessUploads_Errors(t *testing.T) {
 	tempFile := filepath.Join(tempDir, "test.txt")
 	os.WriteFile(tempFile, []byte("data"), 0644)
 
-	req := UploadRequest{Host: "127.0.0.1", Port: 22, User: "u", Password: "p", MaxRetries: 0}
+	req := UploadRequest{Host: "127.0.0.1", Port: 22, User: "u", Password: "p", MaxRetries: 0, SkipHostKeyVerification: true}
 	
 	oldConnect := sftpClientConnect
 	sftpClientConnect = func(s *SFTPClient) error { return nil }
@@ -402,7 +396,7 @@ func TestApiTestConnection(t *testing.T) {
 	mux, _ := SetupApp(config)
 
 	// Success
-	reqBody := `{"host":"127.0.0.1","port":` + port + `,"user":"user","password":"pass"}`
+	reqBody := `{"host":"127.0.0.1","port":` + port + `,"user":"user","password":"pass","skip_host_key_verification":true}`
 	req, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)

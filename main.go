@@ -30,14 +30,16 @@ type Config struct {
 }
 
 type UploadRequest struct {
-	Host              string `json:"host"`
-	Port              int    `json:"port"`
-	User              string `json:"user"`
-	Password          string `json:"password"`
-	KeyPath           string `json:"key_path"`
-	RemoteDir         string `json:"remote_dir"`
-	DeleteAfterVerify bool   `json:"delete_after_verify"`
-	MaxRetries        int    `json:"max_retries"`
+	Host                    string   `json:"host"`
+	Port                    int      `json:"port"`
+	User                    string   `json:"user"`
+	Password                string   `json:"password"`
+	KeyPath                 string   `json:"key_path"`
+	RemoteDir               string   `json:"remote_dir"`
+	DeleteAfterVerify       bool     `json:"delete_after_verify"`
+	MaxRetries              int      `json:"max_retries"`
+	SkipHostKeyVerification bool     `json:"skip_host_key_verification"`
+	Files                   []string `json:"files"` // Support for specific file queueing
 }
 
 var (
@@ -57,20 +59,18 @@ func broadcastLog(msg string) {
 }
 
 type LogMessage struct {
-	Level string `json:"level"`
-	Time  string `json:"time"`
-	Msg   string `json:"msg"`
-	Error string `json:"error,omitempty"`
+	Level string      `json:"level"`
+	Time  string      `json:"time"`
+	Msg   string      `json:"msg"`
+	Extra interface{} `json:"extra,omitempty"`
 }
 
-func logWithLevel(level, msg string, err error) {
+func logWithLevel(level, msg string, extra interface{}) {
 	entry := LogMessage{
 		Level: level,
 		Time:  time.Now().Format(time.RFC3339),
 		Msg:   msg,
-	}
-	if err != nil {
-		entry.Error = err.Error()
+		Extra: extra,
 	}
 	
 	b, _ := json.Marshal(entry)
@@ -151,7 +151,6 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -228,7 +227,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			Password:                req.Password,
 			KeyPath:                 req.KeyPath,
 			RemoteDir:               req.RemoteDir,
-			SkipHostKeyVerification: true, // Default to true for now to fix tests, or add to request
+			SkipHostKeyVerification: req.SkipHostKeyVerification,
 		}
 
 		if err := client.Connect(); err != nil {
@@ -269,7 +268,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(map[string]string{"message": "All files uploaded successfully"}) // #nosec G104
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "All selected files processed successfully"}) // #nosec G104
 	})
 
 	return mux, nil
@@ -288,7 +287,7 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 		KeyPath:                 req.KeyPath,
 		RemoteDir:               req.RemoteDir,
 		DeleteAfterVerify:       req.DeleteAfterVerify,
-		SkipHostKeyVerification: true,
+		SkipHostKeyVerification: req.SkipHostKeyVerification,
 	}
 
 	if err := sftpClientConnect(&client); err != nil {
@@ -298,18 +297,25 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 	}
 	defer client.Close()
 
-	files, err := osReadDir(config.LocalDir)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to read local directory: %v", err)
-		logError(msg)
-		return []string{msg}
+	var filesToProcess []string
+	if len(req.Files) > 0 {
+		filesToProcess = req.Files
+	} else {
+		entries, err := osReadDir(config.LocalDir)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to read local directory: %v", err)
+			logError(msg)
+			return []string{msg}
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				filesToProcess = append(filesToProcess, e.Name())
+			}
+		}
 	}
 
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		localPath := filepath.Join(config.LocalDir, f.Name())
+	for _, fileName := range filesToProcess {
+		localPath := filepath.Join(config.LocalDir, fileName)
 		
 		retries := req.MaxRetries
 		if retries <= 0 {
@@ -317,7 +323,7 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 		}
 
 		if err := sftpClientUpload(&client, localPath, retries); err != nil {
-			msg := fmt.Sprintf("Failed to upload %s: %v", f.Name(), err)
+			msg := fmt.Sprintf("Failed to upload %s: %v", fileName, err)
 			logError(msg)
 			errs = append(errs, msg)
 		}
@@ -330,7 +336,7 @@ var osExit = os.Exit
 
 func main() {
 	if err := Run(); err != nil {
-		log.Printf(`{"level":"error", "msg":"Application failed", "error":"%v"}`, err)
+		logWithLevel("error", "Application failed", map[string]string{"error": err.Error()})
 		osExit(1)
 	}
 }
@@ -346,6 +352,6 @@ func Run() error {
 		return fmt.Errorf("setup failed: %v", err)
 	}
 
-	log.Printf(`{"level":"info", "msg":"Server starting on port %s"}`, config.WebPort)
+	logWithLevel("info", "Server starting", map[string]string{"port": config.WebPort})
 	return httpListen(":"+config.WebPort, mux)
 }

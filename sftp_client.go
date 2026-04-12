@@ -106,7 +106,7 @@ func (s *SFTPClient) Connect() error {
 
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		client.Close()
+		_ = client.Close() // #nosec G104
 		return fmt.Errorf("failed to create sftp client: %v", err)
 	}
 	s.sftpClient = &realSFTPClient{sftpClient}
@@ -167,15 +167,19 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create remote file: %v", err)
 	}
-	defer func() { _ = remoteFile.Close() }() // #nosec G104
 
 	startTime := time.Now()
 	_, err = io.Copy(remoteFile, localFile)
 	if err != nil {
+		_ = remoteFile.Close() // #nosec G104
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
-	duration := time.Since(startTime)
+	
+	if err := remoteFile.Close(); err != nil {
+		return fmt.Errorf("failed to close remote file: %v", err)
+	}
 
+	duration := time.Since(startTime)
 	logInfo(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
 
 	// Verify

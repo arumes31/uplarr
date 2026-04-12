@@ -35,7 +35,6 @@
 ### Using Docker (Recommended)
 
 ```bash
-# Replace <your-username> with your actual GitHub username
 docker run -d \
   -p 8080:8080 \
   -v /your/local/data:/root/test_data \
