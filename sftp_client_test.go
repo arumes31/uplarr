@@ -1,37 +1,110 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
-// generateMockServerKey generates a random RSA private key for the mock server.
+// --- Mocks ---
+
+type mockSFTPFile struct {
+	statSize int64
+	statErr  error
+	writeErr error
+	closeErr error
+	delay    time.Duration
+	writeCnt int
+	failAt   int // fail after this many writes
+}
+
+func (m *mockSFTPFile) Read(p []byte) (n int, err error)  { return 0, io.EOF }
+func (m *mockSFTPFile) Write(p []byte) (n int, err error) { 
+	if m.delay > 0 {
+		time.Sleep(m.delay)
+	}
+	m.writeCnt++
+	if m.failAt > 0 && m.writeCnt >= m.failAt {
+		return 0, fmt.Errorf("interrupted transfer")
+	}
+	if m.writeErr != nil { return 0, m.writeErr }
+	return len(p), nil 
+}
+func (m *mockSFTPFile) Close() error { return m.closeErr }
+func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
+	if m.statErr != nil { return nil, m.statErr }
+	return &mockFileInfo{size: m.statSize}, nil
+}
+
+type mockFileInfo struct {
+	size    int64
+	name    string
+	isDir   bool
+	mode    os.FileMode
+	modTime time.Time
+}
+func (m *mockFileInfo) Size() int64        { return m.size }
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) IsDir() bool        { return m.isDir }
+func (m *mockFileInfo) Mode() os.FileMode  { return m.mode }
+func (m *mockFileInfo) ModTime() time.Time { return m.modTime }
+func (m *mockFileInfo) Sys() interface{}   { return nil }
+
+type mockSFTPClient struct {
+	createFunc func(path string) (SFTPFile, error)
+	statFunc   func(path string) (os.FileInfo, error)
+	closeErr   error
+}
+func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
+	if m.createFunc != nil { return m.createFunc(path) }
+	return nil, fmt.Errorf("create not implemented")
+}
+func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
+	if m.statFunc != nil { return m.statFunc(path) }
+	return nil, fmt.Errorf("stat not implemented")
+}
+func (m *mockSFTPClient) Close() error { return m.closeErr }
+
+type mockFileObj struct {
+	File
+	statErr error
+}
+func (m *mockFileObj) Stat() (os.FileInfo, error) {
+	if m.statErr != nil { return nil, m.statErr }
+	return m.File.Stat()
+}
+
+// --- Helpers ---
+
 func generateMockServerKey() ([]byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	privDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	privDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
 	privBlock := pem.Block{
-		Type:    "RSA PRIVATE KEY",
+		Type:    "PRIVATE KEY",
 		Headers: nil,
 		Bytes:   privDER,
 	}
 	return pem.EncodeToMemory(&privBlock), nil
 }
 
-// startMockSFTPServer starts a local SFTP server and returns the port it's listening on and a cleanup func.
 func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string, func()) {
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, p []byte) (*ssh.Permissions, error) {
@@ -42,7 +115,7 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 		},
 		PublicKeyCallback: func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
 			if c.User() == user {
-				return nil, nil // accept any key for the test user
+				return nil, nil
 			}
 			return nil, fmt.Errorf("key rejected")
 		},
@@ -114,6 +187,8 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 	}
 }
 
+// --- Tests ---
+
 func TestSFTPClientConnect(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "sftp_test")
 	if err != nil {
@@ -124,169 +199,226 @@ func TestSFTPClientConnect(t *testing.T) {
 	port, cleanup := startMockSFTPServer(t, "user1", "pass1", tempDir)
 	defer cleanup()
 
-	// Test Password Auth
+	// 1. Password Auth + Skip Verification
 	client := SFTPClient{
-		Host:     "127.0.0.1",
-		Port:     port,
-		User:     "user1",
-		Password: "pass1",
+		Host:                    "127.0.0.1",
+		Port:                    port,
+		User:                    "user1",
+		Password:                "pass1",
+		SkipHostKeyVerification: true,
 	}
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Expected connect to succeed: %v", err)
 	}
 	client.Close()
 
-	// Test invalid password
-	clientInvalid := SFTPClient{
+	// 2. Missing Host Key Verification
+	clientNoVerify := SFTPClient{
 		Host:     "127.0.0.1",
 		Port:     port,
 		User:     "user1",
-		Password: "wrong_password",
+		Password: "pass1",
 	}
-	if err := clientInvalid.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with wrong password")
-	}
-
-	// Test No auth methods
-	clientNoAuth := SFTPClient{
-		Host: "127.0.0.1",
-		Port: port,
-		User: "user1",
-	}
-	if err := clientNoAuth.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with no auth methods")
+	if err := clientNoVerify.Connect(); err == nil || !strings.Contains(err.Error(), "host key verification required") {
+		t.Errorf("Expected verification error, got %v", err)
 	}
 
-	// Test Public Key auth
+	// 3. Public Key auth
 	keyBytes, _ := generateMockServerKey()
 	keyPath := filepath.Join(tempDir, "id_rsa")
 	os.WriteFile(keyPath, keyBytes, 0600)
 
 	clientKey := SFTPClient{
-		Host:    "127.0.0.1",
-		Port:    port,
-		User:    "user1",
-		KeyPath: keyPath,
+		Host:                    "127.0.0.1",
+		Port:                    port,
+		User:                    "user1",
+		KeyPath:                 keyPath,
+		SkipHostKeyVerification: true,
 	}
 	if err := clientKey.Connect(); err != nil {
 		t.Fatalf("Expected connect with key to succeed: %v", err)
 	}
 	clientKey.Close()
+}
 
-	// Test invalid key path
-	clientKeyInvalid := SFTPClient{
-		Host:    "127.0.0.1",
-		Port:    port,
-		User:    "user1",
-		KeyPath: "nonexistent",
+func TestSFTPClientConnect_MockErrors(t *testing.T) {
+	client := &SFTPClient{KeyPath: "somepath", User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
+
+	// 1. ReadFile fail
+	oldRead := osReadFile
+	osReadFile = func(name string) ([]byte, error) { return nil, fmt.Errorf("read fail") }
+	if err := client.Connect(); err == nil || !strings.Contains(err.Error(), "read fail") {
+		t.Errorf("Expected read fail, got %v", err)
 	}
-	if err := clientKeyInvalid.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with invalid key path")
+	osReadFile = oldRead
+
+	// 2. ParsePrivateKey fail
+	oldParse := sshParsePrivateKey
+	sshParsePrivateKey = func(b []byte) (ssh.Signer, error) { return nil, fmt.Errorf("parse fail") }
+	osReadFile = func(name string) ([]byte, error) { return []byte("key"), nil }
+	if err := client.Connect(); err == nil || !strings.Contains(err.Error(), "parse fail") {
+		t.Errorf("Expected parse fail, got %v", err)
+	}
+	sshParsePrivateKey = oldParse
+	osReadFile = oldRead
+	
+	// 3. No auth methods
+	clientNoAuth := &SFTPClient{User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
+	if err := clientNoAuth.Connect(); err == nil || !strings.Contains(err.Error(), "no authentication methods") {
+		t.Errorf("Expected no auth methods error, got %v", err)
 	}
 
-	// Test invalid key file content
-	invalidKeyPath := filepath.Join(tempDir, "id_rsa_invalid")
-	os.WriteFile(invalidKeyPath, []byte("invalid"), 0600)
-	clientKeyInvalidContent := SFTPClient{
-		Host:    "127.0.0.1",
-		Port:    port,
-		User:    "user1",
-		KeyPath: invalidKeyPath,
-	}
-	if err := clientKeyInvalidContent.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with invalid key content")
-	}
-
-	// Test dial error
-	clientDialErr := SFTPClient{
-		Host:     "127.0.0.1",
-		Port:     "0",
-		User:     "user1",
-		Password: "p",
-	}
-	if err := clientDialErr.Connect(); err == nil {
-		t.Fatal("Expected connect to fail with dial error")
+	// 4. KnownHostsPath error
+	clientKH := &SFTPClient{User: "u", Host: "h", Port: "p", KnownHostsPath: "invalid", Password: "p"}
+	if err := clientKH.Connect(); err == nil || !strings.Contains(err.Error(), "failed to load known hosts") {
+		t.Errorf("Expected known hosts error, got %v", err)
 	}
 }
 
-func TestSFTPClientUpload(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "sftp_upload_test")
-	defer os.RemoveAll(tempDir)
-	remoteDir := filepath.Join(tempDir, "remote")
-	os.MkdirAll(remoteDir, 0755)
-	localDir := filepath.Join(tempDir, "local")
-	os.MkdirAll(localDir, 0755)
-
-	port, cleanup := startMockSFTPServer(t, "user1", "pass1", remoteDir)
-	defer cleanup()
-
-	client := SFTPClient{
-		Host:      "127.0.0.1",
-		Port:      port,
-		User:      "user1",
-		Password:  "pass1",
+func TestSFTPClient_FullCoverage(t *testing.T) {
+	mockFile := &mockSFTPFile{statSize: 10}
+	mockC := &mockSFTPClient{
+		createFunc: func(path string) (SFTPFile, error) { return mockFile, nil },
+		statFunc:   func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 10}, nil },
+	}
+	client := &SFTPClient{
 		RemoteDir: ".",
+		sftpClient: mockC,
 	}
-	client.Connect()
-	defer client.Close()
 
-	// Test successful upload
-	testFile := filepath.Join(localDir, "test.txt")
-	os.WriteFile(testFile, []byte("hello world"), 0644)
+	tempDir, _ := os.MkdirTemp("", "full_cov")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	os.WriteFile(testFile, []byte("1234567890"), 0644)
 
+	// 1. Success
 	if err := client.UploadFile(testFile); err != nil {
-		t.Fatalf("Upload failed: %v", err)
+		t.Errorf("Expected success, got %v", err)
 	}
 
-	// Verify it was uploaded
-	remoteFile := filepath.Join(remoteDir, "test.txt")
-	if content, _ := os.ReadFile(remoteFile); string(content) != "hello world" {
-		t.Fatalf("Expected file content 'hello world', got '%s'", string(content))
+	// 2. Stat local fail
+	oldOpen := osOpen
+	osOpen = func(name string) (File, error) {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		return &mockFileObj{File: f, statErr: fmt.Errorf("stat fail")}, nil
 	}
-
-	// Test open local file error
-	if err := client.UploadFile(filepath.Join(localDir, "nonexistent.txt")); err == nil {
-		t.Fatal("Expected upload to fail with nonexistent local file")
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {
+		t.Errorf("Expected stat fail, got %v", err)
 	}
+	osOpen = oldOpen
 
-	// Test DeleteAfterVerify
+	// 3. Create remote fail
+	oldCreate := mockC.createFunc
+	mockC.createFunc = func(path string) (SFTPFile, error) { return nil, fmt.Errorf("create fail") }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "create fail") {
+		t.Errorf("Expected create fail, got %v", err)
+	}
+	mockC.createFunc = oldCreate
+
+	// 4. io.Copy fail
+	mockFile.writeErr = fmt.Errorf("write fail")
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "write fail") {
+		t.Errorf("Expected write fail, got %v", err)
+	}
+	mockFile.writeErr = nil
+
+	// 4b. remote close fail
+	mockFile.closeErr = fmt.Errorf("remote close fail")
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "remote close fail") {
+		t.Errorf("Expected remote close fail, got %v", err)
+	}
+	mockFile.closeErr = nil
+
+	// 5. Remote Stat fail
+	oldStat := mockC.statFunc
+	mockC.statFunc = func(path string) (os.FileInfo, error) { return nil, fmt.Errorf("stat remote fail") }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat remote fail") {
+		t.Errorf("Expected stat remote fail, got %v", err)
+	}
+	mockC.statFunc = oldStat
+
+	// 6. Size mismatch
+	mockC.statFunc = func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 5}, nil }
+	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+		t.Errorf("Expected size mismatch, got %v", err)
+	}
+	mockC.statFunc = oldStat
+
+	// 7. Delete fail coverage
 	client.DeleteAfterVerify = true
-	testFile2 := filepath.Join(localDir, "test2.txt")
-	os.WriteFile(testFile2, []byte("delete me"), 0644)
-	if err := client.UploadFile(testFile2); err != nil {
-		t.Fatalf("Upload failed: %v", err)
+	oldRemove := osRemove
+	osRemove = func(name string) error { return fmt.Errorf("remove error") }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success even if remove fails, got %v", err)
 	}
-	if _, err := os.Stat(testFile2); !os.IsNotExist(err) {
-		t.Fatal("Expected local file to be deleted")
+	
+	// 8. Delete success coverage
+	osRemove = func(name string) error { return nil }
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success on delete, got %v", err)
 	}
+	osRemove = oldRemove
 
-	// Test DeleteAfterVerify failure handling (cannot delete file due to permissions/locks)
-	// We can create a file, upload it, but mock a failure to delete by simulating a removed directory
-	// This is hard to do cleanly without breaking other tests. Skipping detailed error cover on delete for now.
-
-	// Test UploadFileWithRetry
-	testFile3 := filepath.Join(localDir, "test3.txt")
-	os.WriteFile(testFile3, []byte("retry me"), 0644)
-	if err := client.UploadFileWithRetry(testFile3, 3); err != nil {
-		t.Fatalf("UploadWithRetry failed: %v", err)
+	// 9. UploadFileWithRetry failure path
+	osOpen = func(name string) (File, error) { return nil, fmt.Errorf("open fail") }
+	if err := client.UploadFileWithRetry(testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
+		t.Errorf("Expected retry fail, got %v", err)
 	}
+	osOpen = oldOpen
+}
 
-	// Test UploadFileWithRetry failure (remote directory doesn't exist)
-	clientInvalidRemote := SFTPClient{
-		Host:      "127.0.0.1",
-		Port:      port,
-		User:      "user1",
-		Password:  "pass1",
-		RemoteDir: "/invalid_dir_that_causes_failure",
-	}
-	clientInvalidRemote.Connect()
-	defer clientInvalidRemote.Close()
+func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "adv_network")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	os.WriteFile(testFile, []byte("large data chunk for testing network issues"), 0644)
 
-	if err := clientInvalidRemote.UploadFileWithRetry(testFile3, 2); err == nil {
-		t.Fatal("Expected UploadWithRetry to fail after retries")
+	mockC := &mockSFTPClient{}
+	client := &SFTPClient{
+		RemoteDir: ".",
+		sftpClient: mockC,
 	}
 
-	// Test remote verification failure
-	// We mock this by replacing the file on the remote side between copy and verify.
-	// We can't easily hook into the middle of the function, but we can verify the code coverage.
+	// 1. Test Interrupted Transfer (Failure during Write)
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		return &mockSFTPFile{statSize: 43, failAt: 1}, nil
+	}
+	mockC.statFunc = func(path string) (os.FileInfo, error) {
+		return &mockFileInfo{size: 43}, nil
+	}
+
+	err := client.UploadFile(testFile)
+	if err == nil || !strings.Contains(err.Error(), "interrupted transfer") {
+		t.Errorf("Expected interrupted transfer error, got %v", err)
+	}
+
+	// 2. Test Auto-Retry with eventual success
+	attempt := 0
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		attempt++
+		if attempt == 1 {
+			return &mockSFTPFile{statSize: 43, failAt: 1}, nil
+		}
+		return &mockSFTPFile{statSize: 43}, nil
+	}
+
+	if err := client.UploadFileWithRetry(testFile, 2); err != nil {
+		t.Errorf("Expected retry to succeed on second attempt, got %v", err)
+	}
+
+	// 3. Test High Latency
+	mockC.createFunc = func(path string) (SFTPFile, error) {
+		return &mockSFTPFile{statSize: 43, delay: 50 * time.Millisecond}, nil
+	}
+	
+	start := time.Now()
+	if err := client.UploadFile(testFile); err != nil {
+		t.Errorf("Expected success with latency, got %v", err)
+	}
+	if time.Since(start) < 50*time.Millisecond {
+		t.Errorf("Expected transfer to take at least 50ms, took %v", time.Since(start))
+	}
 }

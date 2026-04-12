@@ -1,5 +1,5 @@
 # Stage 1: Build & Test
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN go test -v ./...
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o uplarr .
 
 # Stage 2: Final minimal image
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install CA certificates and tzdata for secure connections and time handling
 RUN apk --no-cache add ca-certificates tzdata

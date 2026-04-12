@@ -3,37 +3,66 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-type SFTPClient struct {
-	Host              string
-	Port              string
-	User              string
-	Password          string
-	KeyPath           string
-	RemoteDir         string
-	DeleteAfterVerify bool
-	sshClient         *ssh.Client
-	sftpClient        *sftp.Client
+type SFTPFile interface {
+	io.ReadWriteCloser
+	Stat() (os.FileInfo, error)
 }
+
+type SFTPClientInterface interface {
+	Create(path string) (SFTPFile, error)
+	Stat(path string) (os.FileInfo, error)
+	Close() error
+}
+
+type realSFTPClient struct {
+	*sftp.Client
+}
+
+func (c *realSFTPClient) Create(path string) (SFTPFile, error) {
+	return c.Client.Create(path)
+}
+
+func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
+	return c.Client.Stat(path)
+}
+
+type SFTPClient struct {
+	Host                    string
+	Port                    string
+	User                    string
+	Password                string
+	KeyPath                 string
+	RemoteDir               string
+	DeleteAfterVerify       bool
+	KnownHostsPath          string
+	SkipHostKeyVerification bool
+	sshClient               *ssh.Client
+	sftpClient              SFTPClientInterface
+}
+
+var osReadFile = os.ReadFile
+var sshParsePrivateKey = ssh.ParsePrivateKey
 
 func (s *SFTPClient) Connect() error {
 	var authMethods []ssh.AuthMethod
 
 	if s.KeyPath != "" {
-		key, err := os.ReadFile(s.KeyPath)
+		key, err := osReadFile(s.KeyPath)
 		if err != nil {
 			return fmt.Errorf("unable to read private key: %v", err)
 		}
-		signer, err := ssh.ParsePrivateKey(key)
+		signer, err := sshParsePrivateKey(key)
 		if err != nil {
 			return fmt.Errorf("unable to parse private key: %v", err)
 		}
@@ -48,10 +77,23 @@ func (s *SFTPClient) Connect() error {
 		return fmt.Errorf("no authentication methods available")
 	}
 
+	var hostKeyCallback ssh.HostKeyCallback
+	if s.KnownHostsPath != "" {
+		cb, err := knownhosts.New(s.KnownHostsPath)
+		if err != nil {
+			return fmt.Errorf("failed to load known hosts: %v", err)
+		}
+		hostKeyCallback = cb
+	} else if s.SkipHostKeyVerification {
+		hostKeyCallback = ssh.InsecureIgnoreHostKey() // #nosec G106
+	} else {
+		return fmt.Errorf("host key verification required (provide KnownHostsPath or SkipHostKeyVerification)")
+	}
+
 	config := &ssh.ClientConfig{
 		User:            s.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         10 * time.Second,
 	}
 
@@ -64,20 +106,20 @@ func (s *SFTPClient) Connect() error {
 
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		client.Close()
+		_ = client.Close() // #nosec G104
 		return fmt.Errorf("failed to create sftp client: %v", err)
 	}
-	s.sftpClient = sftpClient
+	s.sftpClient = &realSFTPClient{sftpClient}
 
 	return nil
 }
 
 func (s *SFTPClient) Close() {
 	if s.sftpClient != nil {
-		s.sftpClient.Close()
+		_ = s.sftpClient.Close() // #nosec G104
 	}
 	if s.sshClient != nil {
-		s.sshClient.Close()
+		_ = s.sshClient.Close() // #nosec G104
 	}
 }
 
@@ -89,21 +131,32 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 			return nil
 		}
 		lastErr = err
-		log.Printf(`{"level":"warn", "msg":"Upload attempt failed", "attempt":%d, "file":"%s", "error":"%v"}`, attempt, filepath.Base(localPath), err)
-		time.Sleep(100 * time.Millisecond) // short backoff for testing and fast retries
+		logError(fmt.Sprintf("Upload attempt %d failed for %s: %v", attempt, filepath.Base(localPath), err))
+		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
 
+type File interface {
+	io.ReadCloser
+	Stat() (os.FileInfo, error)
+}
+
+var osOpen = func(name string) (File, error) {
+	return os.Open(filepath.Clean(name)) // #nosec G304
+}
+
+var osRemove = os.Remove
+
 func (s *SFTPClient) UploadFile(localPath string) error {
 	fileName := filepath.Base(localPath)
-	remotePath := filepath.Join(s.RemoteDir, fileName)
+	remotePath := path.Join(s.RemoteDir, fileName)
 
-	localFile, err := os.Open(localPath)
+	localFile, err := osOpen(localPath)
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %v", err)
 	}
-	defer localFile.Close()
+	defer func() { _ = localFile.Close() }() // #nosec G104
 
 	localStat, err := localFile.Stat()
 	if err != nil {
@@ -114,16 +167,20 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create remote file: %v", err)
 	}
-	defer remoteFile.Close()
 
 	startTime := time.Now()
 	_, err = io.Copy(remoteFile, localFile)
 	if err != nil {
+		_ = remoteFile.Close() // #nosec G104
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
-	duration := time.Since(startTime)
+	
+	if err := remoteFile.Close(); err != nil {
+		return fmt.Errorf("failed to close remote file: %v", err)
+	}
 
-	log.Printf(`{"level":"info", "msg":"Uploaded file", "file":"%s", "size":%d, "duration":"%s"}`, fileName, localStat.Size(), duration)
+	duration := time.Since(startTime)
+	logInfo(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
 
 	// Verify
 	remoteStat, err := s.sftpClient.Stat(remotePath)
@@ -135,16 +192,16 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 		return fmt.Errorf("verification failed: size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
 	}
 
-	log.Printf(`{"level":"info", "msg":"Verification passed", "file":"%s"}`, fileName)
+	logInfo(fmt.Sprintf("Verification passed for %s", fileName))
 
 	// Windows requires file to be closed before deletion
-	localFile.Close()
+	_ = localFile.Close() // #nosec G104
 
 	if s.DeleteAfterVerify {
-		if err := os.Remove(localPath); err != nil {
-			log.Printf(`{"level":"error", "msg":"Failed to delete local file", "file":"%s", "error":"%v"}`, localPath, err)
+		if err := osRemove(localPath); err != nil {
+			logError(fmt.Sprintf("Failed to delete local file %s: %v", localPath, err))
 		} else {
-			log.Printf(`{"level":"info", "msg":"Deleted local file", "file":"%s"}`, fileName)
+			logInfo(fmt.Sprintf("Deleted local file %s", fileName))
 		}
 	}
 

@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 //go:embed static/*
@@ -28,14 +31,60 @@ type Config struct {
 }
 
 type UploadRequest struct {
-	Host              string `json:"host"`
-	Port              int    `json:"port"`
-	User              string `json:"user"`
-	Password          string `json:"password"`
-	KeyPath           string `json:"key_path"`
-	RemoteDir         string `json:"remote_dir"`
-	DeleteAfterVerify bool   `json:"delete_after_verify"`
-	MaxRetries        int    `json:"max_retries"`
+	Host                    string   `json:"host"`
+	Port                    int      `json:"port"`
+	User                    string   `json:"user"`
+	Password                string   `json:"password"`
+	KeyPath                 string   `json:"key_path"`
+	RemoteDir               string   `json:"remote_dir"`
+	DeleteAfterVerify       bool     `json:"delete_after_verify"`
+	MaxRetries              int      `json:"max_retries"`
+	SkipHostKeyVerification bool     `json:"skip_host_key_verification"`
+	Files                   []string `json:"files"` // Support for specific file queueing
+}
+
+var (
+	logClients = make(map[chan string]bool)
+	mu         sync.Mutex
+)
+
+func broadcastLog(msg string) {
+	mu.Lock()
+	defer mu.Unlock()
+	for c := range logClients {
+		select {
+		case c <- msg:
+		default:
+		}
+	}
+}
+
+type LogMessage struct {
+	Level string      `json:"level"`
+	Time  string      `json:"time"`
+	Msg   string      `json:"msg"`
+	Extra interface{} `json:"extra,omitempty"`
+}
+
+func logWithLevel(level, msg string, extra interface{}) {
+	entry := LogMessage{
+		Level: level,
+		Time:  time.Now().Format(time.RFC3339),
+		Msg:   msg,
+		Extra: extra,
+	}
+	
+	b, _ := json.Marshal(entry)
+	log.Println(string(b))
+	broadcastLog(string(b))
+}
+
+func logInfo(msg string) {
+	logWithLevel("info", msg, nil)
+}
+
+func logError(msg string) {
+	logWithLevel("error", msg, nil)
 }
 
 func getEnv(key, fallback string) string {
@@ -73,8 +122,10 @@ type FileInfo struct {
 	IsDir bool   `json:"is_dir"`
 }
 
+var osReadDir = os.ReadDir
+
 func SetupApp(config Config) (*http.ServeMux, error) {
-	if err := os.MkdirAll(config.LocalDir, 0755); err != nil {
+	if err := os.MkdirAll(config.LocalDir, 0750); err != nil {
 		return nil, err
 	}
 
@@ -94,11 +145,45 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		w.Write(index)
+		_, _ = w.Write(index) // #nosec G104
+	})
+
+	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
+		c := make(chan string, 10)
+		mu.Lock()
+		logClients[c] = true
+		mu.Unlock()
+
+		defer func() {
+			mu.Lock()
+			delete(logClients, c)
+			mu.Unlock()
+			close(c)
+		}()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case msg := <-c:
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", msg) // #nosec G104
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+			}
+		}
 	})
 
 	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
-		files, err := os.ReadDir(config.LocalDir)
+		files, err := osReadDir(config.LocalDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -117,11 +202,11 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			})
 		}
 		if fileInfos == nil {
-			fileInfos = []FileInfo{} // Ensure we return [] instead of null
+			fileInfos = []FileInfo{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(fileInfos)
+		_ = json.NewEncoder(w).Encode(fileInfos) // #nosec G104
 	})
 
 	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
@@ -137,24 +222,27 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		}
 
 		client := SFTPClient{
-			Host:      req.Host,
-			Port:      strconv.Itoa(req.Port),
-			User:      req.User,
-			Password:  req.Password,
-			KeyPath:   req.KeyPath,
-			RemoteDir: req.RemoteDir,
+			Host:                    req.Host,
+			Port:                    strconv.Itoa(req.Port),
+			User:                    req.User,
+			Password:                req.Password,
+			KeyPath:                 req.KeyPath,
+			RemoteDir:               req.RemoteDir,
+			SkipHostKeyVerification: req.SkipHostKeyVerification,
 		}
 
 		if err := client.Connect(); err != nil {
+			logError(fmt.Sprintf("Connection test failed for %s: %v", req.Host, err))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Connection failed: %v", err)})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Connection failed: %v", err)}) // #nosec G104
 			return
 		}
 		defer client.Close()
 
+		logInfo(fmt.Sprintf("Connection test successful for %s", req.Host))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"}) // #nosec G104
 	})
 
 	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -169,82 +257,121 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			return
 		}
 
+		logInfo("Starting upload process...")
 		errs := ProcessUploads(config, req)
 		w.Header().Set("Content-Type", "application/json")
 		if len(errs) > 0 {
 			w.WriteHeader(http.StatusMultiStatus)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{ // #nosec G104
 				"message": "Upload process completed with some errors",
 				"errors":  errs,
 			})
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{"message": "All files uploaded successfully"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "All selected files processed successfully"}) // #nosec G104
 	})
 
 	return mux, nil
 }
 
+var sftpClientConnect = func(s *SFTPClient) error { return s.Connect() }
+var sftpClientUpload = func(s *SFTPClient, localPath string, maxRetries int) error { return s.UploadFileWithRetry(localPath, maxRetries) }
+
 func ProcessUploads(config Config, req UploadRequest) []string {
 	var errs []string
 	client := SFTPClient{
-		Host:              req.Host,
-		Port:              strconv.Itoa(req.Port),
-		User:              req.User,
-		Password:          req.Password,
-		KeyPath:           req.KeyPath,
-		RemoteDir:         req.RemoteDir,
-		DeleteAfterVerify: req.DeleteAfterVerify,
+		Host:                    req.Host,
+		Port:                    strconv.Itoa(req.Port),
+		User:                    req.User,
+		Password:                req.Password,
+		KeyPath:                 req.KeyPath,
+		RemoteDir:               req.RemoteDir,
+		DeleteAfterVerify:       req.DeleteAfterVerify,
+		SkipHostKeyVerification: req.SkipHostKeyVerification,
 	}
 
-	if err := client.Connect(); err != nil {
+	if err := sftpClientConnect(&client); err != nil {
 		msg := fmt.Sprintf("SFTP connection failed: %v", err)
-		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		logError(msg)
 		return []string{msg}
 	}
 	defer client.Close()
 
-	files, err := os.ReadDir(config.LocalDir)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to read local directory: %v", err)
-		log.Printf(`{"level":"error", "msg":"%s"}`, msg)
-		return []string{msg}
+	var filesToProcess []string
+	if len(req.Files) > 0 {
+		filesToProcess = req.Files
+	} else {
+		entries, err := osReadDir(config.LocalDir)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to read local directory: %v", err)
+			logError(msg)
+			return []string{msg}
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				filesToProcess = append(filesToProcess, e.Name())
+			}
+		}
 	}
 
-	for _, f := range files {
-		if f.IsDir() {
+	for _, fileName := range filesToProcess {
+		// Securely join and clean the path
+		localPath := filepath.Join(config.LocalDir, fileName)
+		
+		// Ensure the resulting path is still within config.LocalDir
+		absLocalDir, err := filepath.Abs(config.LocalDir)
+		if err != nil {
+			logError(fmt.Sprintf("Failed to get absolute path of local dir: %v", err))
 			continue
 		}
-		localPath := filepath.Join(config.LocalDir, f.Name())
-		
+		absLocalPath, err := filepath.Abs(localPath)
+		if err != nil {
+			logError(fmt.Sprintf("Failed to get absolute path of file %s: %v", fileName, err))
+			continue
+		}
+
+		if !strings.HasPrefix(absLocalPath, absLocalDir) {
+			logError(fmt.Sprintf("Security Warning: Blocked traversal attempt for file: %s", fileName))
+			errs = append(errs, fmt.Sprintf("Access denied: %s is outside local directory", fileName))
+			continue
+		}
+
 		retries := req.MaxRetries
 		if retries <= 0 {
 			retries = 3
 		}
 
-		if err := client.UploadFileWithRetry(localPath, retries); err != nil {
-			msg := fmt.Sprintf("Failed to upload %s: %v", f.Name(), err)
-			log.Printf(`{"level":"error", "msg":"%s"}`, msg)
+		if err := sftpClientUpload(&client, localPath, retries); err != nil {
+			msg := fmt.Sprintf("Failed to upload %s: %v", fileName, err)
+			logError(msg)
 			errs = append(errs, msg)
 		}
 	}
 	return errs
 }
 
+var httpListen = http.ListenAndServe
+var osExit = os.Exit
+
 func main() {
+	if err := Run(); err != nil {
+		logWithLevel("error", "Application failed", map[string]string{"error": err.Error()})
+		osExit(1)
+	}
+}
+
+func Run() error {
 	config := Config{
-		LocalDir:          getEnv("LOCAL_DIR", "./test_data"),
-		WebPort:           getEnv("WEB_PORT", "8080"),
+		LocalDir: getEnv("LOCAL_DIR", "./test_data"),
+		WebPort:  getEnv("WEB_PORT", "8080"),
 	}
 
 	mux, err := SetupApp(config)
 	if err != nil {
-		log.Fatalf(`{"level":"error", "msg":"Setup failed", "error":"%v"}`, err)
+		return fmt.Errorf("setup failed: %v", err)
 	}
 
-	log.Printf(`{"level":"info", "msg":"Server starting on port %s"}`, config.WebPort)
-	if err := http.ListenAndServe(":"+config.WebPort, mux); err != nil {
-		log.Fatalf(`{"level":"fatal", "msg":"Server failed", "error":"%v"}`, err)
-	}
+	logWithLevel("info", "Server starting", map[string]string{"port": config.WebPort})
+	return httpListen(":"+config.WebPort, mux)
 }
