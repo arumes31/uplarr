@@ -98,11 +98,33 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			}
 		}
 
-		files, err := os.ReadDir(fullPath)
+		files, err := func() ([]os.DirEntry, error) {
+			root, err := os.OpenRoot(absLocalDir)
+			if err != nil {
+				return nil, err
+			}
+			defer root.Close()
+
+			// Compute rel path from evaluated root
+			rel, err := filepath.Rel(absLocalDir, absFullPath)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				rel = "."
+			}
+
+			f, err := root.Open(rel)
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+
+			return f.ReadDir(-1)
+		}()
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 
 		var fileInfos []models.FileInfo
 		for _, f := range files {
@@ -162,19 +184,32 @@ mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request)
 			}
 		}
 
+		// Security check: use os.OpenRoot for hardware-level containment
+		root, err := os.OpenRoot(absLocalDir)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer root.Close()
+
 		var errAct error
 		switch req.Action {
 		case "delete":
-			errAct = os.RemoveAll(absPath)
+			errAct = root.RemoveAll(rel)
 		case "rename":
 			if req.NewName == "" || req.NewName == "." || req.NewName == ".." || filepath.Base(req.NewName) != req.NewName {
 				http.Error(w, "Invalid new name", http.StatusBadRequest)
 				return
 			}
 			newPath := filepath.Join(filepath.Dir(absPath), req.NewName)
-			errAct = os.Rename(absPath, newPath)
+			newRel, err := filepath.Rel(absLocalDir, newPath)
+			if err != nil || newRel == ".." || strings.HasPrefix(newRel, ".."+string(filepath.Separator)) {
+				http.Error(w, "Invalid target name", http.StatusBadRequest)
+				return
+			}
+			errAct = root.Rename(rel, newRel)
 		case "mkdir":
-			errAct = os.MkdirAll(absPath, 0750)
+			errAct = root.MkdirAll(rel, 0750)
 		default:
 			http.Error(w, "Invalid action", http.StatusBadRequest)
 			return
