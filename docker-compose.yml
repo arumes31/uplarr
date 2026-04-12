@@ -1,0 +1,12 @@
+services:
+  uplarr:
+    image: ghcr.io/arumes31/uplarr:latest
+    container_name: uplarr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - LOCAL_DIR=/data
+      - WEB_PORT=8080
+    volumes:
+      - /path/to/your/local/files:/data:ro
