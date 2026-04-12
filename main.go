@@ -386,7 +386,7 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			newPath := filepath.Join(filepath.Dir(fullPath), req.NewName)
 			err = os.Rename(fullPath, newPath)
 		case "mkdir":
-			err = os.MkdirAll(fullPath, 0755)
+			err = os.MkdirAll(fullPath, 0750)
 		default:
 			http.Error(w, "Invalid action", http.StatusBadRequest)
 			return
