@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"uplarr/internal/logger"
@@ -209,33 +210,62 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-func (s *SFTPClient) Remove(path string) error {
+func (s *SFTPClient) validateRemotePath(p string) (string, error) {
 	if s.sftpClient == nil {
-		return fmt.Errorf("SFTP client not connected")
+		return "", fmt.Errorf("SFTP client not connected")
 	}
-	return s.sftpClient.Remove(path)
+	// SFTP paths use forward slashes. Normalize and clean.
+	p = path.Clean(filepath.ToSlash(p))
+	base := path.Clean(filepath.ToSlash(s.RemoteDir))
+
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		return "", fmt.Errorf("invalid remote path")
+	}
+
+	// Precise escape check: rel == ".." or rel starts with "../"
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("unauthorized remote path access: traversal detected")
+	}
+
+	return p, nil
+}
+
+func (s *SFTPClient) Remove(path string) error {
+	p, err := s.validateRemotePath(path)
+	if err != nil {
+		return err
+	}
+	return s.sftpClient.Remove(p)
 }
 
 func (s *SFTPClient) Rename(oldpath, newpath string) error {
-	if s.sftpClient == nil {
-		return fmt.Errorf("SFTP client not connected")
+	op, err := s.validateRemotePath(oldpath)
+	if err != nil {
+		return err
 	}
-	return s.sftpClient.Rename(oldpath, newpath)
+	np, err := s.validateRemotePath(newpath)
+	if err != nil {
+		return err
+	}
+	return s.sftpClient.Rename(op, np)
 }
 
 func (s *SFTPClient) Mkdir(path string) error {
-	if s.sftpClient == nil {
-		return fmt.Errorf("SFTP client not connected")
+	p, err := s.validateRemotePath(path)
+	if err != nil {
+		return err
 	}
-	return s.sftpClient.Mkdir(path)
+	return s.sftpClient.Mkdir(p)
 }
 
 func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
-	if s.sftpClient == nil {
-		return nil, fmt.Errorf("SFTP client not connected")
+	cleanP, err := s.validateRemotePath(p)
+	if err != nil {
+		return nil, err
 	}
-	
-	entries, err := s.sftpClient.ReadDir(p)
+
+	entries, err := s.sftpClient.ReadDir(cleanP)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +294,14 @@ var osRemove = os.Remove
 
 func (s *SFTPClient) UploadFile(localPath string) error {
 	fileName := filepath.Base(localPath)
-	remotePath := path.Join(s.RemoteDir, fileName)
+	// Ensure remote directory is normalized
+	remoteDir := path.Clean(filepath.ToSlash(s.RemoteDir))
+	remotePath := path.Join(remoteDir, fileName)
+
+	// Remote security check
+	if _, err := s.validateRemotePath(remotePath); err != nil {
+		return err
+	}
 
 	// Check if file exists and handle overwrite
 	if !s.Overwrite {
@@ -278,7 +315,13 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %v", err)
 	}
-	defer func() { _ = localFile.Close() }() // #nosec G104
+	
+	closed := false
+	defer func() {
+		if !closed {
+			_ = localFile.Close()
+		}
+	}()
 
 	localStat, err := localFile.Stat()
 	if err != nil {
@@ -341,7 +384,8 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	logger.Info(fmt.Sprintf("Verification passed for %s", fileName))
 
 	// Windows requires file to be closed before deletion
-	_ = localFile.Close() // #nosec G104
+	_ = localFile.Close()
+	closed = true
 
 	if s.DeleteAfterVerify {
 		if err := osRemove(localPath); err != nil {
