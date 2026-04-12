@@ -209,6 +209,27 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
 
+func (s *SFTPClient) Remove(path string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+	return s.sftpClient.Remove(path)
+}
+
+func (s *SFTPClient) Rename(oldpath, newpath string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+	return s.sftpClient.Rename(oldpath, newpath)
+}
+
+func (s *SFTPClient) Mkdir(path string) error {
+	if s.sftpClient == nil {
+		return fmt.Errorf("SFTP client not connected")
+	}
+	return s.sftpClient.Mkdir(path)
+}
+
 func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
 	if s.sftpClient == nil {
 		return nil, fmt.Errorf("SFTP client not connected")
