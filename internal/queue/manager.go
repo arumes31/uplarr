@@ -132,7 +132,14 @@ func (qm *QueueManager) processNext() {
 		}
 
 		// TOCTOU Fix: Open and verify file immediately before connecting
-		f, err := os.Open(candidatePath)
+		// Use os.OpenRoot (Go 1.24+) to strictly scope access to baseDir
+		root, err := os.OpenRoot(baseDir)
+		if err != nil {
+			return fmt.Errorf("failed to open root for validation: %v", err)
+		}
+		defer root.Close()
+
+		f, err := root.Open(rel)
 		if err != nil {
 			return fmt.Errorf("failed to open file for validation: %v", err)
 		}
