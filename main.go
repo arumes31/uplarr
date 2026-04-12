@@ -151,6 +151,18 @@ func (qm *QueueManager) processNext() {
 	}
 
 	err := func() error {
+		// Security: prevent traversal via nextTask.FileName
+		baseDir, err := filepath.Abs(globalConfig.LocalDir)
+		if err != nil { return err }
+		candidatePath := filepath.Join(baseDir, nextTask.FileName)
+		candidatePath, err = filepath.Abs(candidatePath)
+		if err != nil { return err }
+		
+		rel, err := filepath.Rel(baseDir, candidatePath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("invalid file path: traversal detected")
+		}
+
 		if err := client.Connect(); err != nil {
 			return err
 		}
@@ -159,8 +171,7 @@ func (qm *QueueManager) processNext() {
 		retries := nextTask.Config.MaxRetries
 		if retries <= 0 { retries = 3 }
 		
-		localPath := filepath.Join(globalConfig.LocalDir, nextTask.FileName)
-		return client.UploadFileWithRetry(localPath, retries)
+		return client.UploadFileWithRetry(candidatePath, retries)
 	}()
 
 	qm.mu.Lock()
@@ -181,24 +192,43 @@ func (qm *QueueManager) processNext() {
 func (qm *QueueManager) GetTasks() []*Task {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
-	return qm.tasks
+	snapshot := make([]*Task, len(qm.tasks))
+	for i, t := range qm.tasks {
+		copyTask := *t
+		snapshot[i] = &copyTask
+	}
+	return snapshot
 }
 
-func (qm *QueueManager) ControlTask(id string, action string) {
+func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
-	for _, t := range qm.tasks {
+	for i, t := range qm.tasks {
 		if t.ID == id {
 			switch action {
 			case "pause":
-				if t.Status == TaskPending { t.Status = TaskPaused }
+				if t.Status == TaskPending {
+					t.Status = TaskPaused
+					return true, nil
+				}
+				return false, fmt.Errorf("task is not pending")
 			case "resume":
-				if t.Status == TaskPaused { t.Status = TaskPending; qm.trigger() }
+				if t.Status == TaskPaused {
+					t.Status = TaskPending
+					qm.trigger()
+					return true, nil
+				}
+				return false, fmt.Errorf("task is not paused")
 			case "remove":
-				// Logic to remove from slice
+				// Remove from slice
+				qm.tasks = append(qm.tasks[:i], qm.tasks[i+1:]...)
+				return true, nil
+			default:
+				return false, fmt.Errorf("unknown action: %s", action)
 			}
 		}
 	}
+	return false, fmt.Errorf("task not found")
 }
 
 var globalQM *QueueManager
@@ -332,9 +362,15 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 
 		absLocalDir, _ := filepath.Abs(config.LocalDir)
 		absFullPath, err := filepath.Abs(fullPath)
-		if err != nil || !strings.HasPrefix(absFullPath, absLocalDir) {
-			fullPath = config.LocalDir
+		if err != nil {
+			fullPath = absLocalDir
 			relPath = ""
+		} else {
+			rel, err := filepath.Rel(absLocalDir, absFullPath)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				fullPath = absLocalDir
+				relPath = ""
+			}
 		}
 
 		files, err := osReadDir(fullPath)
@@ -365,35 +401,57 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 	mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request) {
 		var req FileActionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Bad request", http.StatusBadRequest)
+			http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		fullPath := filepath.Join(config.LocalDir, req.Path)
 		// Security check
-		absLocalDir, _ := filepath.Abs(config.LocalDir)
-		absPath, _ := filepath.Abs(fullPath)
-		if !strings.HasPrefix(absPath, absLocalDir) {
+		absLocalDir, err := filepath.Abs(config.LocalDir)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		absPath, err := filepath.Abs(fullPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rel, err := filepath.Rel(absLocalDir, absPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
 			return
 		}
 
-		var err error
+		// Root protection for destructive actions
+		if rel == "." || rel == "" {
+			if req.Action == "delete" || req.Action == "rename" {
+				http.Error(w, "Cannot perform action on root directory", http.StatusForbidden)
+				return
+			}
+		}
+
+		var errAct error
 		switch req.Action {
 		case "delete":
-			err = os.RemoveAll(fullPath)
+			errAct = os.RemoveAll(absPath)
 		case "rename":
-			newPath := filepath.Join(filepath.Dir(fullPath), req.NewName)
-			err = os.Rename(fullPath, newPath)
+			if req.NewName == "" || req.NewName == "." || req.NewName == ".." || filepath.Base(req.NewName) != req.NewName {
+				http.Error(w, "Invalid new name", http.StatusBadRequest)
+				return
+			}
+			newPath := filepath.Join(filepath.Dir(absPath), req.NewName)
+			errAct = os.Rename(absPath, newPath)
 		case "mkdir":
-			err = os.MkdirAll(fullPath, 0750)
+			errAct = os.MkdirAll(absPath, 0750)
 		default:
 			http.Error(w, "Invalid action", http.StatusBadRequest)
 			return
 		}
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errAct != nil {
+			http.Error(w, errAct.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -512,9 +570,23 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		if r.Method == http.MethodGet {
 			_ = json.NewEncoder(w).Encode(globalQM.GetTasks())
 		} else if r.Method == http.MethodPost {
-			var req struct{ ID string `json:"id"`; Action string `json:"action"` }
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			globalQM.ControlTask(req.ID, req.Action)
+			var req struct {
+				ID     string `json:"id"`
+				Action string `json:"action"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			success, err := globalQM.ControlTask(req.ID, req.Action)
+			if err != nil {
+				if !success && strings.Contains(err.Error(), "not found") {
+					http.Error(w, err.Error(), http.StatusNotFound)
+				} else {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+				}
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 		}
 	})
