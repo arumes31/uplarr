@@ -154,10 +154,17 @@ func (qm *QueueManager) processNext() {
 		// Security: prevent traversal via nextTask.FileName
 		baseDir, err := filepath.Abs(globalConfig.LocalDir)
 		if err != nil { return err }
+		baseDir, _ = filepath.EvalSymlinks(baseDir)
+
 		candidatePath := filepath.Join(baseDir, nextTask.FileName)
 		candidatePath, err = filepath.Abs(candidatePath)
 		if err != nil { return err }
 		
+		// Resolve symlinks to prevent escapes
+		if realPath, err := filepath.EvalSymlinks(candidatePath); err == nil {
+			candidatePath = realPath
+		}
+
 		rel, err := filepath.Rel(baseDir, candidatePath)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("invalid file path: traversal detected")
