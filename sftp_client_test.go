@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -170,7 +171,11 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 						}
 					}(requests)
 
-					// In reality we would use sftp.NewServer here, but we are just testing SSH connection here.
+					server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(uploadDir))
+					if err == nil {
+						server.Serve()
+						server.Close()
+					}
 					conn.Close()
 				}
 			}(nConn)

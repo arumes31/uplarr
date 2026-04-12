@@ -189,11 +189,11 @@ func TestSetupApp(t *testing.T) {
 	}
 	osReadDir = oldReadDir
 
-	// Test /api/test-connection POST (fail connect)
 	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password"}`
 	reqTestConn, _ := http.NewRequest("POST", "/api/test-connection", strings.NewReader(reqBody))
 	rrTestConn := httptest.NewRecorder()
 	mux.ServeHTTP(rrTestConn, reqTestConn)
+	// Failed because we don't have mock server here, but it should hit the verification error if not set
 	if rrTestConn.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status 401 for failed connect, got %d", rrTestConn.Code)
 	}

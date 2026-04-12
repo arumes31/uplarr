@@ -85,7 +85,7 @@ func (s *SFTPClient) Connect() error {
 		}
 		hostKeyCallback = cb
 	} else if s.SkipHostKeyVerification {
-		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+		hostKeyCallback = ssh.InsecureIgnoreHostKey() // #nosec G106
 	} else {
 		return fmt.Errorf("host key verification required (provide KnownHostsPath or SkipHostKeyVerification)")
 	}
@@ -116,10 +116,10 @@ func (s *SFTPClient) Connect() error {
 
 func (s *SFTPClient) Close() {
 	if s.sftpClient != nil {
-		s.sftpClient.Close()
+		_ = s.sftpClient.Close() // #nosec G104
 	}
 	if s.sshClient != nil {
-		s.sshClient.Close()
+		_ = s.sshClient.Close() // #nosec G104
 	}
 }
 
@@ -143,7 +143,7 @@ type File interface {
 }
 
 var osOpen = func(name string) (File, error) {
-	return os.Open(name)
+	return os.Open(filepath.Clean(name)) // #nosec G304
 }
 
 var osRemove = os.Remove
@@ -156,7 +156,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %v", err)
 	}
-	defer localFile.Close()
+	defer func() { _ = localFile.Close() }() // #nosec G104
 
 	localStat, err := localFile.Stat()
 	if err != nil {
@@ -167,7 +167,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create remote file: %v", err)
 	}
-	defer remoteFile.Close()
+	defer func() { _ = remoteFile.Close() }() // #nosec G104
 
 	startTime := time.Now()
 	_, err = io.Copy(remoteFile, localFile)
@@ -191,7 +191,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	logInfo(fmt.Sprintf("Verification passed for %s", fileName))
 
 	// Windows requires file to be closed before deletion
-	localFile.Close()
+	_ = localFile.Close() // #nosec G104
 
 	if s.DeleteAfterVerify {
 		if err := osRemove(localPath); err != nil {
