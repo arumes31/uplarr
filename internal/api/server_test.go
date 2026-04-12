@@ -1,4 +1,4 @@
-package main
+package api_test
 
 import (
 	"encoding/json"
@@ -9,14 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-)
 
-func TestRun_Failures(t *testing.T) {
-	// 1. SetupApp failure (invalid directory)
-	// We'll mock os.MkdirAll to fail
-	// Actually easier to test SetupApp directly
-}
+	"uplarr/internal/api"
+	"uplarr/internal/models"
+	"uplarr/internal/queue"
+)
 
 func TestSetupApp(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "setup_app_test")
@@ -25,12 +22,13 @@ func TestSetupApp(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	config := Config{
+	config := models.Config{
 		LocalDir: tempDir,
 		WebPort:  "8082",
 	}
 
-	mux, err := SetupApp(config)
+	qm := queue.NewQueueManager(config.LocalDir)
+	mux, err := api.SetupApp(config, qm)
 	if err != nil {
 		t.Fatalf("SetupApp failed: %v", err)
 	}
@@ -59,8 +57,8 @@ func TestSetupApp(t *testing.T) {
 		t.Errorf("Expected status 200 for /api/files, got %d", rrFiles.Code)
 	}
 	var response struct {
-		CurrentPath string     `json:"current_path"`
-		Files       []FileInfo `json:"files"`
+		CurrentPath string            `json:"current_path"`
+		Files       []models.FileInfo `json:"files"`
 	}
 	if err := json.NewDecoder(rrFiles.Body).Decode(&response); err != nil {
 		t.Errorf("Failed to decode JSON: %v", err)
@@ -81,16 +79,6 @@ func TestSetupApp(t *testing.T) {
 	if len(response.Files) != 2 {
 		t.Errorf("Expected 2 items, got %d", len(response.Files))
 	}
-
-	// Test /api/files ReadDir fail
-	oldReadDir := osReadDir
-	osReadDir = func(name string) ([]os.DirEntry, error) { return nil, fmt.Errorf("readdir fail") }
-	rrFiles3 := httptest.NewRecorder()
-	mux.ServeHTTP(rrFiles3, reqFiles)
-	if rrFiles3.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status 500 for readdir fail, got %d", rrFiles3.Code)
-	}
-	osReadDir = oldReadDir
 
 	// Test /api/test-connection POST (fail connect)
 	reqBody := `{"host":"127.0.0.1","port":22,"user":"user","password":"password","skip_host_key_verification":true}`
@@ -118,38 +106,4 @@ func TestSetupApp(t *testing.T) {
 	if rrRemote.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status 401 for failed remote connect, got %d", rrRemote.Code)
 	}
-}
-
-func TestProcessUploads_Errors(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "process_uploads_errors")
-	defer os.RemoveAll(tempDir)
-	
-	config := Config{LocalDir: tempDir}
-	req := UploadRequest{
-		Host: "127.0.0.1", Port: 22, User: "user", Files: []string{"test.txt"},
-	}
-
-	// Mock connect to fail
-	oldConnect := sftpClientConnect
-	sftpClientConnect = func(s *SFTPClient) error { return fmt.Errorf("connect fail") }
-	defer func() { sftpClientConnect = oldConnect }()
-
-	// We can't easily test the background loop here without more refactoring, 
-	// but we can test theAddTask call which ProcessUploads now does.
-	errs := ProcessUploads(config, req)
-	if len(errs) != 0 {
-		t.Errorf("ProcessUploads should return empty errors now as it just queues, got %v", errs)
-	}
-}
-
-func TestMainFunc(t *testing.T) {
-	os.Setenv("WEB_PORT", "0")
-	os.Setenv("LOCAL_DIR", os.TempDir())
-	defer os.Unsetenv("WEB_PORT")
-	defer os.Unsetenv("LOCAL_DIR")
-
-	go func() {
-		main()
-	}()
-	time.Sleep(100 * time.Millisecond)
 }

@@ -1,4 +1,4 @@
-package main
+package sftpclient
 
 import (
 	"crypto/ed25519"

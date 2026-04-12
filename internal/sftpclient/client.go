@@ -1,4 +1,4 @@
-package main
+package sftpclient
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 	"path"
 	"path/filepath"
 	"time"
+
+	"uplarr/internal/logger"
+	"uplarr/internal/models"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -112,7 +115,7 @@ func (tr *throttledReader) Read(p []byte) (n int, err error) {
 						newLimit = 1024
 					}
 					tr.limiter.SetLimit(newLimit)
-					logInfo(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, tr.maxLatency, int(newLimit/1024)))
+					logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, tr.maxLatency, int(newLimit/1024)))
 				}
 			}
 		}
@@ -200,13 +203,13 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 			return nil
 		}
 		lastErr = err
-		logError(fmt.Sprintf("Upload attempt %d failed for %s: %v", attempt, filepath.Base(localPath), err))
+		logger.Error(fmt.Sprintf("Upload attempt %d failed for %s: %v", attempt, filepath.Base(localPath), err))
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-func (s *SFTPClient) ReadRemoteDir(p string) ([]FileInfo, error) {
+func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
 	if s.sftpClient == nil {
 		return nil, fmt.Errorf("SFTP client not connected")
 	}
@@ -216,9 +219,9 @@ func (s *SFTPClient) ReadRemoteDir(p string) ([]FileInfo, error) {
 		return nil, err
 	}
 	
-	var fileInfos []FileInfo
+	var fileInfos []models.FileInfo
 	for _, entry := range entries {
-		fileInfos = append(fileInfos, FileInfo{
+		fileInfos = append(fileInfos, models.FileInfo{
 			Name:  entry.Name(),
 			Size:  entry.Size(),
 			IsDir: entry.IsDir(),
@@ -302,7 +305,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	}
 
 	duration := time.Since(startTime)
-	logInfo(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
+	logger.Info(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
 
 	// Verify
 	remoteStat, err := s.sftpClient.Stat(remotePath)
@@ -314,16 +317,16 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 		return fmt.Errorf("verification failed: size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
 	}
 
-	logInfo(fmt.Sprintf("Verification passed for %s", fileName))
+	logger.Info(fmt.Sprintf("Verification passed for %s", fileName))
 
 	// Windows requires file to be closed before deletion
 	_ = localFile.Close() // #nosec G104
 
 	if s.DeleteAfterVerify {
 		if err := osRemove(localPath); err != nil {
-			logError(fmt.Sprintf("Failed to delete local file %s: %v", localPath, err))
+			logger.Error(fmt.Sprintf("Failed to delete local file %s: %v", localPath, err))
 		} else {
-			logInfo(fmt.Sprintf("Deleted local file %s", fileName))
+			logger.Info(fmt.Sprintf("Deleted local file %s", fileName))
 		}
 	}
 
