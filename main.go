@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -315,8 +316,27 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 	}
 
 	for _, fileName := range filesToProcess {
+		// Securely join and clean the path
 		localPath := filepath.Join(config.LocalDir, fileName)
 		
+		// Ensure the resulting path is still within config.LocalDir
+		absLocalDir, err := filepath.Abs(config.LocalDir)
+		if err != nil {
+			logError(fmt.Sprintf("Failed to get absolute path of local dir: %v", err))
+			continue
+		}
+		absLocalPath, err := filepath.Abs(localPath)
+		if err != nil {
+			logError(fmt.Sprintf("Failed to get absolute path of file %s: %v", fileName, err))
+			continue
+		}
+
+		if !strings.HasPrefix(absLocalPath, absLocalDir) {
+			logError(fmt.Sprintf("Security Warning: Blocked traversal attempt for file: %s", fileName))
+			errs = append(errs, fmt.Sprintf("Access denied: %s is outside local directory", fileName))
+			continue
+		}
+
 		retries := req.MaxRetries
 		if retries <= 0 {
 			retries = 3

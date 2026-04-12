@@ -380,9 +380,18 @@ func TestProcessUploads_Errors(t *testing.T) {
 
 	// Test ReadDir fail
 	config.LocalDir = filepath.Join(tempDir, "nonexistent")
+	req.Files = nil // Ensure it triggers ReadDir
 	errs = ProcessUploads(config, req)
 	if len(errs) == 0 || !strings.Contains(errs[0], "Failed to read local directory") {
 		t.Errorf("Expected ReadDir failure, got %v", errs)
+	}
+
+	// Test Directory Traversal Protection
+	config.LocalDir = tempDir
+	req.Files = []string{"../../etc/passwd"}
+	errs = ProcessUploads(config, req)
+	if len(errs) == 0 || !strings.Contains(errs[0], "Access denied") {
+		t.Errorf("Expected directory traversal protection error, got %v", errs)
 	}
 }
 
