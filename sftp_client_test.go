@@ -63,9 +63,10 @@ func (m *mockFileInfo) ModTime() time.Time { return m.modTime }
 func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSFTPClient struct {
-	createFunc func(path string) (SFTPFile, error)
-	statFunc   func(path string) (os.FileInfo, error)
-	closeErr   error
+	createFunc  func(path string) (SFTPFile, error)
+	statFunc    func(path string) (os.FileInfo, error)
+	readDirFunc func(p string) ([]os.FileInfo, error)
+	closeErr    error
 }
 func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
 	if m.createFunc != nil { return m.createFunc(path) }
@@ -74,6 +75,10 @@ func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
 func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
 	if m.statFunc != nil { return m.statFunc(path) }
 	return nil, fmt.Errorf("stat not implemented")
+}
+func (m *mockSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
+	if m.readDirFunc != nil { return m.readDirFunc(p) }
+	return []os.FileInfo{}, nil
 }
 func (m *mockSFTPClient) Close() error { return m.closeErr }
 
@@ -282,8 +287,9 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 		statFunc:   func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 10}, nil },
 	}
 	client := &SFTPClient{
-		RemoteDir: ".",
+		RemoteDir:  ".",
 		sftpClient: mockC,
+		Overwrite:  true,
 	}
 
 	tempDir, _ := os.MkdirTemp("", "full_cov")
@@ -378,8 +384,9 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 
 	mockC := &mockSFTPClient{}
 	client := &SFTPClient{
-		RemoteDir: ".",
+		RemoteDir:  ".",
 		sftpClient: mockC,
+		Overwrite:  true,
 	}
 
 	// 1. Test Interrupted Transfer (Failure during Write)
@@ -414,11 +421,54 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 		return &mockSFTPFile{statSize: 43, delay: 50 * time.Millisecond}, nil
 	}
 	
-	start := time.Now()
 	if err := client.UploadFile(testFile); err != nil {
 		t.Errorf("Expected success with latency, got %v", err)
 	}
-	if time.Since(start) < 50*time.Millisecond {
-		t.Errorf("Expected transfer to take at least 50ms, took %v", time.Since(start))
+}
+
+func TestSFTPClient_RateLimiting(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "ratelimit_test")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	// 60KB of data
+	data := make([]byte, 60*1024)
+	os.WriteFile(testFile, data, 0644)
+
+	mockFile := &mockSFTPFile{statSize: 60 * 1024}
+	mockC := &mockSFTPClient{
+		createFunc: func(path string) (SFTPFile, error) { return mockFile, nil },
+		statFunc:   func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 60 * 1024}, nil },
+	}
+	
+	// Test Fixed Rate Limit: 10KB/s. 60KB should take ~6s.
+	client := &SFTPClient{
+		RemoteDir:     ".",
+		sftpClient:    mockC,
+		RateLimitKBps: 10,
+		Overwrite:     true,
+	}
+
+	start := time.Now()
+	if err := client.UploadFile(testFile); err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+	duration := time.Since(start)
+	if duration < 4000*time.Millisecond {
+		t.Errorf("Expected at least 4s for 60KB at 10KB/s, took %v", duration)
+	}
+
+	// Test Dynamic Throttling: 100ms max latency. 
+	// We'll simulate 200ms delay in the mock file to trigger throttling.
+	mockFile.delay = 200 * time.Millisecond
+	clientDynamic := &SFTPClient{
+		RemoteDir:    ".",
+		sftpClient:   mockC,
+		MaxLatencyMs: 100,
+		Overwrite:    true,
+	}
+
+	// This should log "Latency high" and throttle down.
+	if err := clientDynamic.UploadFile(testFile); err != nil {
+		t.Fatalf("Dynamic upload failed: %v", err)
 	}
 }

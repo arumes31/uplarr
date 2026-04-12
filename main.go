@@ -38,9 +38,12 @@ type UploadRequest struct {
 	KeyPath                 string   `json:"key_path"`
 	RemoteDir               string   `json:"remote_dir"`
 	DeleteAfterVerify       bool     `json:"delete_after_verify"`
+	Overwrite               bool     `json:"overwrite"`
 	MaxRetries              int      `json:"max_retries"`
 	SkipHostKeyVerification bool     `json:"skip_host_key_verification"`
 	Files                   []string `json:"files"` // Support for specific file queueing
+	RateLimitKBps           int      `json:"rate_limit_kbps"`
+	MaxLatencyMs            int      `json:"max_latency_ms"`
 }
 
 var (
@@ -183,7 +186,19 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 	})
 
 	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
-		files, err := osReadDir(config.LocalDir)
+		relPath := r.URL.Query().Get("path")
+		fullPath := filepath.Join(config.LocalDir, relPath)
+
+		// Security: ensure the path is within config.LocalDir
+		absLocalDir, _ := filepath.Abs(config.LocalDir)
+		absFullPath, err := filepath.Abs(fullPath)
+		if err != nil || !strings.HasPrefix(absFullPath, absLocalDir) {
+			// If it's outside, just use the root
+			fullPath = config.LocalDir
+			relPath = ""
+		}
+
+		files, err := osReadDir(fullPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -206,7 +221,10 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(fileInfos) // #nosec G104
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"current_path": relPath,
+			"files":        fileInfos,
+		})
 	})
 
 	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +247,8 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 			KeyPath:                 req.KeyPath,
 			RemoteDir:               req.RemoteDir,
 			SkipHostKeyVerification: req.SkipHostKeyVerification,
+			RateLimitKBps:           req.RateLimitKBps,
+			MaxLatencyMs:            req.MaxLatencyMs,
 		}
 
 		if err := client.Connect(); err != nil {
@@ -243,6 +263,54 @@ func SetupApp(config Config) (*http.ServeMux, error) {
 		logInfo(fmt.Sprintf("Connection test successful for %s", req.Host))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"}) // #nosec G104
+	})
+
+	mux.HandleFunc("/api/remote/files", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req UploadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		client := SFTPClient{
+			Host:                    req.Host,
+			Port:                    strconv.Itoa(req.Port),
+			User:                    req.User,
+			Password:                req.Password,
+			KeyPath:                 req.KeyPath,
+			RemoteDir:               req.RemoteDir,
+			SkipHostKeyVerification: req.SkipHostKeyVerification,
+		}
+
+		if err := client.Connect(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		defer client.Close()
+
+		remotePath := r.URL.Query().Get("path")
+		if remotePath == "" {
+			remotePath = req.RemoteDir
+		}
+
+		files, err := client.ReadRemoteDir(remotePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"current_path": remotePath,
+			"files":        files,
+		})
 	})
 
 	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +356,10 @@ func ProcessUploads(config Config, req UploadRequest) []string {
 		KeyPath:                 req.KeyPath,
 		RemoteDir:               req.RemoteDir,
 		DeleteAfterVerify:       req.DeleteAfterVerify,
+		Overwrite:               req.Overwrite,
 		SkipHostKeyVerification: req.SkipHostKeyVerification,
+		RateLimitKBps:           req.RateLimitKBps,
+		MaxLatencyMs:            req.MaxLatencyMs,
 	}
 
 	if err := sftpClientConnect(&client); err != nil {

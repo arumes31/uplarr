@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+	"golang.org/x/time/rate"
 )
 
 type SFTPFile interface {
@@ -22,6 +24,7 @@ type SFTPFile interface {
 type SFTPClientInterface interface {
 	Create(path string) (SFTPFile, error)
 	Stat(path string) (os.FileInfo, error)
+	ReadDir(p string) ([]os.FileInfo, error)
 	Close() error
 }
 
@@ -37,6 +40,10 @@ func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
 	return c.Client.Stat(path)
 }
 
+func (c *realSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
+	return c.Client.ReadDir(p)
+}
+
 type SFTPClient struct {
 	Host                    string
 	Port                    string
@@ -45,10 +52,57 @@ type SFTPClient struct {
 	KeyPath                 string
 	RemoteDir               string
 	DeleteAfterVerify       bool
+	Overwrite               bool
 	KnownHostsPath          string
 	SkipHostKeyVerification bool
+	RateLimitKBps           int
+	MaxLatencyMs            int
 	sshClient               *ssh.Client
 	sftpClient              SFTPClientInterface
+}
+
+type throttledReader struct {
+	ctx        context.Context
+	r          io.Reader
+	limiter    *rate.Limiter
+	maxLatency time.Duration
+}
+
+func (tr *throttledReader) Read(p []byte) (n int, err error) {
+	n, err = tr.r.Read(p)
+	if n > 0 && tr.limiter != nil {
+		start := time.Now()
+		// If n exceeds burst, we must wait in chunks
+		burst := tr.limiter.Burst()
+		remaining := n
+		for remaining > 0 {
+			waitN := remaining
+			if waitN > burst {
+				waitN = burst
+			}
+			if err := tr.limiter.WaitN(tr.ctx, waitN); err != nil {
+				return n, err
+			}
+			remaining -= waitN
+		}
+
+		if tr.maxLatency > 0 {
+			latency := time.Since(start)
+			if latency > tr.maxLatency {
+				// Throttle down: reduce limit by 10%
+				currentLimit := tr.limiter.Limit()
+				if currentLimit != rate.Inf {
+					newLimit := currentLimit * 0.9
+					if newLimit < 1024 { // Minimum 1KB/s
+						newLimit = 1024
+					}
+					tr.limiter.SetLimit(newLimit)
+					logInfo(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, tr.maxLatency, int(newLimit/1024)))
+				}
+			}
+		}
+	}
+	return n, err
 }
 
 var osReadFile = os.ReadFile
@@ -137,6 +191,27 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
 
+func (s *SFTPClient) ReadRemoteDir(p string) ([]FileInfo, error) {
+	if s.sftpClient == nil {
+		return nil, fmt.Errorf("SFTP client not connected")
+	}
+	
+	entries, err := s.sftpClient.ReadDir(p)
+	if err != nil {
+		return nil, err
+	}
+	
+	var fileInfos []FileInfo
+	for _, entry := range entries {
+		fileInfos = append(fileInfos, FileInfo{
+			Name:  entry.Name(),
+			Size:  entry.Size(),
+			IsDir: entry.IsDir(),
+		})
+	}
+	return fileInfos, nil
+}
+
 type File interface {
 	io.ReadCloser
 	Stat() (os.FileInfo, error)
@@ -151,6 +226,14 @@ var osRemove = os.Remove
 func (s *SFTPClient) UploadFile(localPath string) error {
 	fileName := filepath.Base(localPath)
 	remotePath := path.Join(s.RemoteDir, fileName)
+
+	// Check if file exists and handle overwrite
+	if !s.Overwrite {
+		_, err := s.sftpClient.Stat(remotePath)
+		if err == nil {
+			return fmt.Errorf("remote file %s already exists and overwrite is disabled", fileName)
+		}
+	}
 
 	localFile, err := osOpen(localPath)
 	if err != nil {
@@ -168,8 +251,32 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 		return fmt.Errorf("failed to create remote file: %v", err)
 	}
 
+	var reader io.Reader = localFile
+	if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
+		limit := rate.Limit(s.RateLimitKBps * 1024)
+		if limit == 0 && s.MaxLatencyMs > 0 {
+			// If only latency throttling is requested, start with a high limit
+			limit = rate.Limit(100 * 1024 * 1024) // 100MB/s
+		}
+		
+		if limit > 0 {
+			// Burst is 16KB or at least 10% of the limit
+			burst := 16 * 1024
+			if int(limit)/10 > burst {
+				burst = int(limit) / 10
+			}
+			limiter := rate.NewLimiter(limit, burst)
+			reader = &throttledReader{
+				ctx:        context.Background(),
+				r:          localFile,
+				limiter:    limiter,
+				maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
+			}
+		}
+	}
+
 	startTime := time.Now()
-	_, err = io.Copy(remoteFile, localFile)
+	_, err = io.Copy(remoteFile, reader)
 	if err != nil {
 		_ = remoteFile.Close() // #nosec G104
 		return fmt.Errorf("failed to copy file: %v", err)

@@ -156,12 +156,15 @@ func TestSetupApp(t *testing.T) {
 	if rrFiles.Code != http.StatusOK {
 		t.Errorf("Expected status 200 for /api/files, got %d", rrFiles.Code)
 	}
-	var files []FileInfo
-	if err := json.NewDecoder(rrFiles.Body).Decode(&files); err != nil {
+	var response struct {
+		CurrentPath string     `json:"current_path"`
+		Files       []FileInfo `json:"files"`
+	}
+	if err := json.NewDecoder(rrFiles.Body).Decode(&response); err != nil {
 		t.Errorf("Failed to decode JSON: %v", err)
 	}
-	if len(files) != 0 {
-		t.Errorf("Expected 0 files, got %d", len(files))
+	if len(response.Files) != 0 {
+		t.Errorf("Expected 0 files, got %d", len(response.Files))
 	}
 
 	// Add file and directory
@@ -170,11 +173,11 @@ func TestSetupApp(t *testing.T) {
 
 	rrFiles2 := httptest.NewRecorder()
 	mux.ServeHTTP(rrFiles2, reqFiles)
-	if err := json.NewDecoder(rrFiles2.Body).Decode(&files); err != nil {
+	if err := json.NewDecoder(rrFiles2.Body).Decode(&response); err != nil {
 		t.Errorf("Failed to decode JSON: %v", err)
 	}
-	if len(files) != 2 {
-		t.Errorf("Expected 2 items, got %d", len(files))
+	if len(response.Files) != 2 {
+		t.Errorf("Expected 2 items, got %d", len(response.Files))
 	}
 
 	// Test /api/files ReadDir fail

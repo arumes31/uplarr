@@ -25,8 +25,8 @@ body {
 }
 
 .container {
-    max-width: 1000px;
-    margin: 2rem auto;
+    max-width: 1200px;
+    margin: 1rem auto;
     padding: 0 1rem;
 }
 
@@ -54,27 +54,201 @@ h2, h3 {
     color: #334155;
 }
 
-.list-header {
+.file-browser-section {
+    padding: 1rem;
+}
+
+.dual-pane {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
+    gap: 1px;
+    background-color: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    height: 400px;
+}
+
+.pane {
+    flex: 1;
+    background-color: var(--card-bg);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pane-header {
+    padding: 0.75rem;
+    background-color: #f1f5f9;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.pane-header h2 {
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.breadcrumb {
+    font-family: monospace;
+    font-size: 0.875rem;
+    background: #fff;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pane-toolbar {
+    padding: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+    background-color: #f8fafc;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.pane-toolbar button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.pane-toolbar button:hover {
+    background-color: #f1f5f9;
+}
+
+.file-list-container, .queue-container {
+    flex: 1;
+    overflow-y: auto;
 }
 
 #file-table {
     width: 100%;
     border-collapse: collapse;
-}
-
-#file-table th, #file-table td {
-    text-align: left;
-    padding: 0.75rem;
-    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
 }
 
 #file-table th {
-    background-color: #f1f5f9;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #f8fafc;
     font-weight: 600;
+    padding: 0.5rem;
+    text-align: left;
+    border-bottom: 2px solid var(--border-color);
+}
+
+#file-table td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: default;
+}
+
+#file-table tr:hover {
+    background-color: #eff6ff;
+}
+
+.col-check { width: 30px; }
+.col-size { width: 80px; text-align: right; }
+.col-type { width: 100px; }
+
+.clickable-row {
+    cursor: pointer !important;
+}
+
+.folder-row {
+    color: #2563eb;
+    font-weight: 500;
+}
+
+.icon-folder::before { content: "📁 "; }
+.icon-file::before { content: "📄 "; }
+.icon-up::before { content: "⬆️ "; }
+.icon-refresh::before { content: "🔄 "; }
+
+.queue-list {
+    padding: 1rem;
+}
+
+.queue-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.queue-item .status-pending { color: var(--warn-color); }
+.queue-item .status-done { color: var(--success-color); }
+
+.remote-pane {
+    position: relative;
+}
+
+.dragging {
+    opacity: 0.5;
+    background-color: #dbeafe !important;
+}
+
+.drop-target {
+    border: 2px dashed var(--primary-color) !important;
+    background-color: #eff6ff !important;
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background-color: var(--card-bg);
+    padding: 2rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    max-width: 400px;
+    width: 90%;
+}
+
+.modal-content h3 {
+    margin-top: 0;
+}
+
+.modal-options {
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background-color: #f8fafc;
+    border-radius: 0.5rem;
+}
+
+.modal-options .checkbox-group {
+    margin-bottom: 0.5rem;
+}
+
+#modal-file-info {
+    font-size: 0.875rem;
+    color: #64748b;
+    word-break: break-all;
 }
 
 .form-grid {

@@ -13,27 +13,83 @@
             <p>Direct local files to SFTP with verification.</p>
         </header>
 
-        <section class="file-list-section">
-            <div class="list-header">
-                <h2>Local Files</h2>
-                <button id="refresh-btn">Refresh List</button>
-            </div>
-            <div id="file-list-container">
-                <table id="file-table">
-                    <thead>
-                        <tr>
-                            <th>Select</th>
-                            <th>File Name</th>
-                            <th>Size</th>
-                            <th>Type</th>
-                        </tr>
-                    </thead>
-                    <tbody id="file-list-body">
-                        <!-- Files will be loaded here -->
-                    </tbody>
-                </table>
+        <section class="file-browser-section">
+            <div class="dual-pane">
+                <div class="pane local-pane">
+                    <div class="pane-header">
+                        <h2>Local Files</h2>
+                        <div class="breadcrumb" id="local-breadcrumb">/</div>
+                    </div>
+                    <div class="pane-toolbar">
+                        <button id="refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
+                        <button id="up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                    </div>
+                    <div class="file-list-container">
+                        <table id="file-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-check"><input type="checkbox" id="select-all-checkbox"></th>
+                                    <th class="col-name">Name</th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-type">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="file-list-body">
+                                <!-- Files will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="pane remote-pane" id="remote-drop-zone">
+                    <div class="pane-header">
+                        <h2>Remote Files</h2>
+                        <div class="breadcrumb" id="remote-breadcrumb">/</div>
+                    </div>
+                    <div class="pane-toolbar">
+                        <button id="remote-refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
+                        <button id="remote-up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                    </div>
+                    <div class="file-list-container">
+                        <table id="remote-file-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-name">Name</th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-type">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="remote-file-list-body">
+                                <!-- Remote files will be loaded here -->
+                                <tr><td colspan="3" class="empty-msg">Connect to SFTP to browse</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </section>
+
+        <!-- Drop Confirmation Modal -->
+        <div id="drop-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3>Confirm Upload</h3>
+                <p id="modal-file-info"></p>
+                <div class="modal-options">
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="modal-delete-local" name="delete_local">
+                        <label for="modal-delete-local">Delete local file after upload</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="modal-overwrite-remote" name="overwrite_remote" checked>
+                        <label for="modal-overwrite-remote">Overwrite remote file if exists</label>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button id="modal-cancel-btn" class="secondary-btn">Cancel</button>
+                    <button id="modal-confirm-btn" class="primary-btn">Upload Now</button>
+                </div>
+            </div>
+        </div>
 
         <section class="config-section">
             <h2>SFTP Configuration</h2>
@@ -62,6 +118,14 @@
                     <div class="form-group">
                         <label for="remote_dir">Remote Directory:</label>
                         <input type="text" id="remote_dir" name="remote_dir" value="/upload" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="rate_limit_kbps">Rate Limit (KB/s):</label>
+                        <input type="number" id="rate_limit_kbps" name="rate_limit_kbps" value="0" placeholder="0 = unlimited">
+                    </div>
+                    <div class="form-group">
+                        <label for="max_latency_ms">Dynamic Throttle (Max Latency ms):</label>
+                        <input type="number" id="max_latency_ms" name="max_latency_ms" value="0" placeholder="0 = disabled">
                     </div>
                     <div class="form-group">
                         <label for="max_retries">Max Retries:</label>
