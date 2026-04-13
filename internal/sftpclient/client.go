@@ -77,8 +77,27 @@ type SFTPClient struct {
 	SkipHostKeyVerification bool
 	RateLimitKBps           int
 	MaxLatencyMs            int
+	ProgressCallback        func(bytesWritten int64)
+	FileSizeCallback        func(totalBytes int64)
 	sshClient               *ssh.Client
 	sftpClient              SFTPClientInterface
+}
+
+type progressWriter struct {
+	w        io.Writer
+	callback func(bytesWritten int64)
+	total    int64
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	if n > 0 {
+		pw.total += int64(n)
+		if pw.callback != nil {
+			pw.callback(pw.total)
+		}
+	}
+	return n, err
 }
 
 type throttledReader struct {
@@ -417,6 +436,14 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 			}
 		}
 	}
+
+	// Report total file size before upload begins
+	if s.FileSizeCallback != nil {
+		s.FileSizeCallback(localStat.Size())
+	}
+
+	// Wrap writer in progress tracker
+	writer = &progressWriter{w: writer, callback: s.ProgressCallback}
 
 	startTime := time.Now()
 	_, err = io.Copy(writer, localFile)
