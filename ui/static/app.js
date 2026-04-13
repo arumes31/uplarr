@@ -508,6 +508,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
             remoteCurrentPath = data.current_path;
+            const remoteDirInput = sftpForm.elements['remote_dir'];
+            if (remoteDirInput) {
+                remoteDirInput.value = remoteCurrentPath;
+            }
             await setSecureItem('uplarr_remote_path', remoteCurrentPath);
             remoteBreadcrumb.textContent = remoteCurrentPath;
             remoteFilesList = data.files || [];
@@ -781,6 +785,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const config = getFormData();
         config.files = filesToUpload;
+        // Ensure we use the currently navigated path if it's available and not different from form
+        if (remoteCurrentPath) {
+            config.remote_dir = remoteCurrentPath;
+        }
         uploadBtn.disabled = true;
         try {
             const res = await fetch('/api/upload', { 

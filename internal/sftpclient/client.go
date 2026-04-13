@@ -23,11 +23,13 @@ import (
 
 type SFTPFile interface {
 	io.ReadWriteCloser
+	io.Seeker
 	Stat() (os.FileInfo, error)
 }
 
 type SFTPClientInterface interface {
 	Create(path string) (SFTPFile, error)
+	OpenFile(path string, flags int) (SFTPFile, error)
 	Stat(path string) (os.FileInfo, error)
 	ReadDir(p string) ([]os.FileInfo, error)
 	Remove(path string) error
@@ -42,6 +44,10 @@ type realSFTPClient struct {
 
 func (c *realSFTPClient) Create(path string) (SFTPFile, error) {
 	return c.Client.Create(path)
+}
+
+func (c *realSFTPClient) OpenFile(path string, flags int) (SFTPFile, error) {
+	return c.Client.OpenFile(path, flags)
 }
 
 func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
@@ -370,6 +376,7 @@ func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
 
 type File interface {
 	io.ReadCloser
+	io.Seeker
 	Stat() (os.FileInfo, error)
 }
 
@@ -421,18 +428,53 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 		return fmt.Errorf("failed to stat local file: %v", err)
 	}
 
-	remoteFile, err := s.sftpClient.Create(tempRemotePath)
-	if err != nil {
-		return fmt.Errorf("failed to create temp remote file: %v", err)
+	var remoteFile SFTPFile
+	var startOffset int64
+
+	// Check for partial file to resume
+	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
+	if err == nil {
+		if remoteStat.Size() > 0 && remoteStat.Size() < localStat.Size() {
+			logger.Info(fmt.Sprintf("Partial file found (%d/%d bytes). Attempting to resume...", remoteStat.Size(), localStat.Size()))
+			rf, errOpen := s.sftpClient.OpenFile(tempRemotePath, os.O_RDWR)
+			if errOpen == nil {
+				offset, errSeek := rf.Seek(0, io.SeekEnd)
+				if errSeek == nil {
+					_, errLSeek := localFile.Seek(offset, io.SeekStart)
+					if errLSeek == nil {
+						remoteFile = rf
+						startOffset = offset
+						logger.Info(fmt.Sprintf("Resuming from offset %d", startOffset))
+					} else {
+						logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
+						rf.Close()
+					}
+				} else {
+					logger.Error(fmt.Sprintf("Failed to seek remote file: %v", errSeek))
+					rf.Close()
+				}
+			} else {
+				logger.Error(fmt.Sprintf("Failed to open remote file for resume: %v", errOpen))
+			}
+		} else if remoteStat.Size() >= localStat.Size() {
+			logger.Info(fmt.Sprintf("Existing partial file is larger than or equal to local file (%d >= %d), restarting.", remoteStat.Size(), localStat.Size()))
+		}
+	}
+
+	if remoteFile == nil {
+		remoteFile, err = s.sftpClient.Create(tempRemotePath)
+		if err != nil {
+			return fmt.Errorf("failed to create temp remote file: %v", err)
+		}
 	}
 
 	cleanupRemote := true
 	defer func() {
 		if cleanupRemote {
 			_ = remoteFile.Close()
-			if err := s.sftpClient.Remove(tempRemotePath); err != nil {
-				logger.Error(fmt.Sprintf("Failed to cleanup partial upload %s: %v", fileName+".tmp", err))
-			}
+			// We no longer remove partial files on every error, to allow resuming.
+			// Only log failure.
+			logger.Info(fmt.Sprintf("Transfer interrupted. Partial file retained at %s", tempRemotePath))
 		}
 	}()
 
@@ -464,7 +506,10 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	}
 
 	// Wrap writer in progress tracker
-	writer = &progressWriter{w: writer, callback: s.ProgressCallback}
+	writer = &progressWriter{w: writer, callback: s.ProgressCallback, total: startOffset}
+	if s.ProgressCallback != nil && startOffset > 0 {
+		s.ProgressCallback(startOffset)
+	}
 	
 	// Wrap in context checker to ensure io.Copy respects cancellation
 	writer = &contextWriter{ctx: ctx, w: writer}
@@ -483,7 +528,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	logger.Info(fmt.Sprintf("Uploaded %s -> %s (%d bytes) in %s", localPath, remotePath, localStat.Size(), duration))
 
 	// Verify the temp file
-	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
+	remoteStat, err = s.sftpClient.Stat(tempRemotePath)
 	if err != nil {
 		return fmt.Errorf("failed to stat temp remote file for verification: %v", err)
 	}

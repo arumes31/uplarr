@@ -47,6 +47,9 @@ func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 func (m *mockSFTPFile) Close() error { return m.closeErr }
+func (m *mockSFTPFile) Seek(offset int64, whence int) (int64, error) {
+	return 0, nil
+}
 func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
 	if m.statErr != nil {
 		return nil, m.statErr
@@ -71,6 +74,7 @@ func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSFTPClient struct {
 	createFunc  func(path string) (SFTPFile, error)
+	openFileFunc func(path string, flags int) (SFTPFile, error)
 	statFunc    func(path string) (os.FileInfo, error)
 	readDirFunc func(p string) ([]os.FileInfo, error)
 	mkdirErr    error
@@ -84,6 +88,12 @@ func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
 		return m.createFunc(path)
 	}
 	return nil, fmt.Errorf("create not implemented")
+}
+func (m *mockSFTPClient) OpenFile(path string, flags int) (SFTPFile, error) {
+	if m.openFileFunc != nil {
+		return m.openFileFunc(path, flags)
+	}
+	return nil, fmt.Errorf("openfile not implemented")
 }
 func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
 	if m.statFunc != nil {
@@ -116,6 +126,7 @@ func (m *mockFileObj) Stat() (os.FileInfo, error) {
 }
 func (m *mockFileObj) Close() error { return m.osFile.Close() }
 func (m *mockFileObj) Read(p []byte) (n int, err error) { return m.osFile.Read(p) }
+func (m *mockFileObj) Seek(offset int64, whence int) (int64, error) { return m.osFile.Seek(offset, whence) }
 
 // --- Helpers ---
 
