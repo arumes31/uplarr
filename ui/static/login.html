@@ -133,6 +133,10 @@
             <p>Secure Background Uploader</p>
         </div>
         <form id="login-form">
+            <div id="insecure-notice" class="error-msg" style="color: #fbbf24; margin-bottom: 1rem; display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                Insecure context: Local encryption disabled.
+            </div>
             <div class="form-group">
                 <input type="password" id="password" placeholder="Master Password" required autofocus>
             </div>
@@ -146,6 +150,11 @@
 
     <script src="/static/crypto.js"></script>
     <script>
+        // Check for secure context on load
+        if (!SecureStorage.isAvailable) {
+            document.getElementById('insecure-notice').style.display = 'block';
+        }
+
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const password = document.getElementById('password').value;

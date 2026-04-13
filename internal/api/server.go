@@ -227,6 +227,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
 
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -247,6 +248,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			}
 		}
 	}))
+
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
 
 	mux.HandleFunc("/api/files", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		relPath := filepath.Clean(r.URL.Query().Get("path"))

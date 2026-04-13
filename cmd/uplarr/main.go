@@ -50,8 +50,8 @@ func Run() error {
 		return fmt.Errorf("setup failed: %v", err)
 	}
 
-	logger.Info(fmt.Sprintf("Server starting on port: %s", config.WebPort))
-	return httpListenAndServe(":"+config.WebPort, mux)
+	logger.Info(fmt.Sprintf("Server starting on port: %s (binding to 0.0.0.0)", config.WebPort))
+	return httpListenAndServe("0.0.0.0:"+config.WebPort, mux)
 }
 
 func main() {
