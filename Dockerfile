@@ -14,7 +14,7 @@ COPY . .
 RUN go test -v ./...
 
 # Compile the binary statically
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o uplarr .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o uplarr ./cmd/uplarr
 
 # Stage 2: Final minimal image
 FROM alpine:3.23
