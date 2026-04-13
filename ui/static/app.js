@@ -35,16 +35,132 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalCancelBtn = document.getElementById('modal-cancel-btn');
     const modalConfirmBtn = document.getElementById('modal-confirm-btn');
 
+    // Compact toggle elements
+    const compactToggle = document.getElementById('compact-toggle');
+    const remoteCompactToggle = document.getElementById('remote-compact-toggle');
+    const localPane = document.querySelector('.local-pane');
+    const remotePane = document.querySelector('.remote-pane');
+
     let currentPath = '';
     let remoteCurrentPath = '';
     let queuedFiles = new Map(); // path -> fileInfo
     let dropData = null;
     let localFilesList = [];
+    let remoteFilesList = [];
+
+    // --- Sort State ---
+    let localSort = { key: 'name', dir: 'asc' };
+    let remoteSort = { key: 'name', dir: 'asc' };
+
+    // --- Compact View State (persisted) ---
+    const loadCompactState = () => {
+        const saved = localStorage.getItem('uplarr_compact');
+        if (saved !== null) return JSON.parse(saved);
+        return { local: false, remote: false };
+    };
+
+    const saveCompactState = (state) => {
+        localStorage.setItem('uplarr_compact', JSON.stringify(state));
+    };
+
+    const compactState = loadCompactState();
+
+    const applyCompact = () => {
+        localPane.classList.toggle('compact', compactState.local);
+        remotePane.classList.toggle('compact', compactState.remote);
+        compactToggle.classList.toggle('active', compactState.local);
+        remoteCompactToggle.classList.toggle('active', compactState.remote);
+    };
+
+    compactToggle.addEventListener('click', () => {
+        compactState.local = !compactState.local;
+        applyCompact();
+        saveCompactState(compactState);
+    });
+
+    remoteCompactToggle.addEventListener('click', () => {
+        compactState.remote = !compactState.remote;
+        applyCompact();
+        saveCompactState(compactState);
+    });
+
+    applyCompact();
+
+    // --- Sort Logic ---
+
+    const sortFiles = (files, sortKey, sortDir) => {
+        const sorted = [...files];
+        const dirMul = sortDir === 'asc' ? 1 : -1;
+
+        sorted.sort((a, b) => {
+            // Directories always first
+            if (a.is_dir && !b.is_dir) return -1;
+            if (!a.is_dir && b.is_dir) return 1;
+
+            switch (sortKey) {
+                case 'name':
+                    return dirMul * a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+                case 'size':
+                    return dirMul * ((a.size || 0) - (b.size || 0));
+                case 'type': {
+                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
+                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    return dirMul * extA.localeCompare(extB);
+                }
+                default:
+                    return 0;
+            }
+        });
+        return sorted;
+    };
+
+    const updateSortHeaders = (tableId, sortState) => {
+        const table = document.getElementById(tableId);
+        table.querySelectorAll('th.sortable').forEach(th => {
+            th.classList.remove('sort-asc', 'sort-desc');
+            const arrow = th.querySelector('.sort-arrow');
+            if (arrow) arrow.textContent = '\u25B2';
+            if (th.dataset.sort === sortState.key) {
+                th.classList.add(sortState.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+                if (arrow) arrow.textContent = sortState.dir === 'asc' ? '\u25B2' : '\u25BC';
+            }
+        });
+    };
+
+    // Bind sort clicks for local file table
+    document.querySelectorAll('#file-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (localSort.key === key) {
+                localSort.dir = localSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                localSort.key = key;
+                localSort.dir = 'asc';
+            }
+            renderLocalFiles();
+        });
+    });
+
+    // Bind sort clicks for remote file table
+    document.querySelectorAll('#remote-file-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (remoteSort.key === key) {
+                remoteSort.dir = remoteSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                remoteSort.key = key;
+                remoteSort.dir = 'asc';
+            }
+            renderRemoteFiles();
+        });
+    });
+
+    // --- Helpers ---
 
     const formatSize = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
+        if (bytes === 0) return '0 B';
         const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
@@ -95,6 +211,76 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Local Files ---
 
+    const renderLocalFiles = () => {
+        const sorted = sortFiles(localFilesList, localSort.key, localSort.dir);
+        updateSortHeaders('file-table', localSort);
+        fileListBody.innerHTML = '';
+
+        sorted.forEach(file => {
+            const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+            const row = document.createElement('tr');
+
+            if (file.is_dir) {
+                row.className = 'clickable-row folder-row';
+                row.addEventListener('click', (e) => {
+                    if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
+                });
+            } else {
+                row.draggable = true;
+                row.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', JSON.stringify({ path: fullRelPath, name: file.name, size: file.size }));
+                    row.classList.add('dragging');
+                });
+                row.addEventListener('dragend', () => row.classList.remove('dragging'));
+            }
+
+            // Checkbox Cell
+            const tdCheck = document.createElement('td');
+            tdCheck.className = 'col-check';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'file-checkbox';
+            cb.dataset.path = fullRelPath;
+            cb.dataset.name = file.name;
+            if (file.is_dir) cb.disabled = true;
+            if (queuedFiles.has(fullRelPath)) cb.checked = true;
+
+            cb.addEventListener('change', (e) => {
+                if (e.target.checked) queuedFiles.set(fullRelPath, { name: file.name });
+                else queuedFiles.delete(fullRelPath);
+                updateUploadButtonText();
+            });
+            tdCheck.appendChild(cb);
+
+            // Name Cell
+            const tdName = document.createElement('td');
+            tdName.className = 'col-name';
+            const icon = document.createElement('span');
+            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            tdName.appendChild(icon);
+            tdName.appendChild(document.createTextNode(file.name));
+            tdName.title = file.name;
+
+            // Size Cell
+            const tdSize = document.createElement('td');
+            tdSize.className = 'col-size';
+            tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
+
+            // Type Cell
+            const tdType = document.createElement('td');
+            tdType.className = 'col-type';
+            tdType.textContent = file.is_dir ? 'Dir' : 'File';
+
+            row.appendChild(tdCheck);
+            row.appendChild(tdName);
+            row.appendChild(tdSize);
+            row.appendChild(tdType);
+            fileListBody.appendChild(row);
+        });
+
+        selectAllCheckbox.checked = false;
+    };
+
     const fetchFiles = async (path = '') => {
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
@@ -102,77 +288,14 @@ document.addEventListener('DOMContentLoaded', () => {
             currentPath = data.current_path;
             localBreadcrumb.textContent = '/' + currentPath;
             localFilesList = data.files || [];
-            fileListBody.innerHTML = '';
-            
-            localFilesList.forEach(file => {
-                const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-                const row = document.createElement('tr');
-                
-                if (file.is_dir) {
-                    row.className = 'clickable-row folder-row';
-                    row.addEventListener('click', (e) => {
-                        if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
-                    });
-                } else {
-                    row.draggable = true;
-                    row.addEventListener('dragstart', (e) => {
-                        e.dataTransfer.setData('text/plain', JSON.stringify({ path: fullRelPath, name: file.name, size: file.size }));
-                        row.classList.add('dragging');
-                    });
-                    row.addEventListener('dragend', () => row.classList.remove('dragging'));
-                }
-
-                // Checkbox Cell
-                const tdCheck = document.createElement('td');
-                tdCheck.className = 'col-check';
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.className = 'file-checkbox';
-                cb.dataset.path = fullRelPath;
-                cb.dataset.name = file.name;
-                if (file.is_dir) cb.disabled = true;
-                if (queuedFiles.has(fullRelPath)) cb.checked = true;
-                
-                cb.addEventListener('change', (e) => {
-                    if (e.target.checked) queuedFiles.set(fullRelPath, { name: file.name });
-                    else queuedFiles.delete(fullRelPath);
-                    updateUploadButtonText();
-                });
-                tdCheck.appendChild(cb);
-
-                // Name Cell
-                const tdName = document.createElement('td');
-                tdName.className = 'col-name';
-                const icon = document.createElement('span');
-                icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
-                tdName.appendChild(icon);
-                tdName.appendChild(document.createTextNode(file.name));
-
-                // Size Cell
-                const tdSize = document.createElement('td');
-                tdSize.className = 'col-size';
-                tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
-
-                // Type Cell
-                const tdType = document.createElement('td');
-                tdType.className = 'col-type';
-                tdType.textContent = file.is_dir ? 'Directory' : 'File';
-
-                row.appendChild(tdCheck);
-                row.appendChild(tdName);
-                row.appendChild(tdSize);
-                row.appendChild(tdType);
-                fileListBody.appendChild(row);
-            });
-
-            selectAllCheckbox.checked = false;
+            renderLocalFiles();
         } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
     };
 
     refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
     upBtn.addEventListener('click', () => {
         if (!currentPath || currentPath === '.') return;
-        const parts = currentPath.split(/[\\\/]/);
+        const parts = currentPath.split(/[\\/]/);
         parts.pop();
         fetchFiles(parts.join('/'));
     });
@@ -232,6 +355,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Remote Files ---
 
+    const renderRemoteFiles = () => {
+        const sorted = sortFiles(remoteFilesList, remoteSort.key, remoteSort.dir);
+        updateSortHeaders('remote-file-table', remoteSort);
+        remoteFileListBody.innerHTML = '';
+
+        if (sorted.length === 0) {
+            const row = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 3;
+            td.className = 'empty-msg';
+            td.textContent = 'Empty directory';
+            row.appendChild(td);
+            remoteFileListBody.appendChild(row);
+            return;
+        }
+
+        sorted.forEach(file => {
+            const row = document.createElement('tr');
+            if (file.is_dir) {
+                row.className = 'clickable-row folder-row';
+                row.addEventListener('click', () => {
+                    const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
+                    fetchRemoteFiles(newPath);
+                });
+            }
+
+            const tdName = document.createElement('td');
+            tdName.className = 'col-name';
+            const icon = document.createElement('span');
+            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            tdName.appendChild(icon);
+            tdName.appendChild(document.createTextNode(file.name));
+            tdName.title = file.name;
+
+            const tdSize = document.createElement('td');
+            tdSize.className = 'col-size';
+            tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
+
+            const tdType = document.createElement('td');
+            tdType.className = 'col-type';
+            tdType.textContent = file.is_dir ? 'Dir' : 'File';
+
+            row.appendChild(tdName);
+            row.appendChild(tdSize);
+            row.appendChild(tdType);
+            remoteFileListBody.appendChild(row);
+        });
+    };
+
     const fetchRemoteFiles = async (path = null) => {
         if (!sftpForm.checkValidity()) return sftpForm.reportValidity();
         const config = getFormData();
@@ -245,49 +417,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             remoteCurrentPath = data.current_path;
             remoteBreadcrumb.textContent = remoteCurrentPath;
-            remoteFileListBody.innerHTML = '';
-            
-            if (!data.files || data.files.length === 0) {
-                const row = document.createElement('tr');
-                const td = document.createElement('td');
-                td.colSpan = 3;
-                td.className = 'empty-msg';
-                td.textContent = 'Empty directory';
-                row.appendChild(td);
-                remoteFileListBody.appendChild(row);
-                return;
-            }
-
-            data.files.forEach(file => {
-                const row = document.createElement('tr');
-                if (file.is_dir) {
-                    row.className = 'clickable-row folder-row';
-                    row.addEventListener('click', () => {
-                        const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
-                        fetchRemoteFiles(newPath);
-                    });
-                }
-                
-                const tdName = document.createElement('td');
-                tdName.className = 'col-name';
-                const icon = document.createElement('span');
-                icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
-                tdName.appendChild(icon);
-                tdName.appendChild(document.createTextNode(file.name));
-
-                const tdSize = document.createElement('td');
-                tdSize.className = 'col-size';
-                tdSize.textContent = file.is_dir ? '-' : formatSize(file.size);
-
-                const tdType = document.createElement('td');
-                tdType.className = 'col-type';
-                tdType.textContent = file.is_dir ? 'Directory' : 'File';
-
-                row.appendChild(tdName);
-                row.appendChild(tdSize);
-                row.appendChild(tdType);
-                remoteFileListBody.appendChild(row);
-            });
+            remoteFilesList = data.files || [];
+            renderRemoteFiles();
         } catch (err) {
             addLog(`Remote fetch error: ${err.message}`, 'error');
             remoteFileListBody.innerHTML = '';
