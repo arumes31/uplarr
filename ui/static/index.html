@@ -25,15 +25,17 @@
                         <button id="up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
                         <button id="mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
                         <button id="delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
+                        <span class="toolbar-separator"></span>
+                        <button id="compact-toggle" class="compact-toggle" title="Toggle compact view">Compact</button>
                     </div>
                     <div class="file-list-container">
                         <table id="file-table" class="file-table">
                             <thead>
                                 <tr>
                                     <th class="col-check"><input type="checkbox" id="select-all-checkbox"></th>
-                                    <th class="col-name">Name</th>
-                                    <th class="col-size">Size</th>
-                                    <th class="col-type">Type</th>
+                                    <th class="col-name sortable" data-sort="name">Name <span class="sort-arrow">▲</span></th>
+                                    <th class="col-size sortable" data-sort="size">Size <span class="sort-arrow">▲</span></th>
+                                    <th class="col-type sortable" data-sort="type">Type <span class="sort-arrow">▲</span></th>
                                 </tr>
                             </thead>
                             <tbody id="file-list-body">
@@ -53,14 +55,16 @@
                         <button id="remote-up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
                         <button id="remote-mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
                         <button id="remote-delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
+                        <span class="toolbar-separator"></span>
+                        <button id="remote-compact-toggle" class="compact-toggle" title="Toggle compact view">Compact</button>
                     </div>
                     <div class="file-list-container">
                         <table id="remote-file-table" class="file-table">
                             <thead>
                                 <tr>
-                                    <th class="col-name">Name</th>
-                                    <th class="col-size">Size</th>
-                                    <th class="col-type">Type</th>
+                                    <th class="col-name sortable" data-sort="name">Name <span class="sort-arrow">▲</span></th>
+                                    <th class="col-size sortable" data-sort="size">Size <span class="sort-arrow">▲</span></th>
+                                    <th class="col-type sortable" data-sort="type">Type <span class="sort-arrow">▲</span></th>
                                 </tr>
                             </thead>
                             <tbody id="remote-file-list-body">
