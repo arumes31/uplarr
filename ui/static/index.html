@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uplarr - Local to SFTP Upload</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Uplarr</h1>
+            <p>Direct local files to SFTP with verification.</p>
+        </header>
+
+        <section class="file-browser-section">
+            <div class="dual-pane">
+                <div class="pane local-pane">
+                    <div class="pane-header">
+                        <h2>Local Files</h2>
+                        <div class="breadcrumb" id="local-breadcrumb">/</div>
+                    </div>
+                    <div class="pane-toolbar">
+                        <button id="refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
+                        <button id="up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                        <button id="mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
+                        <button id="delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
+                    </div>
+                    <div class="file-list-container">
+                        <table id="file-table" class="file-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-check"><input type="checkbox" id="select-all-checkbox"></th>
+                                    <th class="col-name">Name</th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-type">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="file-list-body">
+                                <!-- Files -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="pane remote-pane" id="remote-drop-zone">
+                    <div class="pane-header">
+                        <h2>Remote Files</h2>
+                        <div class="breadcrumb" id="remote-breadcrumb">/</div>
+                    </div>
+                    <div class="pane-toolbar">
+                        <button id="remote-refresh-btn" title="Refresh"><i class="icon-refresh"></i> Refresh</button>
+                        <button id="remote-up-btn" title="Go Up"><i class="icon-up"></i> Up</button>
+                        <button id="remote-mkdir-btn" title="New Folder"><i class="icon-folder"></i> New Folder</button>
+                        <button id="remote-delete-btn" title="Delete"><i class="icon-delete"></i> Delete</button>
+                    </div>
+                    <div class="file-list-container">
+                        <table id="remote-file-table" class="file-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-name">Name</th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-type">Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="remote-file-list-body">
+                                <!-- Remote files -->
+                                <tr><td colspan="3" class="empty-msg">Connect to SFTP to browse</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Background Queue Section -->
+        <section class="queue-section">
+            <h3>Background Queue</h3>
+            <div class="queue-table-container">
+                <table id="queue-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="queue-body">
+                        <!-- Queue tasks -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Drop Confirmation Modal -->
+        <div id="drop-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3>Confirm Upload</h3>
+                <p id="modal-file-info"></p>
+                <div class="modal-options">
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="modal-delete-local" name="delete_local">
+                        <label for="modal-delete-local">Delete local file after upload</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="modal-overwrite-remote" name="overwrite_remote" checked>
+                        <label for="modal-overwrite-remote">Overwrite remote file if exists</label>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button id="modal-cancel-btn" class="secondary-btn">Cancel</button>
+                    <button id="modal-confirm-btn" class="primary-btn">Upload Now</button>
+                </div>
+            </div>
+        </div>
+
+        <section class="config-section">
+            <h2>SFTP Configuration</h2>
+            <form id="sftp-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="host">Host:</label>
+                        <input type="text" id="host" name="host" placeholder="sftp.example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="port">Port:</label>
+                        <input type="number" id="port" name="port" value="22" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="user">Username:</label>
+                        <input type="text" id="user" name="user" placeholder="user" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" placeholder="Key or password">
+                    </div>
+                    <div class="form-group">
+                        <label for="key_path">Private Key Path:</label>
+                        <input type="text" id="key_path" name="key_path" placeholder="/path/to/key (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label for="known_hosts_path">Known Hosts Path:</label>
+                        <input type="text" id="known_hosts_path" name="known_hosts_path" placeholder="/path/to/known_hosts (optional)">
+                    </div>
+                    <div class="form-group">
+                        <label for="remote_dir">Remote Directory:</label>
+                        <input type="text" id="remote_dir" name="remote_dir" value="/upload" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="rate_limit_kbps">Rate Limit (KB/s):</label>
+                        <input type="number" id="rate_limit_kbps" name="rate_limit_kbps" value="0" placeholder="0 = unlimited">
+                    </div>
+                    <div class="form-group">
+                        <label for="max_latency_ms">Dynamic Throttle (Max Latency ms):</label>
+                        <input type="number" id="max_latency_ms" name="max_latency_ms" value="0" placeholder="0 = disabled">
+                    </div>
+                    <div class="form-group">
+                        <label for="max_retries">Max Retries:</label>
+                        <input type="number" id="max_retries" name="max_retries" value="3" required>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="skip_host_key_verification" name="skip_host_key_verification">
+                        <label for="skip_host_key_verification">Skip Host Key Verification (Insecure)</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="delete_after_verify" name="delete_after_verify">
+                        <label for="delete_after_verify">Delete local file after successful verification</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="overwrite" name="overwrite" checked>
+                        <label for="overwrite">Overwrite remote file if exists</label>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button type="button" id="test-btn" class="secondary-btn">Test Connection</button>
+                    <button type="button" id="upload-btn" class="primary-btn">Queue Selected Files</button>
+                </div>
+            </form>
+            <div id="status-message" class="status-msg hidden"></div>
+        </section>
+
+        <section class="logs-section">
+            <h3>Process Logs</h3>
+            <div id="log-container" class="log-window"></div>
+        </section>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -26,3 +26,8 @@ uplarr
 .qodo/
 .DS_Store
 .env
+
+# Test coverage artifacts
+api
+api_cov
+queue

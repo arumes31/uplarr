@@ -23,6 +23,7 @@ graph TD
         API <--> Broadcaster[SSE Log Broadcaster]
         API <--> Queue[File Queue Manager]
         Queue --> SFTP[SFTP Client - golang.org/x/crypto/ssh]
+        SFTP <--> Limiter[Rate Limiter - golang.org/x/time/rate]
     end
     
     subgraph Storage
@@ -39,10 +40,15 @@ graph TD
 
 ## ✨ Key Features
 
+- 📦 **Background Queue**: Persistent task manager for background uploads with pause/resume support.
+- 📁 **File Management**: Create folders, rename, and delete files on both local and remote filesystems.
+- 📂 **WinSCP-Style Browser**: Advanced dual-pane interface for browsing local and remote files with full directory navigation.
+- 🖱️ **Drag & Drop**: Seamlessly upload files by dragging them from the local pane to the remote directory of your choice.
 - 🛠 **Dynamic Configuration**: Configure and test SFTP connections, including host key verification toggles, directly in the browser.
 - 📡 **Real-time SSE Logs**: Integrated Server-Sent Events (SSE) provide live terminal-style feedback for all operations.
-- 📦 **File Queueing**: Select specific files or directories from your local mount for targeted uploads.
+- 📦 **File Queueing**: Select specific files from any local subdirectory for targeted batch uploads.
 - ✅ **Integrity Verification**: Post-upload verification ensures remote files match local sources exactly.
+- 🎛 **Advanced Rate Limiting**: Fixed upload speed caps and dynamic throttling based on network latency.
 - 🧹 **Smart Cleanup**: Automatically remove local files only after successful remote verification.
 - 🐳 **Enterprise Ready**: Multi-arch Docker images (`amd64`, `arm64`) and automated security scanning.
 
@@ -70,7 +76,7 @@ docker run -d \
   -p 8080:8080 \
   -v /your/local/data:/root/test_data \
   --name uplarr \
-  ghcr.io/arumes31/uplarr:latest
+  ghcr.io/arumes31/uplarr:main
 ```
 
 ### Using Docker Compose
@@ -80,7 +86,7 @@ Create a `docker-compose.yml` file:
 ```yaml
 services:
   uplarr:
-    image: ghcr.io/arumes31/uplarr:latest
+    image: ghcr.io/arumes31/uplarr:main
     ports:
       - "8080:8080"
     environment:
