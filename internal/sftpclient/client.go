@@ -447,11 +447,11 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 						logger.Info(fmt.Sprintf("Resuming from offset %d", startOffset))
 					} else {
 						logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
-						rf.Close()
+						_ = rf.Close()
 					}
 				} else {
 					logger.Error(fmt.Sprintf("Failed to seek remote file: %v", errSeek))
-					rf.Close()
+					_ = rf.Close()
 				}
 			} else {
 				logger.Error(fmt.Sprintf("Failed to open remote file for resume: %v", errOpen))
