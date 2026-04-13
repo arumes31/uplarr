@@ -373,6 +373,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	}
 	
 	tempRemotePath := remotePath + ".tmp"
+	logger.Info(fmt.Sprintf("Copying file from %s -> %s", localPath, remotePath))
 
 	// Check if file exists and handle overwrite
 	if !s.Overwrite {
@@ -458,7 +459,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	}
 
 	duration := time.Since(startTime)
-	logger.Info(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
+	logger.Info(fmt.Sprintf("Uploaded %s -> %s (%d bytes) in %s", localPath, remotePath, localStat.Size(), duration))
 
 	// Verify the temp file
 	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
