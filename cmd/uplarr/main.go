@@ -38,8 +38,9 @@ var (
 
 func Run() error {
 	config := models.Config{
-		LocalDir: getEnv("LOCAL_DIR", "./test_data"),
-		WebPort:  getEnv("WEB_PORT", "8080"),
+		LocalDir:     getEnv("LOCAL_DIR", "./test_data"),
+		WebPort:      getEnv("WEB_PORT", "8080"),
+		AuthPassword: getEnv("AUTH_PASSWORD", ""),
 	}
 
 	qm := queue.NewQueueManager(config.LocalDir)

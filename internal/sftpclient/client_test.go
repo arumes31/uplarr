@@ -349,7 +349,7 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	os.WriteFile(testFile, []byte("1234567890"), 0644)
 
 	// 1. Success
-	if err := client.UploadFile(testFile); err != nil {
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
 		t.Errorf("Expected success, got %v", err)
 	}
 
@@ -362,7 +362,7 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 		}
 		return &mockFileObj{osFile: f, statErr: fmt.Errorf("stat fail")}, nil
 	}
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "stat fail") {
 		t.Errorf("Expected stat fail, got %v", err)
 	}
 	osOpen = oldOpen
@@ -370,21 +370,21 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	// 3. Create remote fail
 	oldCreate := mockC.createFunc
 	mockC.createFunc = func(path string) (SFTPFile, error) { return nil, fmt.Errorf("create fail") }
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "create fail") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "create fail") {
 		t.Errorf("Expected create fail, got %v", err)
 	}
 	mockC.createFunc = oldCreate
 
 	// 4. io.Copy fail
 	mockFile.writeErr = fmt.Errorf("write fail")
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "write fail") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "write fail") {
 		t.Errorf("Expected write fail, got %v", err)
 	}
 	mockFile.writeErr = nil
 
 	// 4b. remote close fail
 	mockFile.closeErr = fmt.Errorf("remote close fail")
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "remote close fail") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "remote close fail") {
 		t.Errorf("Expected remote close fail, got %v", err)
 	}
 	mockFile.closeErr = nil
@@ -392,14 +392,14 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	// 5. Remote Stat fail (verification)
 	oldStat := mockC.statFunc
 	mockC.statFunc = func(path string) (os.FileInfo, error) { return nil, fmt.Errorf("stat remote fail") }
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "stat remote fail") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "stat remote fail") {
 		t.Errorf("Expected stat remote fail, got %v", err)
 	}
 	mockC.statFunc = oldStat
 
 	// 6. Size mismatch
 	mockC.statFunc = func(path string) (os.FileInfo, error) { return &mockFileInfo{size: 5}, nil }
-	if err := client.UploadFile(testFile); err == nil || !strings.Contains(err.Error(), "size mismatch") {
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "size mismatch") {
 		t.Errorf("Expected size mismatch, got %v", err)
 	}
 	mockC.statFunc = oldStat
@@ -408,20 +408,20 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	client.DeleteAfterVerify = true
 	oldRemove := osRemove
 	osRemove = func(name string) error { return fmt.Errorf("remove error") }
-	if err := client.UploadFile(testFile); err != nil {
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
 		t.Errorf("Expected success even if remove fails, got %v", err)
 	}
 	osRemove = oldRemove
 
 	// 8. Delete success coverage
-	if err := client.UploadFile(testFile); err != nil {
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
 		t.Errorf("Expected success on delete, got %v", err)
 	}
 
 	// 9. UploadFileWithRetry failure path
 	oldOpen2 := osOpen
 	osOpen = func(name string) (File, error) { return nil, fmt.Errorf("open fail") }
-	if err := client.UploadFileWithRetry(testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
+	if err := client.UploadFileWithRetry(context.Background(), testFile, 2); err == nil || !strings.Contains(err.Error(), "upload failed after 2 attempts") {
 		t.Errorf("Expected retry fail, got %v", err)
 	}
 	osOpen = oldOpen2
@@ -447,8 +447,19 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 	mockC.statFunc = func(path string) (os.FileInfo, error) {
 		return &mockFileInfo{size: 43}, nil
 	}
+	if err := client.UploadFile(context.Background(), testFile); err == nil || !strings.Contains(err.Error(), "interrupted transfer") {
+		t.Errorf("Expected interrupted transfer error, got %v", err)
+	}
 
-	err := client.UploadFile(testFile)
+	// 2. Test Cancellation via context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancel() // Cancel immediately
+	if err := client.UploadFile(ctx, testFile); err == nil || (!strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "operation was canceled")) {
+		t.Errorf("Expected context canceled error, got %v", err)
+	}
+
+	err := client.UploadFile(context.Background(), testFile)
 	if err == nil || !strings.Contains(err.Error(), "interrupted transfer") {
 		t.Errorf("Expected interrupted transfer error, got %v", err)
 	}
@@ -463,7 +474,7 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 		return &mockSFTPFile{statSize: 43}, nil
 	}
 
-	if err := client.UploadFileWithRetry(testFile, 2); err != nil {
+	if err := client.UploadFileWithRetry(context.Background(), testFile, 2); err != nil {
 		t.Errorf("Expected retry to succeed on second attempt, got %v", err)
 	}
 
@@ -472,7 +483,7 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 		return &mockSFTPFile{statSize: 43, delay: 10 * time.Millisecond}, nil
 	}
 
-	if err := client.UploadFile(testFile); err != nil {
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
 		t.Errorf("Expected success with latency, got %v", err)
 	}
 }
@@ -500,7 +511,7 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 	}
 
 	start := time.Now()
-	if err := client.UploadFile(testFile); err != nil {
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 	duration := time.Since(start)
@@ -517,7 +528,7 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 	}
 
 	start = time.Now()
-	if err := clientDynamic.UploadFile(testFile); err != nil {
+	if err := clientDynamic.UploadFile(context.Background(), testFile); err != nil {
 		t.Fatalf("Dynamic upload failed: %v", err)
 	}
 }
@@ -580,7 +591,7 @@ func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
 	mockC.statFunc = func(path string) (os.FileInfo, error) {
 		return nil, fmt.Errorf("permission denied")
 	}
-	err := client.UploadFile(testFile)
+	err := client.UploadFile(context.Background(), testFile)
 	if err == nil || !strings.Contains(err.Error(), "failed to check remote file existence") {
 		t.Errorf("Expected existence check error, got %v", err)
 	}
@@ -613,6 +624,7 @@ func TestThrottledWriter_LargeWrite(t *testing.T) {
 
 func TestThrottledReader_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cancel()
 	limiter := rate.NewLimiter(1024, 1024)
 	tr := &throttledReader{
@@ -627,6 +639,7 @@ func TestThrottledReader_WaitError(t *testing.T) {
 
 func TestThrottledWriter_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cancel()
 	limiter := rate.NewLimiter(1024, 1024)
 	tw := &throttledWriter{
@@ -681,7 +694,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		oldOpen := osOpen
 		osOpen = func(name string) (File, error) { return nil, os.ErrPermission }
 		defer func() { osOpen = oldOpen }()
-		if err := client.UploadFile(testFile); err == nil { t.Error("Expected error for osOpen") }
+		if err := client.UploadFile(context.Background(), testFile); err == nil { t.Error("Expected error for osOpen") }
 	})
 
 	t.Run("sftpClient.Create Error", func(t *testing.T) {
@@ -693,7 +706,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		os.WriteFile(testFile, []byte("data"), 0644)
 
 		mockC.createFunc = func(path string) (SFTPFile, error) { return nil, os.ErrPermission }
-		if err := client.UploadFile(testFile); err == nil { t.Error("Expected error for sftpClient.Create") }
+		if err := client.UploadFile(context.Background(), testFile); err == nil { t.Error("Expected error for sftpClient.Create") }
 	})
 
 	t.Run("Cleanup Error", func(t *testing.T) {
@@ -708,7 +721,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 			return &mockSFTPFile{writeErr: fmt.Errorf("write fail")}, nil
 		}
 		mockC.removeErr = fmt.Errorf("remove fail")
-		_ = client.UploadFile(testFile)
+		_ = client.UploadFile(context.Background(), testFile)
 	})
 
 	t.Run("osRemove Error", func(t *testing.T) {
@@ -724,7 +737,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		oldRemove := osRemove
 		osRemove = func(name string) error { return os.ErrPermission }
 		defer func() { osRemove = oldRemove }()
-		if err := client.UploadFile(testFile); err != nil { t.Error(err) }
+		if err := client.UploadFile(context.Background(), testFile); err != nil { t.Error(err) }
 	})
 }
 
@@ -737,7 +750,7 @@ func TestSFTPClient_UploadRetryFailureExhaustive(t *testing.T) {
 	os.WriteFile(testFile, []byte("data"), 0644)
 
 	mockC.createFunc = func(path string) (SFTPFile, error) { return nil, fmt.Errorf("fail") }
-	if err := client.UploadFileWithRetry(testFile, 1); err == nil {
+	if err := client.UploadFileWithRetry(context.Background(), testFile, 1); err == nil {
 		t.Error("Expected error for UploadFileWithRetry")
 	}
 }

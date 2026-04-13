@@ -8,5 +8,6 @@ services:
     environment:
       - LOCAL_DIR=/data
       - WEB_PORT=8080
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       - /path/to/your/local/files:/data:ro

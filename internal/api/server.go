@@ -16,7 +16,21 @@ import (
 	"uplarr/internal/queue"
 	"uplarr/internal/sftpclient"
 	"uplarr/ui"
+	"crypto/rand"
+	"encoding/base64"
+	"sync"
 )
+
+var (
+	sessions = make(map[string]bool)
+	sessionsMu sync.RWMutex
+)
+
+func generateToken() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return base64.StdEncoding.EncodeToString(b)
+}
 
 // FileSystem interface for easier mocking of Go 1.24+ os.Root features
 type FileSystem interface {
@@ -99,14 +113,108 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 	mux := http.NewServeMux()
 
+	withAuth := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if config.AuthPassword == "" {
+				next(w, r)
+				return
+			}
+			cookie, err := r.Cookie("uplarr_session")
+			if err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			sessionsMu.RLock()
+			valid := sessions[cookie.Value]
+			sessionsMu.RUnlock()
+			if !valid {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next(w, r)
+		}
+	}
+
 	mux.Handle("/static/", http.FileServer(http.FS(ui.StaticAssets)))
+
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		if config.AuthPassword == "" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var loginReq struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		if loginReq.Password != config.AuthPassword {
+			http.Error(w, "Invalid password", http.StatusUnauthorized)
+			return
+		}
+
+		token := generateToken()
+		sessionsMu.Lock()
+		sessions[token] = true
+		sessionsMu.Unlock()
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "uplarr_session",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   false, // Set to true if using HTTPS
+			SameSite: http.SameSiteStrictMode,
+		})
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("uplarr_session")
+		if err == nil {
+			sessionsMu.Lock()
+			delete(sessions, cookie.Value)
+			sessionsMu.Unlock()
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "uplarr_session",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   -1,
+		})
+		w.WriteHeader(http.StatusOK)
+	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		index, err := StaticAssetsReadFile("static/index.html")
+
+		// Check auth
+		authenticated := true
+		if config.AuthPassword != "" {
+			cookie, err := r.Cookie("uplarr_session")
+			if err != nil {
+				authenticated = false
+			} else {
+				sessionsMu.RLock()
+				authenticated = sessions[cookie.Value]
+				sessionsMu.RUnlock()
+			}
+		}
+
+		var page string
+		if authenticated {
+			page = "static/index.html"
+		} else {
+			page = "static/login.html"
+		}
+
+		index, err := StaticAssetsReadFile(page)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -115,7 +223,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		_, _ = w.Write(index)
 	})
 
-	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/logs", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -138,9 +246,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				}
 			}
 		}
-	})
+	}))
 
-	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/files", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		relPath := filepath.Clean(r.URL.Query().Get("path"))
 		if relPath == "." {
 			relPath = ""
@@ -218,9 +326,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			"current_path": relPath,
 			"files":        fileInfos,
 		})
-	})
+	}))
 
-	mux.HandleFunc("/api/files/action", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/files/action", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.FileActionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
@@ -300,9 +408,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	})
+	}))
 
-	mux.HandleFunc("/api/test-connection", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/test-connection", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -320,9 +428,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		defer client.Close()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
-	})
+	}))
 
-	mux.HandleFunc("/api/remote/files", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/remote/files", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -356,9 +464,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			"current_path": remotePath,
 			"files":        files,
 		})
-	})
+	}))
 
-	mux.HandleFunc("/api/remote/files/action", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/remote/files/action", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.FileActionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -409,9 +517,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	})
+	}))
 
-	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/upload", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -464,9 +572,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Tasks added to queue"})
-	})
+	}))
 
-	mux.HandleFunc("/api/queue", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/queue", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_ = json.NewEncoder(w).Encode(qm.GetTasks())
 		} else if r.Method == http.MethodPost {
@@ -493,7 +601,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-	})
+	}))
 
 	return mux, nil
 }

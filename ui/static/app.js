@@ -23,23 +23,48 @@ document.addEventListener('DOMContentLoaded', () => {
     // Shared Elements
     const testBtn = document.getElementById('test-btn');
     const uploadBtn = document.getElementById('upload-btn');
+    const logoutBtn = document.getElementById('logout-btn');
     const statusMsg = document.getElementById('status-message');
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
-
-    // Modal Elements
-    const dropModal = document.getElementById('drop-modal');
-    const modalFileInfo = document.getElementById('modal-file-info');
-    const modalDeleteLocal = document.getElementById('modal-delete-local');
-    const modalOverwriteRemote = document.getElementById('modal-overwrite-remote');
-    const modalCancelBtn = document.getElementById('modal-cancel-btn');
-    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-
+    
+    // ... modal elements omitted ...
+    
     // Compact toggle elements
     const compactToggle = document.getElementById('compact-toggle');
     const remoteCompactToggle = document.getElementById('remote-compact-toggle');
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
+
+    // --- Secure Storage Wrappers ---
+    let masterKey = null;
+
+    const getSecureItem = async (key) => {
+        if (!masterKey) masterKey = await SecureStorage.getKey();
+        const raw = localStorage.getItem(key);
+        if (!raw || !masterKey) return raw;
+        try {
+            return await SecureStorage.decrypt(raw, masterKey);
+        } catch (e) {
+            console.error(`Failed to decrypt ${key}`, e);
+            return null;
+        }
+    };
+
+    const setSecureItem = async (key, value) => {
+        if (!masterKey) masterKey = await SecureStorage.getKey();
+        if (!masterKey) {
+            localStorage.setItem(key, value);
+            return;
+        }
+        try {
+            const encrypted = await SecureStorage.encrypt(value, masterKey);
+            localStorage.setItem(key, encrypted);
+        } catch (e) {
+            console.error(`Failed to encrypt ${key}`, e);
+            localStorage.setItem(key, value);
+        }
+    };
 
     let currentPath = '';
     let remoteCurrentPath = '';
@@ -48,23 +73,33 @@ document.addEventListener('DOMContentLoaded', () => {
     let localFilesList = [];
     let remoteFilesList = [];
 
-    // --- Sort State ---
+    // --- Sort State (persisted) ---
+    const loadSortState = async (key) => {
+        const saved = await getSecureItem(`uplarr_sort_${key}`);
+        if (saved) return JSON.parse(saved);
+        return { key: 'name', dir: 'asc' };
+    };
+
+    const saveSortState = async (key, state) => {
+        await setSecureItem(`uplarr_sort_${key}`, JSON.stringify(state));
+    };
+
     let localSort = { key: 'name', dir: 'asc' };
     let remoteSort = { key: 'name', dir: 'asc' };
     let lastCheckedIndex = -1; // for shift-click bulk select
 
     // --- Compact View State (persisted) ---
-    const loadCompactState = () => {
-        const saved = localStorage.getItem('uplarr_compact');
+    const loadCompactState = async () => {
+        const saved = await getSecureItem('uplarr_compact');
         if (saved !== null) return JSON.parse(saved);
         return { local: false, remote: false };
     };
 
-    const saveCompactState = (state) => {
-        localStorage.setItem('uplarr_compact', JSON.stringify(state));
+    const saveCompactState = async (state) => {
+        await setSecureItem('uplarr_compact', JSON.stringify(state));
     };
 
-    const compactState = loadCompactState();
+    let compactState = { local: false, remote: false };
 
     const applyCompact = () => {
         localPane.classList.toggle('compact', compactState.local);
@@ -73,16 +108,16 @@ document.addEventListener('DOMContentLoaded', () => {
         remoteCompactToggle.classList.toggle('active', compactState.remote);
     };
 
-    compactToggle.addEventListener('click', () => {
+    compactToggle.addEventListener('click', async () => {
         compactState.local = !compactState.local;
         applyCompact();
-        saveCompactState(compactState);
+        await saveCompactState(compactState);
     });
 
-    remoteCompactToggle.addEventListener('click', () => {
+    remoteCompactToggle.addEventListener('click', async () => {
         compactState.remote = !compactState.remote;
         applyCompact();
-        saveCompactState(compactState);
+        await saveCompactState(compactState);
     });
 
     applyCompact();
@@ -130,7 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Bind sort clicks for local file table
     document.querySelectorAll('#file-table th.sortable').forEach(th => {
-        th.addEventListener('click', () => {
+        th.addEventListener('click', async () => {
             const key = th.dataset.sort;
             if (localSort.key === key) {
                 localSort.dir = localSort.dir === 'asc' ? 'desc' : 'asc';
@@ -138,13 +173,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 localSort.key = key;
                 localSort.dir = 'asc';
             }
+            await saveSortState('local', localSort);
             renderLocalFiles();
         });
     });
 
     // Bind sort clicks for remote file table
     document.querySelectorAll('#remote-file-table th.sortable').forEach(th => {
-        th.addEventListener('click', () => {
+        th.addEventListener('click', async () => {
             const key = th.dataset.sort;
             if (remoteSort.key === key) {
                 remoteSort.dir = remoteSort.dir === 'asc' ? 'desc' : 'asc';
@@ -152,6 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 remoteSort.key = key;
                 remoteSort.dir = 'asc';
             }
+            await saveSortState('remote', remoteSort);
             renderRemoteFiles();
         });
     });
@@ -199,6 +236,32 @@ document.addEventListener('DOMContentLoaded', () => {
             files: Array.from(queuedFiles.keys())
         };
     };
+
+    const saveFormData = async () => {
+        const data = getFormData();
+        // Remove transient/large data
+        delete data.files;
+        await setSecureItem('uplarr_form_data', JSON.stringify(data));
+    };
+
+    const restoreFormData = async () => {
+        const saved = await getSecureItem('uplarr_form_data');
+        if (!saved) return;
+        try {
+            const data = JSON.parse(saved);
+            for (const key in data) {
+                const el = sftpForm.elements[key];
+                if (!el) continue;
+                if (el.type === 'checkbox') {
+                    el.checked = data[key];
+                } else {
+                    el.value = data[key];
+                }
+            }
+        } catch (e) { console.error('Failed to restore form data', e); }
+    };
+
+    sftpForm.addEventListener('input', saveFormData);
 
     const showStatus = (msg, type) => {
         statusMsg.textContent = msg;
@@ -304,8 +367,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchFiles = async (path = '') => {
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+            if (response.status === 401) return window.location.href = '/';
             const data = await response.json();
             currentPath = data.current_path;
+            await setSecureItem('uplarr_local_path', currentPath);
             localBreadcrumb.textContent = '/' + currentPath;
             localFilesList = data.files || [];
             renderLocalFiles();
@@ -432,10 +497,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
             });
+            if (response.status === 401) return window.location.href = '/';
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
             remoteCurrentPath = data.current_path;
+            await setSecureItem('uplarr_remote_path', remoteCurrentPath);
             remoteBreadcrumb.textContent = remoteCurrentPath;
             remoteFilesList = data.files || [];
             renderRemoteFiles();
@@ -632,7 +699,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const remBtn = document.createElement('button');
                 remBtn.textContent = 'Remove';
-                remBtn.disabled = (task.status === 'Running');
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 
@@ -730,8 +796,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Init ---
-    fetchFiles();
-    setInterval(fetchQueue, 1000);
+    const init = async () => {
+        masterKey = await SecureStorage.getKey();
+        if (!masterKey) {
+            // Check if backend actually requires auth
+            const res = await fetch('/api/queue');
+            if (res.status === 401) {
+                window.location.href = '/';
+                return;
+            }
+        }
+
+        // Restore state
+        currentPath = await getSecureItem('uplarr_local_path') || '';
+        remoteCurrentPath = await getSecureItem('uplarr_remote_path') || '';
+        localSort = await loadSortState('local');
+        remoteSort = await loadSortState('remote');
+        compactState = await loadCompactState();
+        
+        await restoreFormData();
+        applyCompact();
+        
+        fetchFiles(currentPath);
+        if (remoteCurrentPath) {
+            fetchRemoteFiles(remoteCurrentPath);
+        }
+        setInterval(fetchQueue, 1000);
+    };
+
+    logoutBtn.addEventListener('click', async () => {
+        await fetch('/api/logout', { method: 'POST' });
+        sessionStorage.removeItem('uplarr_master_key');
+        window.location.href = '/';
+    });
+
+    init();
     
     // SSE
     const connectSSE = () => {
