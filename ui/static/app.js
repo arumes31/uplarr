@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Sort State ---
     let localSort = { key: 'name', dir: 'asc' };
     let remoteSort = { key: 'name', dir: 'asc' };
+    let lastCheckedIndex = -1; // for shift-click bulk select
 
     // --- Compact View State (persisted) ---
     const loadCompactState = () => {
@@ -245,9 +246,27 @@ document.addEventListener('DOMContentLoaded', () => {
             if (file.is_dir) cb.disabled = true;
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
-            cb.addEventListener('change', (e) => {
-                if (e.target.checked) queuedFiles.set(fullRelPath, { name: file.name });
-                else queuedFiles.delete(fullRelPath);
+            cb.addEventListener('click', (e) => {
+                const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));
+                const currentIndex = allCheckboxes.indexOf(cb);
+
+                if (e.shiftKey && lastCheckedIndex >= 0 && lastCheckedIndex !== currentIndex) {
+                    const start = Math.min(lastCheckedIndex, currentIndex);
+                    const end = Math.max(lastCheckedIndex, currentIndex);
+                    const newState = cb.checked;
+                    for (let i = start; i <= end; i++) {
+                        const c = allCheckboxes[i];
+                        c.checked = newState;
+                        const p = c.dataset.path;
+                        const n = c.dataset.name;
+                        if (newState) queuedFiles.set(p, { name: n });
+                        else queuedFiles.delete(p);
+                    }
+                } else {
+                    if (cb.checked) queuedFiles.set(fullRelPath, { name: file.name });
+                    else queuedFiles.delete(fullRelPath);
+                }
+                lastCheckedIndex = currentIndex;
                 updateUploadButtonText();
             });
             tdCheck.appendChild(cb);
@@ -278,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fileListBody.appendChild(row);
         });
 
+        lastCheckedIndex = -1;
         selectAllCheckbox.checked = false;
     };
 
@@ -508,7 +528,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     modalCancelBtn.addEventListener('click', () => dropModal.classList.add('hidden'));
 
-    // --- Queue ---
+    const formatRate = (bytesPerSec) => {
+        if (bytesPerSec <= 0) return '-';
+        if (bytesPerSec >= 1024 * 1024 * 1024) return (bytesPerSec / (1024 * 1024 * 1024)).toFixed(1) + ' GB/s';
+        if (bytesPerSec >= 1024 * 1024) return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s';
+        if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
+        return bytesPerSec.toFixed(0) + ' B/s';
+    };
+
+    const formatETA = (seconds) => {
+        if (!seconds || seconds <= 0 || !isFinite(seconds)) return '';
+        if (seconds < 60) return `${Math.ceil(seconds)}s`;
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+        return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    };
 
     const fetchQueue = async () => {
         try {
@@ -520,10 +553,67 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const tdFile = document.createElement('td');
                 tdFile.textContent = task.file_name;
+                tdFile.title = task.file_name;
+                tdFile.style.maxWidth = '200px';
+                tdFile.style.overflow = 'hidden';
+                tdFile.style.textOverflow = 'ellipsis';
+                tdFile.style.whiteSpace = 'nowrap';
+                
+                const tdDest = document.createElement('td');
+                tdDest.textContent = task.remote_dir || '';
+                tdDest.title = task.remote_dir || '';
+                tdDest.style.maxWidth = '200px';
+                tdDest.style.overflow = 'hidden';
+                tdDest.style.textOverflow = 'ellipsis';
+                tdDest.style.whiteSpace = 'nowrap';
                 
                 const tdStatus = document.createElement('td');
                 tdStatus.className = `status-${task.status}`;
                 tdStatus.textContent = task.status + (task.error ? ` (${task.error})` : '');
+
+                // Progress column
+                const tdProgress = document.createElement('td');
+                tdProgress.style.minWidth = '120px';
+                if (task.status === 'Running' && task.total_bytes > 0) {
+                    const pct = Math.min(100, task.progress || 0);
+                    const barContainer = document.createElement('div');
+                    barContainer.className = 'progress-bar-container';
+                    const barFill = document.createElement('div');
+                    barFill.className = 'progress-bar-fill';
+                    barFill.style.width = pct + '%';
+                    barContainer.appendChild(barFill);
+                    const label = document.createElement('span');
+                    label.className = 'progress-label';
+                    label.textContent = `${pct}% (${formatSize(task.bytes_uploaded)} / ${formatSize(task.total_bytes)})`;
+                    tdProgress.appendChild(barContainer);
+                    tdProgress.appendChild(label);
+                } else if (task.status === 'Completed') {
+                    tdProgress.textContent = task.total_bytes > 0 ? formatSize(task.total_bytes) : '100%';
+                } else if (task.status === 'Failed') {
+                    tdProgress.textContent = task.bytes_uploaded > 0 ? formatSize(task.bytes_uploaded) : '-';
+                } else {
+                    tdProgress.textContent = '-';
+                }
+
+                // Rate column
+                const tdRate = document.createElement('td');
+                tdRate.style.whiteSpace = 'nowrap';
+                if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
+                    const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
+                    if (elapsed > 0) {
+                        const rate = task.bytes_uploaded / elapsed;
+                        const remaining = task.total_bytes - task.bytes_uploaded;
+                        const eta = remaining > 0 && rate > 0 ? remaining / rate : 0;
+                        tdRate.textContent = formatRate(rate);
+                        if (eta > 0) {
+                            tdRate.textContent += ` (${formatETA(eta)})`;
+                        }
+                    } else {
+                        tdRate.textContent = '-';
+                    }
+                } else {
+                    tdRate.textContent = '-';
+                }
                 
                 const tdCreated = document.createElement('td');
                 tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
@@ -547,7 +637,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdActions.appendChild(remBtn);
 
                 row.appendChild(tdFile);
+                row.appendChild(tdDest);
                 row.appendChild(tdStatus);
+                row.appendChild(tdProgress);
+                row.appendChild(tdRate);
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
@@ -557,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             queueBody.innerHTML = '';
             const errRow = document.createElement('tr');
             const errTd = document.createElement('td');
-            errTd.colSpan = 4;
+            errTd.colSpan = 7;
             errTd.className = 'log-error';
             errTd.textContent = 'Failed to load queue';
             errRow.appendChild(errTd);
@@ -638,7 +731,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Init ---
     fetchFiles();
-    setInterval(fetchQueue, 3000);
+    setInterval(fetchQueue, 1000);
     
     // SSE
     const connectSSE = () => {

@@ -84,6 +84,7 @@ func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
 	task := &models.Task{
 		ID:        strconv.FormatUint(id, 10),
 		FileName:  fileName,
+		RemoteDir: config.RemoteDir,
 		Status:    models.TaskPending,
 		CreatedAt: time.Now(),
 		Config:    config,
@@ -126,11 +127,33 @@ func (qm *QueueManager) processNext() {
 		return
 	}
 	nextTask.Status = models.TaskRunning
+	now := time.Now()
+	nextTask.StartedAt = &now
+	nextTask.BytesUploaded = 0
+	nextTask.TotalBytes = 0
+	nextTask.Progress = 0
 	qm.mu.Unlock()
 
 	logger.Info(fmt.Sprintf("Starting task: %s", nextTask.FileName))
 
 	client := NewClient(nextTask.Config)
+
+	// Wire progress callbacks if this is a real SFTPClient
+	if sc, ok := client.(*sftpclient.SFTPClient); ok {
+		sc.FileSizeCallback = func(totalBytes int64) {
+			qm.mu.Lock()
+			nextTask.TotalBytes = totalBytes
+			qm.mu.Unlock()
+		}
+		sc.ProgressCallback = func(bytesWritten int64) {
+			qm.mu.Lock()
+			nextTask.BytesUploaded = bytesWritten
+			if nextTask.TotalBytes > 0 {
+				nextTask.Progress = int(bytesWritten * 100 / nextTask.TotalBytes)
+			}
+			qm.mu.Unlock()
+		}
+	}
 
 	err := func() error {
 		baseDir, err := FilepathAbs(qm.localDir)
@@ -193,6 +216,10 @@ func (qm *QueueManager) processNext() {
 		logger.Error(fmt.Sprintf("Task failed: %s - %v", nextTask.FileName, err))
 	} else {
 		nextTask.Status = models.TaskCompleted
+		nextTask.Progress = 100
+		if nextTask.TotalBytes > 0 {
+			nextTask.BytesUploaded = nextTask.TotalBytes
+		}
 		logger.Info(fmt.Sprintf("Task completed: %s", nextTask.FileName))
 	}
 	qm.mu.Unlock()
