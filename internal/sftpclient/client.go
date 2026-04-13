@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"uplarr/internal/logger"
@@ -20,6 +21,71 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/time/rate"
 )
+
+type Limiter struct {
+	rateLimiter    *rate.Limiter
+	maxLimit       rate.Limit
+	consecutiveLow int
+	mu             sync.Mutex
+}
+
+func NewLimiter(limit rate.Limit, burst int) *Limiter {
+	return &Limiter{
+		rateLimiter: rate.NewLimiter(limit, burst),
+		maxLimit:    limit,
+	}
+}
+
+func (l *Limiter) SetLimit(newLimit rate.Limit) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if newLimit > l.maxLimit {
+		newLimit = l.maxLimit
+	}
+	l.rateLimiter.SetLimit(newLimit)
+	l.consecutiveLow = 0
+}
+
+func (l *Limiter) Limit() rate.Limit {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.rateLimiter.Limit()
+}
+
+func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	currentLimit := l.rateLimiter.Limit()
+	if latency > maxLatency {
+		newLimit := currentLimit * 0.7
+		if newLimit < 1024 {
+			newLimit = 1024
+		}
+		l.rateLimiter.SetLimit(newLimit)
+		l.consecutiveLow = 0
+		logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, maxLatency, int(newLimit/1024)))
+	} else if currentLimit < l.maxLimit {
+		l.consecutiveLow++
+		if l.consecutiveLow >= 20 { // 20 consecutive low latency writes
+			newLimit := currentLimit * 1.1
+			if newLimit > l.maxLimit {
+				newLimit = l.maxLimit
+			}
+			l.rateLimiter.SetLimit(newLimit)
+			l.consecutiveLow = 0
+			logger.Info(fmt.Sprintf("Latency stable, increasing speed to %v KB/s", int(newLimit/1024)))
+		}
+	}
+}
+
+func (l *Limiter) WaitN(ctx context.Context, n int) error {
+	return l.rateLimiter.WaitN(ctx, n)
+}
+
+func (l *Limiter) Burst() int {
+	return l.rateLimiter.Burst()
+}
 
 type SFTPFile interface {
 	io.ReadWriteCloser
@@ -85,6 +151,7 @@ type SFTPClient struct {
 	MaxLatencyMs            int
 	ProgressCallback        func(bytesWritten int64)
 	FileSizeCallback        func(totalBytes int64)
+	Limiter                 *Limiter
 	sshClient               *ssh.Client
 	sftpClient              SFTPClientInterface
 }
@@ -109,7 +176,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 type throttledReader struct {
 	ctx     context.Context
 	r       io.Reader
-	limiter *rate.Limiter
+	limiter *Limiter
 }
 
 func (tr *throttledReader) Read(p []byte) (n int, err error) {
@@ -134,7 +201,7 @@ func (tr *throttledReader) Read(p []byte) (n int, err error) {
 type throttledWriter struct {
 	ctx        context.Context
 	w          io.Writer
-	limiter    *rate.Limiter
+	limiter    *Limiter
 	maxLatency time.Duration
 }
 
@@ -164,17 +231,7 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 	n, err = tw.w.Write(p)
 	if n > 0 && tw.maxLatency > 0 {
 		latency := time.Since(start)
-		if latency > tw.maxLatency {
-			currentLimit := tw.limiter.Limit()
-			if currentLimit != rate.Inf {
-				newLimit := currentLimit * 0.7
-				if newLimit < 1024 {
-					newLimit = 1024
-				}
-				tw.limiter.SetLimit(newLimit)
-				logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, tw.maxLatency, int(newLimit/1024)))
-			}
-		}
+		tw.limiter.RecordLatency(latency, tw.maxLatency)
 	}
 	return n, err
 }
@@ -195,6 +252,10 @@ func (cw *contextWriter) Write(p []byte) (int, error) {
 
 var osReadFile = os.ReadFile
 var sshParsePrivateKey = ssh.ParsePrivateKey
+
+func (s *SFTPClient) SetLimiter(l *Limiter) {
+	s.Limiter = l
+}
 
 func (s *SFTPClient) Connect() error {
 	var authMethods []ssh.AuthMethod
@@ -479,7 +540,14 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	}()
 
 	var writer io.Writer = remoteFile
-	if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
+	if s.Limiter != nil && s.MaxLatencyMs > 0 {
+		writer = &throttledWriter{
+			ctx:        ctx,
+			w:          remoteFile,
+			limiter:    s.Limiter,
+			maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
+		}
+	} else if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
 		limit := rate.Limit(s.RateLimitKBps * 1024)
 		if limit == 0 && s.MaxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024) // 100MB/s
@@ -490,11 +558,11 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 			if int(limit)/10 > burst {
 				burst = int(limit) / 10
 			}
-			limiter := rate.NewLimiter(limit, burst)
+			s.Limiter = NewLimiter(limit, burst)
 			writer = &throttledWriter{
 				ctx:        ctx,
 				w:          remoteFile,
-				limiter:    limiter,
+				limiter:    s.Limiter,
 				maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
 			}
 		}
