@@ -192,14 +192,28 @@ document.addEventListener('DOMContentLoaded', () => {
     deleteBtn.addEventListener('click', async () => {
         if (queuedFiles.size === 0) return alert("Select files to delete first.");
         if (!confirm(`Delete ${queuedFiles.size} items?`)) return;
-        for (const path of queuedFiles.keys()) {
-            await fetch('/api/files/action', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'delete', path }) 
-            });
+        const failedPaths = [];
+        for (const path of Array.from(queuedFiles.keys())) {
+            try {
+                const res = await fetch('/api/files/action', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete', path }) 
+                });
+                if (res.ok) {
+                    queuedFiles.delete(path);
+                } else {
+                    failedPaths.push(path);
+                    addLog(`Failed to delete ${path}: ${res.statusText}`, 'error');
+                }
+            } catch (err) {
+                failedPaths.push(path);
+                addLog(`Failed to delete ${path}: ${err.message}`, 'error');
+            }
         }
-        queuedFiles.clear();
+        if (failedPaths.length > 0) {
+            addLog(`${failedPaths.length} file(s) could not be deleted`, 'warn');
+        }
         updateUploadButtonText();
         fetchFiles(currentPath);
     });
@@ -301,13 +315,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = prompt("Enter remote folder name:");
         if (!name) return;
         const config = getFormData();
-        const path = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + name : remoteCurrentPath + '/' + name;
+        const basePath = remoteCurrentPath || config.remote_dir;
+        const path = basePath.endsWith('/') ? basePath + name : basePath + '/' + name;
         const res = await fetch('/api/remote/files/action', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'mkdir', path, config })
         });
-        if (res.ok) fetchRemoteFiles(remoteCurrentPath);
+        if (res.ok) fetchRemoteFiles(remoteCurrentPath || config.remote_dir);
         else addLog(`Remote mkdir failed`, 'error');
     });
 
@@ -341,13 +356,23 @@ document.addEventListener('DOMContentLoaded', () => {
         config.delete_after_verify = modalDeleteLocal.checked;
         config.overwrite = modalOverwriteRemote.checked;
         dropModal.classList.add('hidden');
-        const res = await fetch('/api/upload', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(config) 
-        });
-        if (res.ok) { showStatus("Task queued", "success"); fetchQueue(); }
-        else addLog("Failed to queue task", "error");
+        try {
+            const res = await fetch('/api/upload', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(config) 
+            });
+            if (res.ok) {
+                showStatus("Task queued", "success");
+                fetchQueue();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                addLog(`Failed to queue task: ${data.error || res.statusText}`, 'error');
+            }
+        } catch (err) {
+            addLog(`Failed to queue task: ${err.message}`, 'error');
+            showStatus("Upload request failed", "error");
+        }
     });
 
     modalCancelBtn.addEventListener('click', () => dropModal.classList.add('hidden'));
@@ -441,18 +466,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     uploadBtn.addEventListener('click', async () => {
-        if (queuedFiles.size === 0) {
-            // Queue all files in current local directory
+        // Build the file list without mutating global queuedFiles until success
+        let filesToUpload;
+        const wasImplicit = queuedFiles.size === 0;
+        if (wasImplicit) {
+            // Implicitly queue all files in current local directory
+            filesToUpload = [];
             localFilesList.forEach(file => {
                 if (!file.is_dir) {
                     const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-                    queuedFiles.set(fullPath, { name: file.name });
+                    filesToUpload.push(fullPath);
                 }
             });
+        } else {
+            filesToUpload = Array.from(queuedFiles.keys());
         }
-        if (queuedFiles.size === 0) return alert("No files to upload.");
+        if (filesToUpload.length === 0) return alert("No files to upload.");
 
         const config = getFormData();
+        config.files = filesToUpload;
         uploadBtn.disabled = true;
         try {
             const res = await fetch('/api/upload', { 
@@ -466,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateUploadButtonText();
                 fetchQueue();
             } else {
-                const data = await res.json();
+                const data = await res.json().catch(() => ({}));
                 showStatus(`Failed to queue: ${data.error || "Unknown error"}`, "error");
             }
         } catch (e) { showStatus("Upload request failed", "error"); }

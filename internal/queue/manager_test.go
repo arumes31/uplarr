@@ -3,12 +3,26 @@ package queue_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"uplarr/internal/models"
 	"uplarr/internal/queue"
 )
+
+// waitForTaskStatus polls qm.GetTasks() until a task matching the predicate is found or timeout elapses.
+func waitForTaskStatus(t *testing.T, qm *queue.QueueManager, predicate func([]*models.Task) bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if predicate(qm.GetTasks()) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("Timed out waiting for expected task status after %v", timeout)
+}
 
 type mockClient struct {
 	connectErr error
@@ -81,7 +95,14 @@ func TestQueueManager_Control(t *testing.T) {
 	// Add third task - will stay Pending
 	qm.AddTask("task3.txt", models.UploadRequest{})
 	
-	time.Sleep(100 * time.Millisecond)
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		for _, task := range tasks {
+			if task.Status == models.TaskRunning {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second)
 	tasks := qm.GetTasks()
 	
 	var runningID, pendingID, pendingID2 string
@@ -144,7 +165,10 @@ func TestQueueManager_Control(t *testing.T) {
 }
 
 func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "qm_test_abs_errs")
+	tempDir, err := os.MkdirTemp("", "qm_test_abs_errs")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
 
 	oldAbs := queue.FilepathAbs
@@ -175,7 +199,10 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 }
 
 func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "qm_test_root_err")
+	tempDir, err := os.MkdirTemp("", "qm_test_root_err")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
 
 	oldOpenRoot := queue.OsOpenRoot
@@ -191,11 +218,33 @@ func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
 }
 
 func TestQueueManager_ProcessNext_Traversal(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "qm_test_trav")
+	tempDir, err := os.MkdirTemp("", "qm_test_trav")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
 	qm := queue.NewQueueManager(tempDir)
 	qm.AddTask("../escaped.txt", models.UploadRequest{})
-	time.Sleep(50 * time.Millisecond)
+
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		for _, task := range tasks {
+			if task.Status == models.TaskFailed {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second)
+
+	tasks := qm.GetTasks()
+	if len(tasks) != 1 {
+		t.Fatalf("Expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Status != models.TaskFailed {
+		t.Errorf("Expected TaskFailed, got %s", tasks[0].Status)
+	}
+	if !strings.Contains(tasks[0].Error, "traversal detected") {
+		t.Errorf("Expected error containing 'traversal detected', got %q", tasks[0].Error)
+	}
 	qm.Shutdown()
 }
 
@@ -208,7 +257,10 @@ func TestQueueManager_DefaultNewClient(t *testing.T) {
 }
 
 func TestQueueManager_RetriesDefault(t *testing.T) {
-	tempDir, _ := os.MkdirTemp("", "qm_test_retries")
+	tempDir, err := os.MkdirTemp("", "qm_test_retries")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
 	testFile := filepath.Join(tempDir, "retry.txt")
 	os.WriteFile(testFile, []byte("data"), 0644)

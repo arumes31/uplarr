@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"uplarr/internal/logger"
@@ -80,7 +79,8 @@ func (qm *QueueManager) Shutdown() {
 
 func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
 	qm.mu.Lock()
-	id := atomic.AddUint64(&qm.nextID, 1)
+	qm.nextID++
+	id := qm.nextID
 	task := &models.Task{
 		ID:        strconv.FormatUint(id, 10),
 		FileName:  fileName,
@@ -145,7 +145,9 @@ func (qm *QueueManager) processNext() {
 		candidatePath, err = FilepathAbs(candidatePath)
 		if err != nil { return err }
 
-		if realPath, err := filepath.EvalSymlinks(candidatePath); err == nil {
+		if realPath, evalErr := filepath.EvalSymlinks(candidatePath); evalErr != nil {
+			logger.Info(fmt.Sprintf("Warning: could not evaluate symlinks for candidate path %s: %v", candidatePath, evalErr))
+		} else {
 			candidatePath = realPath
 		}
 
@@ -154,8 +156,11 @@ func (qm *QueueManager) processNext() {
 			return fmt.Errorf("invalid file path: traversal detected")
 		}
 
-		// TOCTOU Fix: Open and verify file immediately before connecting
-		// Use OsOpenRoot (Go 1.24+) to strictly scope access to baseDir
+		// TOCTOU mitigation: Open and verify file immediately before connecting.
+		// Uses OsOpenRoot (Go 1.24+) to strictly scope access to baseDir.
+		// NOTE: The file handle is closed before upload to allow UploadFileWithRetry
+		// to reopen it by path. This is a best-effort mitigation; a small TOCTOU
+		// window remains between this check and the actual upload read.
 		root, err := OsOpenRoot(baseDir)
 		if err != nil {
 			return fmt.Errorf("failed to open root for validation: %v", err)
@@ -201,6 +206,11 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	snapshot := make([]*models.Task, len(qm.tasks))
 	for i, t := range qm.tasks {
 		copyTask := *t
+		// Deep-copy mutable reference fields so snapshot doesn't share state
+		if t.Config.Files != nil {
+			copyTask.Config.Files = make([]string, len(t.Config.Files))
+			copy(copyTask.Config.Files, t.Config.Files)
+		}
 		snapshot[i] = &copyTask
 	}
 	return snapshot
