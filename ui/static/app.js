@@ -41,16 +41,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
 
-    let currentPath = '';
-    let remoteCurrentPath = '';
+    let currentPath = localStorage.getItem('uplarr_local_path') || '';
+    let remoteCurrentPath = localStorage.getItem('uplarr_remote_path') || '';
     let queuedFiles = new Map(); // path -> fileInfo
     let dropData = null;
     let localFilesList = [];
     let remoteFilesList = [];
 
-    // --- Sort State ---
-    let localSort = { key: 'name', dir: 'asc' };
-    let remoteSort = { key: 'name', dir: 'asc' };
+    // --- Sort State (persisted) ---
+    const loadSortState = (key) => {
+        const saved = localStorage.getItem(`uplarr_sort_${key}`);
+        if (saved) return JSON.parse(saved);
+        return { key: 'name', dir: 'asc' };
+    };
+
+    const saveSortState = (key, state) => {
+        localStorage.setItem(`uplarr_sort_${key}`, JSON.stringify(state));
+    };
+
+    let localSort = loadSortState('local');
+    let remoteSort = loadSortState('remote');
     let lastCheckedIndex = -1; // for shift-click bulk select
 
     // --- Compact View State (persisted) ---
@@ -138,6 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localSort.key = key;
                 localSort.dir = 'asc';
             }
+            saveSortState('local', localSort);
             renderLocalFiles();
         });
     });
@@ -152,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 remoteSort.key = key;
                 remoteSort.dir = 'asc';
             }
+            saveSortState('remote', remoteSort);
             renderRemoteFiles();
         });
     });
@@ -199,6 +211,33 @@ document.addEventListener('DOMContentLoaded', () => {
             files: Array.from(queuedFiles.keys())
         };
     };
+
+    const saveFormData = () => {
+        const data = getFormData();
+        // Remove transient/large data
+        delete data.files;
+        localStorage.setItem('uplarr_form_data', JSON.stringify(data));
+    };
+
+    const restoreFormData = () => {
+        const saved = localStorage.getItem('uplarr_form_data');
+        if (!saved) return;
+        try {
+            const data = JSON.parse(saved);
+            for (const key in data) {
+                const el = sftpForm.elements[key];
+                if (!el) continue;
+                if (el.type === 'checkbox') {
+                    el.checked = data[key];
+                } else {
+                    el.value = data[key];
+                }
+            }
+        } catch (e) { console.error('Failed to restore form data', e); }
+    };
+
+    sftpForm.addEventListener('input', saveFormData);
+    restoreFormData();
 
     const showStatus = (msg, type) => {
         statusMsg.textContent = msg;
@@ -306,6 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
             const data = await response.json();
             currentPath = data.current_path;
+            localStorage.setItem('uplarr_local_path', currentPath);
             localBreadcrumb.textContent = '/' + currentPath;
             localFilesList = data.files || [];
             renderLocalFiles();
@@ -436,6 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
             remoteCurrentPath = data.current_path;
+            localStorage.setItem('uplarr_remote_path', remoteCurrentPath);
             remoteBreadcrumb.textContent = remoteCurrentPath;
             remoteFilesList = data.files || [];
             renderRemoteFiles();
@@ -729,7 +770,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Init ---
-    fetchFiles();
+    fetchFiles(currentPath);
+    if (localStorage.getItem('uplarr_remote_path')) {
+        // Only fetch remote if we have a path (implies previous connection)
+        fetchRemoteFiles(remoteCurrentPath);
+    }
     setInterval(fetchQueue, 1000);
     
     // SSE
