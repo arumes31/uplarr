@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -123,17 +124,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			f.Flush()
 		}
 
-		c := make(chan string, 10)
-		logger.Mu.Lock()
-		logger.LogClients[c] = true
-		logger.Mu.Unlock()
-
-		defer func() {
-			logger.Mu.Lock()
-			delete(logger.LogClients, c)
-			logger.Mu.Unlock()
-			close(c)
-		}()
+		c := logger.Subscribe()
+		defer logger.Unsubscribe(c)
 
 		for {
 			select {
@@ -326,6 +318,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		defer client.Close()
+		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Connection successful"})
 	})
 
@@ -383,8 +376,12 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		defer client.Close()
 
 		// Remote security check: ensure req.Path is within RemoteDir
-		rel, err := filepath.Rel(client.GetRemoteDir(), req.Path)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.HasPrefix(rel, "../") {
+		// Use path (POSIX) package for SFTP paths which always use forward slashes
+		normalizedBase := pathpkg.Clean(strings.ReplaceAll(client.GetRemoteDir(), "\\", "/"))
+		normalizedTarget := pathpkg.Clean(strings.ReplaceAll(req.Path, "\\", "/"))
+		rel, err := filepath.Rel(normalizedBase, normalizedTarget)
+		normalizedRel := strings.ReplaceAll(rel, "\\", "/")
+		if err != nil || normalizedRel == ".." || strings.HasPrefix(normalizedRel, "../") {
 			http.Error(w, "Unauthorized remote path", http.StatusUnauthorized)
 			return
 		}
@@ -418,6 +415,24 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		// Validate file paths exist before enqueuing
+		var invalidFiles []string
+		for _, file := range req.Files {
+			fullPath := filepath.Join(config.LocalDir, file)
+			if _, err := os.Stat(fullPath); err != nil {
+				invalidFiles = append(invalidFiles, file)
+			}
+		}
+		if len(invalidFiles) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Some files do not exist",
+				"invalid_files": invalidFiles,
+			})
 			return
 		}
 

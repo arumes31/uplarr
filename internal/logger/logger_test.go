@@ -2,7 +2,6 @@ package logger
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
@@ -25,8 +24,15 @@ func TestLogger(t *testing.T) {
 	Info("test info message")
 	select {
 	case msg := <-ch:
-		if !strings.Contains(msg, "test info message") || !strings.Contains(msg, "info") {
-			t.Errorf("Unexpected info log message: %s", msg)
+		var parsed LogMessage
+		if err := json.Unmarshal([]byte(msg), &parsed); err != nil {
+			t.Fatalf("Failed to parse info log message: %v", err)
+		}
+		if parsed.Level != "info" {
+			t.Errorf("Expected level 'info', got %q", parsed.Level)
+		}
+		if parsed.Msg != "test info message" {
+			t.Errorf("Expected msg 'test info message', got %q", parsed.Msg)
 		}
 	case <-time.After(time.Second):
 		t.Error("Timeout waiting for info log")
@@ -36,8 +42,15 @@ func TestLogger(t *testing.T) {
 	Error("test error message")
 	select {
 	case msg := <-ch:
-		if !strings.Contains(msg, "test error message") || !strings.Contains(msg, "error") {
-			t.Errorf("Unexpected error log message: %s", msg)
+		var parsed LogMessage
+		if err := json.Unmarshal([]byte(msg), &parsed); err != nil {
+			t.Fatalf("Failed to parse error log message: %v", err)
+		}
+		if parsed.Level != "error" {
+			t.Errorf("Expected level 'error', got %q", parsed.Level)
+		}
+		if parsed.Msg != "test error message" {
+			t.Errorf("Expected msg 'test error message', got %q", parsed.Msg)
 		}
 	case <-time.After(time.Second):
 		t.Error("Timeout waiting for error log")
@@ -47,12 +60,21 @@ func TestLogger(t *testing.T) {
 	LogWithLevel("custom", "custom message", map[string]string{"key": "value"})
 	select {
 	case msg := <-ch:
-		if !strings.Contains(msg, "custom message") || !strings.Contains(msg, "custom") || !strings.Contains(msg, "key") {
-			t.Errorf("Unexpected custom log message: %s", msg)
-		}
 		var parsed LogMessage
 		if err := json.Unmarshal([]byte(msg), &parsed); err != nil {
-			t.Errorf("Failed to parse log message: %v", err)
+			t.Fatalf("Failed to parse custom log message: %v", err)
+		}
+		if parsed.Level != "custom" {
+			t.Errorf("Expected level 'custom', got %q", parsed.Level)
+		}
+		if parsed.Msg != "custom message" {
+			t.Errorf("Expected msg 'custom message', got %q", parsed.Msg)
+		}
+		// Assert metadata contains the "key":"value" entry
+		if extra, ok := parsed.Extra.(map[string]interface{}); !ok {
+			t.Errorf("Expected Extra to be a map, got %T", parsed.Extra)
+		} else if extra["key"] != "value" {
+			t.Errorf("Expected Extra[\"key\"] = \"value\", got %v", extra["key"])
 		}
 	case <-time.After(time.Second):
 		t.Error("Timeout waiting for custom log")

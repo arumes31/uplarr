@@ -2,6 +2,7 @@ package logger
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -38,7 +39,14 @@ func LogWithLevel(level, msg string, extra interface{}) {
 		Extra: extra,
 	}
 
-	b, _ := json.Marshal(entry)
+	b, err := json.Marshal(entry)
+	if err != nil {
+		log.Printf("logger: failed to marshal log entry: %v (level=%s, msg=%s)", err, entry.Level, entry.Msg)
+		// Emit a safe fallback JSON string
+		fallback := fmt.Sprintf(`{"level":"%s","msg":"[marshal error] %s","time":"%s"}`, entry.Level, entry.Msg, entry.Time)
+		BroadcastLog(fallback)
+		return
+	}
 	log.Println(string(b))
 	BroadcastLog(string(b))
 }
@@ -49,4 +57,21 @@ func Info(msg string) {
 
 func Error(msg string) {
 	LogWithLevel("error", msg, nil)
+}
+
+// Subscribe creates a buffered log channel, registers it, and returns it.
+func Subscribe() chan string {
+	c := make(chan string, 10)
+	Mu.Lock()
+	LogClients[c] = true
+	Mu.Unlock()
+	return c
+}
+
+// Unsubscribe removes the channel from LogClients and closes it.
+func Unsubscribe(c chan string) {
+	Mu.Lock()
+	delete(LogClients, c)
+	Mu.Unlock()
+	close(c)
 }

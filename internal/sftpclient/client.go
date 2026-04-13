@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"os"
 	"path"
@@ -234,6 +235,8 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 		maxRetries = 1
 	}
 	var lastErr error
+	const baseDelay = 100 * time.Millisecond
+	const maxDelay = 5 * time.Second
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := s.UploadFile(localPath)
 		if err == nil {
@@ -241,7 +244,16 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 		}
 		lastErr = err
 		logger.Error(fmt.Sprintf("Upload attempt %d failed for %s: %v", attempt, filepath.Base(localPath), err))
-		time.Sleep(100 * time.Millisecond)
+		if attempt < maxRetries {
+			// Exponential backoff with jitter
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			// Add jitter: ±25% of the delay
+			jitter := time.Duration(rand.Int63n(int64(delay) / 2)) - delay/4 // #nosec G404
+			time.Sleep(delay + jitter)
+		}
 	}
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
 }
@@ -258,9 +270,11 @@ func (s *SFTPClient) validateRemotePath(p string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid remote path")
 	}
+	// Normalize to POSIX slashes since SFTP uses forward slashes
+	rel = filepath.ToSlash(rel)
 
 	// Precise escape check: rel == ".." or rel starts with "../"
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.HasPrefix(rel, "../") {
+	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", fmt.Errorf("unauthorized remote path access: traversal detected")
 	}
 

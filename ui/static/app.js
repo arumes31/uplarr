@@ -322,11 +322,15 @@ document.addEventListener('DOMContentLoaded', () => {
     remoteDropZone.addEventListener('drop', (e) => {
         e.preventDefault();
         remoteDropZone.classList.remove('drop-target');
+        const rawData = e.dataTransfer.getData('text/plain');
         try {
-            dropData = JSON.parse(e.dataTransfer.getData('text/plain'));
+            dropData = JSON.parse(rawData);
             modalFileInfo.textContent = `Upload ${dropData.name} to ${remoteCurrentPath}?`;
             dropModal.classList.remove('hidden');
-        } catch (err) {}
+        } catch (err) {
+            console.error('Failed to parse drag data:', err, rawData);
+            addLog('Invalid drag data: could not parse file info', 'error');
+        }
     });
 
     modalConfirmBtn.addEventListener('click', async () => {
@@ -392,7 +396,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
             });
-        } catch (e) {}
+        } catch (e) {
+            console.error('Failed to fetch queue:', e);
+            queueBody.innerHTML = '';
+            const errRow = document.createElement('tr');
+            const errTd = document.createElement('td');
+            errTd.colSpan = 4;
+            errTd.className = 'log-error';
+            errTd.textContent = 'Failed to load queue';
+            errRow.appendChild(errTd);
+            queueBody.appendChild(errRow);
+        }
     };
 
     const controlTask = async (id, action) => {

@@ -51,6 +51,13 @@ func TestQueueManager_Control(t *testing.T) {
 	// Mock NewClient to block so we can pause a pending task
 	oldNewClient := queue.NewClient
 	blockConnect := make(chan struct{})
+	blockClosed := false
+	t.Cleanup(func() {
+		if !blockClosed {
+			close(blockConnect)
+			blockClosed = true
+		}
+	})
 	queue.NewClient = func(req models.UploadRequest) queue.ClientInterface {
 		return &blockingClient{block: blockConnect}
 	}
@@ -131,6 +138,7 @@ func TestQueueManager_Control(t *testing.T) {
 	}
 
 	// Unblock and shutdown
+	blockClosed = true
 	close(blockConnect)
 	qm.Shutdown()
 }

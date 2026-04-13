@@ -50,6 +50,8 @@ type Task struct {
 	ID        string        `json:"id"`
 	FileName  string        `json:"file_name"`
 	Status    TaskStatus    `json:"status"`
+	// TODO: Progress is not yet updated during queue processing.
+	// Implement progress tracking in the queue manager upload handlers.
 	Progress  int           `json:"progress"`
 	Error     string        `json:"error,omitempty"`
 	CreatedAt time.Time     `json:"created_at"`

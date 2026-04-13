@@ -175,11 +175,26 @@ type MockRoot struct {
 	MkdirAllFunc func(path string, perm os.FileMode) error
 }
 
-func (m *MockRoot) Close() error                              { return m.CloseFunc() }
-func (m *MockRoot) Open(name string) (File, error)            { return m.OpenFunc(name) }
-func (m *MockRoot) RemoveAll(path string) error               { return m.RemoveAllFunc(path) }
-func (m *MockRoot) Rename(oldpath, newpath string) error       { return m.RenameFunc(oldpath, newpath) }
-func (m *MockRoot) MkdirAll(path string, perm os.FileMode) error { return m.MkdirAllFunc(path, perm) }
+func (m *MockRoot) Close() error {
+	if m.CloseFunc != nil { return m.CloseFunc() }
+	return nil
+}
+func (m *MockRoot) Open(name string) (File, error) {
+	if m.OpenFunc != nil { return m.OpenFunc(name) }
+	return nil, errors.New("Open not implemented")
+}
+func (m *MockRoot) RemoveAll(path string) error {
+	if m.RemoveAllFunc != nil { return m.RemoveAllFunc(path) }
+	return nil
+}
+func (m *MockRoot) Rename(oldpath, newpath string) error {
+	if m.RenameFunc != nil { return m.RenameFunc(oldpath, newpath) }
+	return nil
+}
+func (m *MockRoot) MkdirAll(path string, perm os.FileMode) error {
+	if m.MkdirAllFunc != nil { return m.MkdirAllFunc(path, perm) }
+	return nil
+}
 
 type MockFile struct {
 	CloseFunc   func() error
@@ -206,10 +221,30 @@ type MockSFTPClient struct {
 	GetRemoteDirFunc  func() string
 }
 
-func (m *MockSFTPClient) Connect() error                                { return m.ConnectFunc() }
-func (m *MockSFTPClient) Close()                                         { m.CloseFunc() }
-func (m *MockSFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) { return m.ReadRemoteDirFunc(p) }
-func (m *MockSFTPClient) Remove(path string) error                       { return m.RemoveFunc(path) }
-func (m *MockSFTPClient) Rename(oldpath, newpath string) error           { return m.RenameFunc(oldpath, newpath) }
-func (m *MockSFTPClient) Mkdir(path string) error                        { return m.MkdirFunc(path) }
-func (m *MockSFTPClient) GetRemoteDir() string                           { return m.GetRemoteDirFunc() }
+func (m *MockSFTPClient) Connect() error {
+	if m.ConnectFunc != nil { return m.ConnectFunc() }
+	return nil
+}
+func (m *MockSFTPClient) Close() {
+	if m.CloseFunc != nil { m.CloseFunc() }
+}
+func (m *MockSFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
+	if m.ReadRemoteDirFunc != nil { return m.ReadRemoteDirFunc(p) }
+	return nil, nil
+}
+func (m *MockSFTPClient) Remove(path string) error {
+	if m.RemoveFunc != nil { return m.RemoveFunc(path) }
+	return nil
+}
+func (m *MockSFTPClient) Rename(oldpath, newpath string) error {
+	if m.RenameFunc != nil { return m.RenameFunc(oldpath, newpath) }
+	return nil
+}
+func (m *MockSFTPClient) Mkdir(path string) error {
+	if m.MkdirFunc != nil { return m.MkdirFunc(path) }
+	return nil
+}
+func (m *MockSFTPClient) GetRemoteDir() string {
+	if m.GetRemoteDirFunc != nil { return m.GetRemoteDirFunc() }
+	return ""
+}

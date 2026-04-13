@@ -135,7 +135,11 @@ func (qm *QueueManager) processNext() {
 	err := func() error {
 		baseDir, err := FilepathAbs(qm.localDir)
 		if err != nil { return err }
-		baseDir, _ = filepath.EvalSymlinks(baseDir)
+		if evalBase, evalErr := filepath.EvalSymlinks(baseDir); evalErr != nil {
+			logger.Info(fmt.Sprintf("Warning: could not evaluate symlinks for base dir %s: %v", baseDir, evalErr))
+		} else {
+			baseDir = evalBase
+		}
 
 		candidatePath := filepath.Join(baseDir, nextTask.FileName)
 		candidatePath, err = FilepathAbs(candidatePath)
