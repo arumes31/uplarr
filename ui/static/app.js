@@ -28,7 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
     
-    // ... modal elements omitted ...
+    // Modal Elements
+    const dropModal = document.getElementById('drop-modal');
+    const modalFileInfo = document.getElementById('modal-file-info');
+    const modalDeleteLocal = document.getElementById('modal-delete-local');
+    const modalOverwriteRemote = document.getElementById('modal-overwrite-remote');
+    const modalCancelBtn = document.getElementById('modal-cancel-btn');
+    const modalConfirmBtn = document.getElementById('modal-confirm-btn');
     
     // Compact toggle elements
     const compactToggle = document.getElementById('compact-toggle');
