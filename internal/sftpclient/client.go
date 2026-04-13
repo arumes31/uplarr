@@ -173,6 +173,20 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
+type contextWriter struct {
+	ctx context.Context
+	w   io.Writer
+}
+
+func (cw *contextWriter) Write(p []byte) (int, error) {
+	select {
+	case <-cw.ctx.Done():
+		return 0, cw.ctx.Err()
+	default:
+		return cw.w.Write(p)
+	}
+}
+
 var osReadFile = os.ReadFile
 var sshParsePrivateKey = ssh.ParsePrivateKey
 
@@ -249,7 +263,7 @@ func (s *SFTPClient) GetRemoteDir() string {
 	return s.RemoteDir
 }
 
-func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error {
+func (s *SFTPClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error {
 	if maxRetries <= 0 {
 		maxRetries = 1
 	}
@@ -257,7 +271,7 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 	const baseDelay = 100 * time.Millisecond
 	const maxDelay = 5 * time.Second
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := s.UploadFile(localPath)
+		err := s.UploadFile(ctx, localPath)
 		if err == nil {
 			return nil
 		}
@@ -270,8 +284,12 @@ func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error
 				delay = maxDelay
 			}
 			// Add jitter: ±25% of the delay
-			jitter := time.Duration(rand.Int63n(int64(delay) / 2)) - delay/4 // #nosec G404
-			time.Sleep(delay + jitter)
+			jitter := time.Duration(rand.Int63n(int64(delay)/2)) - delay/4 // #nosec G404
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay + jitter):
+			}
 		}
 	}
 	return fmt.Errorf("upload failed after %d attempts: %w", maxRetries, lastErr)
@@ -361,7 +379,7 @@ var osOpen = func(name string) (File, error) {
 
 var osRemove = os.Remove
 
-func (s *SFTPClient) UploadFile(localPath string) error {
+func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	fileName := filepath.Base(localPath)
 	// Ensure remote directory is normalized
 	remoteDir := path.Clean(filepath.ToSlash(s.RemoteDir))
@@ -432,7 +450,7 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 			}
 			limiter := rate.NewLimiter(limit, burst)
 			writer = &throttledWriter{
-				ctx:        context.Background(),
+				ctx:        ctx,
 				w:          remoteFile,
 				limiter:    limiter,
 				maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
@@ -447,6 +465,9 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 
 	// Wrap writer in progress tracker
 	writer = &progressWriter{w: writer, callback: s.ProgressCallback}
+	
+	// Wrap in context checker to ensure io.Copy respects cancellation
+	writer = &contextWriter{ctx: ctx, w: writer}
 
 	startTime := time.Now()
 	_, err = io.Copy(writer, localFile)

@@ -23,7 +23,7 @@ var (
 type ClientInterface interface {
 	Connect() error
 	Close()
-	UploadFileWithRetry(localPath string, maxRetries int) error
+	UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error
 	ReadRemoteDir(p string) ([]models.FileInfo, error)
 	Remove(path string) error
 	Rename(oldpath, newpath string) error
@@ -53,8 +53,9 @@ type QueueManager struct {
 	localDir string
 	nextID   uint64
 	wg       sync.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
+	ctx           context.Context
+	cancel        context.CancelFunc
+	activeCancels map[string]context.CancelFunc
 }
 
 func NewQueueManager(localDir string) *QueueManager {
@@ -62,9 +63,10 @@ func NewQueueManager(localDir string) *QueueManager {
 	qm := &QueueManager{
 		tasks:    []*models.Task{},
 		worker:   make(chan struct{}, 1),
-		localDir: localDir,
-		ctx:      ctx,
-		cancel:   cancel,
+		localDir:      localDir,
+		ctx:           ctx,
+		cancel:        cancel,
+		activeCancels: make(map[string]context.CancelFunc),
 	}
 	qm.wg.Add(1)
 	go qm.processLoop()
@@ -132,7 +134,16 @@ func (qm *QueueManager) processNext() {
 	nextTask.BytesUploaded = 0
 	nextTask.TotalBytes = 0
 	nextTask.Progress = 0
+
+	taskCtx, cancel := context.WithCancel(qm.ctx)
+	qm.activeCancels[nextTask.ID] = cancel
 	qm.mu.Unlock()
+
+	defer func() {
+		qm.mu.Lock()
+		delete(qm.activeCancels, nextTask.ID)
+		qm.mu.Unlock()
+	}()
 
 	logger.Info(fmt.Sprintf("Starting task: %s", nextTask.FileName))
 
@@ -206,7 +217,7 @@ func (qm *QueueManager) processNext() {
 			retries = nextTask.Config.MaxRetries
 		}
 
-		return client.UploadFileWithRetry(candidatePath, retries)
+		return client.UploadFileWithRetry(taskCtx, candidatePath, retries)
 	}()
 
 	qm.mu.Lock()
@@ -264,7 +275,11 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 				return false, fmt.Errorf("task is not paused")
 			case "remove":
 				if t.Status == models.TaskRunning {
-					return false, fmt.Errorf("cannot remove a running task")
+					if cancel, ok := qm.activeCancels[t.ID]; ok {
+						cancel()
+					}
+					// Note: the task will find its way out of the list when it finishes with error, 
+					// but we also remove it immediately so it disappears from UI.
 				}
 				qm.tasks = append(qm.tasks[:i], qm.tasks[i+1:]...)
 				qm.trigger()

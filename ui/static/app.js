@@ -632,7 +632,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const remBtn = document.createElement('button');
                 remBtn.textContent = 'Remove';
-                remBtn.disabled = (task.status === 'Running');
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 

@@ -1,6 +1,7 @@
 package queue_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ type mockClient struct {
 
 func (m *mockClient) Connect() error { return m.connectErr }
 func (m *mockClient) Close() {}
-func (m *mockClient) UploadFileWithRetry(localPath string, maxRetries int) error { return m.uploadErr }
+func (m *mockClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error { return m.uploadErr }
 func (m *mockClient) ReadRemoteDir(p string) ([]models.FileInfo, error) { return nil, nil }
 func (m *mockClient) Remove(path string) error { return nil }
 func (m *mockClient) Rename(oldpath, newpath string) error { return nil }
@@ -123,9 +124,19 @@ func TestQueueManager_Control(t *testing.T) {
 		_, err = qm.ControlTask(runningID, "pause")
 		if err == nil { t.Error("Expected error pausing running task") }
 		
-		// Test remove fail (running)
-		_, err = qm.ControlTask(runningID, "remove")
-		if err == nil { t.Error("Expected error removing running task") }
+		// Test remove success (running) - THIS IS NOW ALLOWED
+		success, err := qm.ControlTask(runningID, "remove")
+		if err != nil || !success {
+			t.Errorf("Expected success removing running task, got %v", err)
+		}
+		
+		// Wait for it to disappear from tasks
+		waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+			for _, t := range tasks {
+				if t.ID == runningID { return false }
+			}
+			return true
+		}, 1*time.Second)
 	}
 
 	if pendingID != "" {
