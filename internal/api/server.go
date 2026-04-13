@@ -418,25 +418,48 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		// Validate file paths exist before enqueuing
+		// Validate file paths exist before enqueuing and ensure they stay
+		// within LocalDir (fixes CodeQL: uncontrolled data in path expression)
+		baseDirAbs, err := filepath.Abs(config.LocalDir)
+		if err != nil {
+			http.Error(w, "Server configuration error", http.StatusInternalServerError)
+			return
+		}
+
 		var invalidFiles []string
+		var validFiles []string
 		for _, file := range req.Files {
-			fullPath := filepath.Join(config.LocalDir, file)
-			if _, err := os.Stat(fullPath); err != nil {
+			fullPath := filepath.Join(baseDirAbs, file)
+			fullPathAbs, err := filepath.Abs(fullPath)
+			if err != nil {
 				invalidFiles = append(invalidFiles, file)
+				continue
 			}
+
+			rel, err := filepath.Rel(baseDirAbs, fullPathAbs)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				invalidFiles = append(invalidFiles, file)
+				continue
+			}
+
+			if _, err := os.Stat(fullPathAbs); err != nil {
+				invalidFiles = append(invalidFiles, file)
+				continue
+			}
+
+			validFiles = append(validFiles, file)
 		}
 		if len(invalidFiles) > 0 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"error": "Some files do not exist",
+				"error":         "Some files are invalid or do not exist",
 				"invalid_files": invalidFiles,
 			})
 			return
 		}
 
-		for _, file := range req.Files {
+		for _, file := range validFiles {
 			qm.AddTask(file, req)
 		}
 
