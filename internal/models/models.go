@@ -49,6 +49,7 @@ const (
 type Task struct {
 	ID            string        `json:"id"`
 	FileName      string        `json:"file_name"`
+	RemoteDir     string        `json:"remote_dir"`
 	Status        TaskStatus    `json:"status"`
 	Progress      int           `json:"progress"`
 	BytesUploaded int64         `json:"bytes_uploaded"`

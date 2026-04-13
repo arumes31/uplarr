@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Sort State ---
     let localSort = { key: 'name', dir: 'asc' };
     let remoteSort = { key: 'name', dir: 'asc' };
+    let lastCheckedIndex = -1; // for shift-click bulk select
 
     // --- Compact View State (persisted) ---
     const loadCompactState = () => {
@@ -245,9 +246,27 @@ document.addEventListener('DOMContentLoaded', () => {
             if (file.is_dir) cb.disabled = true;
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
-            cb.addEventListener('change', (e) => {
-                if (e.target.checked) queuedFiles.set(fullRelPath, { name: file.name });
-                else queuedFiles.delete(fullRelPath);
+            cb.addEventListener('click', (e) => {
+                const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));
+                const currentIndex = allCheckboxes.indexOf(cb);
+
+                if (e.shiftKey && lastCheckedIndex >= 0 && lastCheckedIndex !== currentIndex) {
+                    const start = Math.min(lastCheckedIndex, currentIndex);
+                    const end = Math.max(lastCheckedIndex, currentIndex);
+                    const newState = cb.checked;
+                    for (let i = start; i <= end; i++) {
+                        const c = allCheckboxes[i];
+                        c.checked = newState;
+                        const p = c.dataset.path;
+                        const n = c.dataset.name;
+                        if (newState) queuedFiles.set(p, { name: n });
+                        else queuedFiles.delete(p);
+                    }
+                } else {
+                    if (cb.checked) queuedFiles.set(fullRelPath, { name: file.name });
+                    else queuedFiles.delete(fullRelPath);
+                }
+                lastCheckedIndex = currentIndex;
                 updateUploadButtonText();
             });
             tdCheck.appendChild(cb);
@@ -278,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fileListBody.appendChild(row);
         });
 
+        lastCheckedIndex = -1;
         selectAllCheckbox.checked = false;
     };
 
@@ -539,6 +559,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdFile.style.textOverflow = 'ellipsis';
                 tdFile.style.whiteSpace = 'nowrap';
                 
+                const tdDest = document.createElement('td');
+                tdDest.textContent = task.remote_dir || '';
+                tdDest.title = task.remote_dir || '';
+                tdDest.style.maxWidth = '200px';
+                tdDest.style.overflow = 'hidden';
+                tdDest.style.textOverflow = 'ellipsis';
+                tdDest.style.whiteSpace = 'nowrap';
+                
                 const tdStatus = document.createElement('td');
                 tdStatus.className = `status-${task.status}`;
                 tdStatus.textContent = task.status + (task.error ? ` (${task.error})` : '');
@@ -609,6 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdActions.appendChild(remBtn);
 
                 row.appendChild(tdFile);
+                row.appendChild(tdDest);
                 row.appendChild(tdStatus);
                 row.appendChild(tdProgress);
                 row.appendChild(tdRate);
@@ -621,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             queueBody.innerHTML = '';
             const errRow = document.createElement('tr');
             const errTd = document.createElement('td');
-            errTd.colSpan = 6;
+            errTd.colSpan = 7;
             errTd.className = 'log-error';
             errTd.textContent = 'Failed to load queue';
             errRow.appendChild(errTd);

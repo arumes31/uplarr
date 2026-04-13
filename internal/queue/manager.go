@@ -84,6 +84,7 @@ func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
 	task := &models.Task{
 		ID:        strconv.FormatUint(id, 10),
 		FileName:  fileName,
+		RemoteDir: config.RemoteDir,
 		Status:    models.TaskPending,
 		CreatedAt: time.Now(),
 		Config:    config,

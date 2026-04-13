@@ -161,7 +161,7 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 		if latency > tw.maxLatency {
 			currentLimit := tw.limiter.Limit()
 			if currentLimit != rate.Inf {
-				newLimit := currentLimit * 0.9
+				newLimit := currentLimit * 0.7
 				if newLimit < 1024 {
 					newLimit = 1024
 				}
