@@ -453,6 +453,7 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 
 	// 2. Test Cancellation via context
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cancel() // Cancel immediately
 	if err := client.UploadFile(ctx, testFile); err == nil || (!strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "operation was canceled")) {
 		t.Errorf("Expected context canceled error, got %v", err)
@@ -623,6 +624,7 @@ func TestThrottledWriter_LargeWrite(t *testing.T) {
 
 func TestThrottledReader_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cancel()
 	limiter := rate.NewLimiter(1024, 1024)
 	tr := &throttledReader{
@@ -637,6 +639,7 @@ func TestThrottledReader_WaitError(t *testing.T) {
 
 func TestThrottledWriter_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	cancel()
 	limiter := rate.NewLimiter(1024, 1024)
 	tw := &throttledWriter{

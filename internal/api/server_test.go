@@ -54,6 +54,7 @@ func TestCoverageFlat(t *testing.T) {
 
 	// 3. SSE Logs
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() { time.Sleep(20*time.Millisecond); logger.Info("m"); cancel() }()
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/logs", nil).WithContext(ctx))
 

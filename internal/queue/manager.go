@@ -140,6 +140,7 @@ func (qm *QueueManager) processNext() {
 	qm.mu.Unlock()
 
 	defer func() {
+		cancel()
 		qm.mu.Lock()
 		delete(qm.activeCancels, nextTask.ID)
 		qm.mu.Unlock()

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uplarr - Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --accent-primary: #38bdf8;
+            --accent-secondary: #818cf8;
+            --text-main: #f8fafc;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-main);
+            overflow: hidden;
+        }
+
+        .login-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 3rem;
+            border-radius: 1.5rem;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+
+        .logo p {
+            color: #94a3b8;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.75rem;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
+
+        button {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+            border: none;
+            border-radius: 0.75rem;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .error-msg {
+            color: #f87171;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+            text-align: center;
+            min-height: 1.2rem;
+        }
+
+        .footer {
+            margin-top: 2rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo">
+            <h1>Uplarr</h1>
+            <p>Secure Background Uploader</p>
+        </div>
+        <form id="login-form">
+            <div class="form-group">
+                <input type="password" id="password" placeholder="Master Password" required autofocus>
+            </div>
+            <button type="submit" id="login-btn">Sign In</button>
+            <div id="error-msg" class="error-msg"></div>
+        </form>
+        <div class="footer">
+            &copy; 2026 Uplarr Security Module
+        </div>
+    </div>
+
+    <script src="/static/crypto.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('login-btn');
+            const errorEl = document.getElementById('error-msg');
+            
+            btn.disabled = true;
+            btn.textContent = 'Verifying...';
+            errorEl.textContent = '';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) {
+                    // Initialize crypto master key
+                    const key = await SecureStorage.deriveKey(password);
+                    sessionStorage.setItem('uplarr_master_key', JSON.stringify(key));
+                    
+                    // Redirect to dashboard
+                    window.location.href = '/';
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    errorEl.textContent = data.error || 'Invalid master password';
+                }
+            } catch (err) {
+                errorEl.textContent = 'Connection failed. Please try again.';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Sign In';
+            }
+        });
+    </script>
+</body>
+</html>

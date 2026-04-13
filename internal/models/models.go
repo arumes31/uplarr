@@ -3,8 +3,9 @@ package models
 import "time"
 
 type Config struct {
-	LocalDir string
-	WebPort  string
+	LocalDir      string
+	WebPort       string
+	AuthPassword  string
 }
 
 type UploadRequest struct {

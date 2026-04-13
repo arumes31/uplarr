@@ -50,6 +50,8 @@ graph TD
 - ✅ **Integrity Verification**: Post-upload verification ensures remote files match local sources exactly.
 - 🎛 **Advanced Rate Limiting**: Fixed upload speed caps and dynamic throttling based on network latency.
 - 🧹 **Smart Cleanup**: Automatically remove local files only after successful remote verification.
+- 🔐 **Enhanced Security**: Protect the application with a master password (`AUTH_PASSWORD`).
+- 🔒 **Encrypted Storage**: All persistent settings (including credentials) are AES-GCM encrypted in the browser.
 - 🐳 **Enterprise Ready**: Multi-arch Docker images (`amd64`, `arm64`) and automated security scanning.
 
 ---
@@ -91,6 +93,7 @@ services:
       - "8080:8080"
     environment:
       - LOCAL_DIR=/data
+      - AUTH_PASSWORD=your_secure_password
     volumes:
       - /path/to/local/data:/data:ro
 ```
@@ -115,6 +118,7 @@ Run with: `docker compose up -d`
 | :--- | :--- | :--- |
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
+| `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
 
