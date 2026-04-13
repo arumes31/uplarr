@@ -135,12 +135,12 @@ func (qm *QueueManager) processNext() {
 	nextTask.TotalBytes = 0
 	nextTask.Progress = 0
 
-	taskCtx, cancel := context.WithCancel(qm.ctx)
-	qm.activeCancels[nextTask.ID] = cancel
+	taskCtx, taskCancel := context.WithCancel(qm.ctx)
+	qm.activeCancels[nextTask.ID] = taskCancel
 	qm.mu.Unlock()
 
+	defer taskCancel()
 	defer func() {
-		cancel()
 		qm.mu.Lock()
 		delete(qm.activeCancels, nextTask.ID)
 		qm.mu.Unlock()
