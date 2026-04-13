@@ -16,6 +16,37 @@ import (
 	"uplarr/internal/sftpclient"
 )
 
+var (
+	FilepathAbs = filepath.Abs
+	OsOpenRoot  = os.OpenRoot
+)
+
+type ClientInterface interface {
+	Connect() error
+	Close()
+	UploadFileWithRetry(localPath string, maxRetries int) error
+	ReadRemoteDir(p string) ([]models.FileInfo, error)
+	Remove(path string) error
+	Rename(oldpath, newpath string) error
+	Mkdir(path string) error
+}
+
+var NewClient = func(req models.UploadRequest) ClientInterface {
+	return &sftpclient.SFTPClient{
+		Host:                    req.Host,
+		Port:                    strconv.Itoa(req.Port),
+		User:                    req.User,
+		Password:                req.Password,
+		KeyPath:                 req.KeyPath,
+		RemoteDir:               req.RemoteDir,
+		DeleteAfterVerify:       req.DeleteAfterVerify,
+		Overwrite:               req.Overwrite,
+		SkipHostKeyVerification: req.SkipHostKeyVerification,
+		RateLimitKBps:           req.RateLimitKBps,
+		MaxLatencyMs:            req.MaxLatencyMs,
+	}
+}
+
 type QueueManager struct {
 	tasks    []*models.Task
 	mu       sync.RWMutex
@@ -99,27 +130,15 @@ func (qm *QueueManager) processNext() {
 
 	logger.Info(fmt.Sprintf("Starting task: %s", nextTask.FileName))
 
-	client := sftpclient.SFTPClient{
-		Host:                    nextTask.Config.Host,
-		Port:                    strconv.Itoa(nextTask.Config.Port),
-		User:                    nextTask.Config.User,
-		Password:                nextTask.Config.Password,
-		KeyPath:                 nextTask.Config.KeyPath,
-		RemoteDir:               nextTask.Config.RemoteDir,
-		DeleteAfterVerify:       nextTask.Config.DeleteAfterVerify,
-		Overwrite:               nextTask.Config.Overwrite,
-		SkipHostKeyVerification: nextTask.Config.SkipHostKeyVerification,
-		RateLimitKBps:           nextTask.Config.RateLimitKBps,
-		MaxLatencyMs:            nextTask.Config.MaxLatencyMs,
-	}
+	client := NewClient(nextTask.Config)
 
 	err := func() error {
-		baseDir, err := filepath.Abs(qm.localDir)
+		baseDir, err := FilepathAbs(qm.localDir)
 		if err != nil { return err }
 		baseDir, _ = filepath.EvalSymlinks(baseDir)
 
 		candidatePath := filepath.Join(baseDir, nextTask.FileName)
-		candidatePath, err = filepath.Abs(candidatePath)
+		candidatePath, err = FilepathAbs(candidatePath)
 		if err != nil { return err }
 
 		if realPath, err := filepath.EvalSymlinks(candidatePath); err == nil {
@@ -132,8 +151,8 @@ func (qm *QueueManager) processNext() {
 		}
 
 		// TOCTOU Fix: Open and verify file immediately before connecting
-		// Use os.OpenRoot (Go 1.24+) to strictly scope access to baseDir
-		root, err := os.OpenRoot(baseDir)
+		// Use OsOpenRoot (Go 1.24+) to strictly scope access to baseDir
+		root, err := OsOpenRoot(baseDir)
 		if err != nil {
 			return fmt.Errorf("failed to open root for validation: %v", err)
 		}
@@ -150,8 +169,10 @@ func (qm *QueueManager) processNext() {
 		}
 		defer client.Close()
 
-		retries := nextTask.Config.MaxRetries
-		if retries <= 0 { retries = 3 }
+		retries := 3
+		if nextTask.Config.MaxRetries > 0 {
+			retries = nextTask.Config.MaxRetries
+		}
 
 		return client.UploadFileWithRetry(candidatePath, retries)
 	}()

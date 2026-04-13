@@ -116,16 +116,22 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 	start := time.Now()
 	if tw.limiter != nil {
 		burst := tw.limiter.Burst()
-		remaining := len(p)
-		for remaining > 0 {
-			waitN := remaining
-			if waitN > burst {
-				waitN = burst
+		if burst > 0 {
+			remaining := len(p)
+			for remaining > 0 {
+				waitN := remaining
+				if waitN > burst {
+					waitN = burst
+				}
+				if err := tw.limiter.WaitN(tw.ctx, waitN); err != nil {
+					return 0, err
+				}
+				remaining -= waitN
 			}
-			if err := tw.limiter.WaitN(tw.ctx, waitN); err != nil {
-				return n, err
+		} else {
+			if err := tw.limiter.WaitN(tw.ctx, len(p)); err != nil {
+				return 0, err
 			}
-			remaining -= waitN
 		}
 	}
 
@@ -217,6 +223,10 @@ func (s *SFTPClient) Close() {
 	if s.sshClient != nil {
 		_ = s.sshClient.Close() // #nosec G104
 	}
+}
+
+func (s *SFTPClient) GetRemoteDir() string {
+	return s.RemoteDir
 }
 
 func (s *SFTPClient) UploadFileWithRetry(localPath string, maxRetries int) error {
