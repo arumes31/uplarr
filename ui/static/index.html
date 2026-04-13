@@ -7,7 +7,11 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
+    <div class="app-container">
+        <div id="insecure-banner" class="banner banner-warning" style="display: none;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span><strong>Insecure Context Detected:</strong> Local storage encryption is disabled. Use <code>https://</code> or <code>localhost</code> for enhanced security.</span>
+        </div>
         <header>
             <h1>Uplarr Dashboard</h1>
             <div class="header-controls">

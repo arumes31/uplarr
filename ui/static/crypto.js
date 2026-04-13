@@ -1,4 +1,17 @@
 const SecureStorage = (() => {
+    const isAvailable = !!(window.crypto && window.crypto.subtle && window.isSecureContext);
+    
+    if (!isAvailable) {
+        console.warn("Uplarr: Web Crypto API not available. Secure contexts (HTTPS or localhost) are required for local encryption.");
+        return {
+            isAvailable: false,
+            deriveKey: async () => [],
+            getKey: async () => null,
+            encrypt: async (text) => text,
+            decrypt: async (text) => text
+        };
+    }
+
     const ALGO = 'AES-GCM';
     const SALT = new TextEncoder().encode('uplarr-salt-v1'); // Static salt for key derivation
     const PBKDF2_ITERATIONS = 100000;
@@ -33,17 +46,23 @@ const SecureStorage = (() => {
     const getKey = async () => {
         const saved = sessionStorage.getItem('uplarr_master_key');
         if (!saved) return null;
-        const raw = new Uint8Array(JSON.parse(saved));
-        return crypto.subtle.importKey(
-            'raw',
-            raw,
-            ALGO,
-            false,
-            ['encrypt', 'decrypt']
-        );
+        try {
+            const raw = new Uint8Array(JSON.parse(saved));
+            return crypto.subtle.importKey(
+                'raw',
+                raw,
+                ALGO,
+                false,
+                ['encrypt', 'decrypt']
+            );
+        } catch (e) {
+            console.error("Failed to import key from session storage", e);
+            return null;
+        }
     };
 
     const encrypt = async (text, key) => {
+        if (!key) return text;
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const encoded = new TextEncoder().encode(text);
         const ciphertext = await crypto.subtle.encrypt(
@@ -61,6 +80,7 @@ const SecureStorage = (() => {
     };
 
     const decrypt = async (base64, key) => {
+        if (!key) return base64;
         const combined = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
         const iv = combined.slice(0, 12);
         const ciphertext = combined.slice(12);
@@ -74,5 +94,5 @@ const SecureStorage = (() => {
         return new TextDecoder().decode(decrypted);
     };
 
-    return { deriveKey, getKey, encrypt, decrypt };
+    return { isAvailable: true, deriveKey, getKey, encrypt, decrypt };
 })();

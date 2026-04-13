@@ -11,6 +11,27 @@
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
+.banner {
+    padding: 0.6rem 1rem;
+    background-color: var(--card-bg);
+    border-bottom: 2px solid var(--border-color);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 100;
+}
+
+.banner-warning {
+    background-color: #fffbeb;
+    border-bottom-color: #f59e0b;
+    color: #92400e;
+}
+
+.banner i {
+    font-size: 1.1rem;
+}
+
 * {
     box-sizing: border-box;
     margin: 0;

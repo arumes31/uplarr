@@ -797,6 +797,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Init ---
     const init = async () => {
+        // Check for secure context
+        if (!SecureStorage.isAvailable) {
+            const banner = document.getElementById('insecure-banner');
+            if (banner) banner.style.display = 'flex';
+        }
+
         masterKey = await SecureStorage.getKey();
         if (!masterKey) {
             // Check if backend actually requires auth
