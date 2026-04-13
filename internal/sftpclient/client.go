@@ -371,6 +371,8 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	if _, err := s.validateRemotePath(remotePath); err != nil {
 		return err
 	}
+	
+	tempRemotePath := remotePath + ".tmp"
 
 	// Check if file exists and handle overwrite
 	if !s.Overwrite {
@@ -400,17 +402,17 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 		return fmt.Errorf("failed to stat local file: %v", err)
 	}
 
-	remoteFile, err := s.sftpClient.Create(remotePath)
+	remoteFile, err := s.sftpClient.Create(tempRemotePath)
 	if err != nil {
-		return fmt.Errorf("failed to create remote file: %v", err)
+		return fmt.Errorf("failed to create temp remote file: %v", err)
 	}
 
 	cleanupRemote := true
 	defer func() {
 		if cleanupRemote {
 			_ = remoteFile.Close()
-			if err := s.sftpClient.Remove(remotePath); err != nil {
-				logger.Error(fmt.Sprintf("Failed to cleanup partial upload %s: %v", fileName, err))
+			if err := s.sftpClient.Remove(tempRemotePath); err != nil {
+				logger.Error(fmt.Sprintf("Failed to cleanup partial upload %s: %v", fileName+".tmp", err))
 			}
 		}
 	}()
@@ -458,10 +460,10 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 	duration := time.Since(startTime)
 	logger.Info(fmt.Sprintf("Uploaded %s (%d bytes) in %s", fileName, localStat.Size(), duration))
 
-	// Verify
-	remoteStat, err := s.sftpClient.Stat(remotePath)
+	// Verify the temp file
+	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
 	if err != nil {
-		return fmt.Errorf("failed to stat remote file for verification: %v", err)
+		return fmt.Errorf("failed to stat temp remote file for verification: %v", err)
 	}
 
 	if remoteStat.Size() != localStat.Size() {
@@ -470,7 +472,16 @@ func (s *SFTPClient) UploadFile(localPath string) error {
 
 	// Success! Disable cleanup
 	cleanupRemote = false
-	logger.Info(fmt.Sprintf("Verification passed for %s", fileName))
+	logger.Info(fmt.Sprintf("Verification passed for %s", fileName+".tmp"))
+
+	// Rename temp file to final file
+	if s.Overwrite {
+		_ = s.sftpClient.Remove(remotePath) // Best effort delete before rename to handle SFTP v3 rename restrictions
+	}
+	if err := s.sftpClient.Rename(tempRemotePath, remotePath); err != nil {
+		return fmt.Errorf("failed to rename temp file to final destination: %v", err)
+	}
+	logger.Info(fmt.Sprintf("Successfully moved temp file to final destination: %s", fileName))
 
 	// Windows requires file to be closed before deletion
 	_ = localFile.Close()
