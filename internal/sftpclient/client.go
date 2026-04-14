@@ -75,17 +75,17 @@ func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
 
 	currentLimit := l.rateLimiter.Limit()
 	if latency > maxLatency {
-		newLimit := currentLimit * 0.7
-		if newLimit < 1024 {
-			newLimit = 1024
+		newLimit := currentLimit * 0.8 // Less aggressive throttle down
+		if newLimit < 10240 {          // 10 KB/s floor
+			newLimit = 10240
 		}
 		l.rateLimiter.SetLimit(newLimit)
 		l.consecutiveLow = 0
 		logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, maxLatency, int(newLimit/1024)))
 	} else if currentLimit < l.MaxLimit {
 		l.consecutiveLow++
-		if l.consecutiveLow >= 20 { // 20 consecutive low latency writes
-			newLimit := currentLimit * 1.1
+		if l.consecutiveLow >= 10 { // Faster recovery (10 instead of 20)
+			newLimit := currentLimit * 1.2 // Faster pickup (20% instead of 10%)
 			if newLimit > l.MaxLimit {
 				newLimit = l.MaxLimit
 			}
@@ -199,6 +199,9 @@ type throttledReader struct {
 func (tr *throttledReader) Read(p []byte) (n int, err error) {
 	n, err = tr.r.Read(p)
 	if n > 0 && tr.limiter != nil {
+		// Apply byte-level rate limiting here.
+		// Reading from local disk is extremely fast, so this WaitN
+		// is decoupled from network RTT.
 		burst := tr.limiter.Burst()
 		remaining := n
 		for remaining > 0 {
@@ -223,34 +226,30 @@ type throttledWriter struct {
 }
 
 func (tw *throttledWriter) Write(p []byte) (n int, err error) {
-	if tw.limiter != nil {
-		burst := tw.limiter.Burst()
-		if burst > 0 {
-			remaining := len(p)
-			for remaining > 0 {
-				waitN := remaining
-				if waitN > burst {
-					waitN = burst
-				}
-				if err := tw.limiter.WaitN(tw.ctx, waitN); err != nil {
-					return 0, err
-				}
-				remaining -= waitN
-			}
-		} else {
-			if err := tw.limiter.WaitN(tw.ctx, len(p)); err != nil {
-				return 0, err
-			}
-		}
+	// Check context first to satisfy cancellation tests
+	select {
+	case <-tw.ctx.Done():
+		return 0, tw.ctx.Err()
+	default:
 	}
 
+	// We ONLY measure latency here. 
+	// The actual byte-level throttling (WaitN) is moved to throttledReader
+	// to prevent network RTT from interfering with bandwidth measurement.
 	start := time.Now()
 	n, err = tw.w.Write(p)
-	if n > 0 && tw.maxLatency > 0 {
+	if n > 0 && tw.limiter != nil && tw.maxLatency > 0 {
 		latency := time.Since(start)
 		tw.limiter.RecordLatency(latency, tw.maxLatency)
 	}
 	return n, err
+}
+
+func (tw *throttledWriter) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := tw.w.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+	return io.Copy(tw.w, r)
 }
 
 type contextWriter struct {
@@ -324,7 +323,10 @@ func (s *SFTPClient) Connect() error {
 	}
 	s.sshClient = client
 
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, err := sftp.NewClient(client, 
+		sftp.MaxConcurrentRequestsPerFile(64),
+		sftp.MaxPacket(32768),
+	)
 	if err != nil {
 		_ = client.Close() // #nosec G104
 		return fmt.Errorf("failed to create sftp client: %v", err)
@@ -597,33 +599,38 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		}
 	}()
 
-	var writer io.Writer = remoteFile
+	// Setup throttling and latency tracking
+	if s.Limiter == nil && (s.RateLimitKBps > 0 || s.MaxLatencyMs > 0) {
+		limit := rate.Limit(s.RateLimitKBps * 1024)
+		if limit == 0 && s.MaxLatencyMs > 0 {
+			limit = rate.Limit(100 * 1024 * 1024)
+		}
+		burst := 16 * 1024
+		if int(limit)/10 > burst {
+			burst = int(limit) / 10
+		}
+		s.Limiter = NewLimiter(limit, burst, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+	}
+
+	var targetWriter io.Writer = remoteFile
+	var targetReader io.Reader = localFile
+
+	// Byte-level throttling happens on the Reader side to avoid RTT interference
+	if s.Limiter != nil {
+		targetReader = &throttledReader{
+			ctx:     ctx,
+			r:       localFile,
+			limiter: s.Limiter,
+		}
+	}
+
+	// Latency measurement happens on the Writer side
 	if s.Limiter != nil && s.MaxLatencyMs > 0 {
-		writer = &throttledWriter{
+		targetWriter = &throttledWriter{
 			ctx:        ctx,
 			w:          remoteFile,
 			limiter:    s.Limiter,
 			maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
-		}
-	} else if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
-		limit := rate.Limit(s.RateLimitKBps * 1024)
-		if limit == 0 && s.MaxLatencyMs > 0 {
-			limit = rate.Limit(100 * 1024 * 1024) // 100MB/s
-		}
-		
-		if limit > 0 {
-			burst := 16 * 1024
-			if int(limit)/10 > burst {
-				burst = int(limit) / 10
-			}
-			maxLat := time.Duration(s.MaxLatencyMs) * time.Millisecond
-			s.Limiter = NewLimiter(limit, burst, maxLat)
-			writer = &throttledWriter{
-				ctx:        ctx,
-				w:          remoteFile,
-				limiter:    s.Limiter,
-				maxLatency: maxLat,
-			}
 		}
 	}
 
@@ -632,17 +639,22 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		s.FileSizeCallback(localStat.Size())
 	}
 
-	// Wrap writer in progress tracker
-	writer = &progressWriter{w: writer, callback: s.ProgressCallback, total: startOffset}
+	// Wrap in progress tracker
+	targetWriter = &progressWriter{w: targetWriter, callback: s.ProgressCallback, total: startOffset}
 	if s.ProgressCallback != nil && startOffset > 0 {
 		s.ProgressCallback(startOffset)
 	}
 	
-	// Wrap in context checker to ensure io.Copy respects cancellation
-	writer = &contextWriter{ctx: ctx, w: writer}
+	// Wrap in context checker
+	targetWriter = &contextWriter{ctx: ctx, w: targetWriter}
 
 	startTime := time.Now()
-	_, err = io.Copy(writer, localFile)
+	// Use ReadFrom if available (provided by pkg/sftp.File for concurrent writes)
+	if rf, ok := targetWriter.(io.ReaderFrom); ok {
+		_, err = rf.ReadFrom(targetReader)
+	} else {
+		_, err = io.Copy(targetWriter, targetReader)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
