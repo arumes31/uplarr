@@ -333,7 +333,7 @@ func (s *SFTPClient) Connect() error {
 
 	sftpClient, err := sftp.NewClient(client, 
 		sftp.MaxConcurrentRequestsPerFile(128),
-		sftp.MaxPacket(65536),
+		sftp.MaxPacket(32768),
 	)
 	if err != nil {
 		_ = client.Close() // #nosec G104
