@@ -30,9 +30,18 @@ type mockSFTPFile struct {
 	delay    time.Duration
 	writeCnt int
 	failAt   int
+	pos      int64
+	content  []byte
 }
 
-func (m *mockSFTPFile) Read(p []byte) (n int, err error)  { return 0, io.EOF }
+func (m *mockSFTPFile) Read(p []byte) (n int, err error) {
+	if m.pos >= int64(len(m.content)) {
+		return 0, io.EOF
+	}
+	n = copy(p, m.content[m.pos:])
+	m.pos += int64(n)
+	return n, nil
+}
 func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
@@ -48,7 +57,22 @@ func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 }
 func (m *mockSFTPFile) Close() error { return m.closeErr }
 func (m *mockSFTPFile) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
+	var newPos int64
+	switch whence {
+	case io.SeekStart:
+		newPos = offset
+	case io.SeekCurrent:
+		newPos = m.pos + offset
+	case io.SeekEnd:
+		newPos = int64(len(m.content)) + offset
+	default:
+		return 0, fmt.Errorf("invalid whence")
+	}
+	if newPos < 0 {
+		return 0, fmt.Errorf("negative position")
+	}
+	m.pos = newPos
+	return m.pos, nil
 }
 func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
 	if m.statErr != nil {
@@ -765,3 +789,51 @@ func TestSFTPClient_UploadRetryFailureExhaustive(t *testing.T) {
 		t.Error("Expected error for UploadFileWithRetry")
 	}
 }
+
+func TestSFTPClient_UploadResumeMismatch(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "resume_mismatch")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	// Local file
+	localContent := []byte("NEW CONTENT")
+	os.WriteFile(testFile, localContent, 0644)
+
+	// Remote partial file has different content
+	remoteContent := []byte("OLD CONTENT")
+	mockFile := &mockSFTPFile{
+		content:  remoteContent,
+		statSize: int64(len(remoteContent)),
+	}
+
+	createdNew := false
+	mockC := &mockSFTPClient{
+		statFunc: func(path string) (os.FileInfo, error) {
+			if strings.HasSuffix(path, ".tmp") {
+				return &mockFileInfo{size: int64(len(remoteContent))}, nil
+			}
+			return nil, os.ErrNotExist
+		},
+		openFileFunc: func(path string, flags int) (SFTPFile, error) {
+			return mockFile, nil
+		},
+		createFunc: func(path string) (SFTPFile, error) {
+			createdNew = true
+			return &mockSFTPFile{}, nil
+		},
+	}
+
+	client := &SFTPClient{
+		RemoteDir:  ".",
+		sftpClient: mockC,
+		Overwrite:  true,
+	}
+
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
+		t.Errorf("Expected success after mismatch restart, got %v", err)
+	}
+
+	if !createdNew {
+		t.Error("Expected SFTPClient to call Create() after content mismatch, but it didn't")
+	}
+}
+

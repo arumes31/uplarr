@@ -208,7 +208,6 @@ type throttledWriter struct {
 }
 
 func (tw *throttledWriter) Write(p []byte) (n int, err error) {
-	start := time.Now()
 	if tw.limiter != nil {
 		burst := tw.limiter.Burst()
 		if burst > 0 {
@@ -230,6 +229,7 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 
+	start := time.Now()
 	n, err = tw.w.Write(p)
 	if n > 0 && tw.maxLatency > 0 {
 		latency := time.Since(start)
@@ -501,20 +501,41 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 			logger.Info(fmt.Sprintf("Partial file found (%d/%d bytes). Attempting to resume...", remoteStat.Size(), localStat.Size()))
 			rf, errOpen := s.sftpClient.OpenFile(tempRemotePath, os.O_RDWR)
 			if errOpen == nil {
-				offset, errSeek := rf.Seek(0, io.SeekEnd)
-				if errSeek == nil {
-					_, errLSeek := localFile.Seek(offset, io.SeekStart)
+				// Verify prefix content matches to prevent corruption
+				match := false
+				remotePrefix := make([]byte, remoteStat.Size())
+				_, errRead := io.ReadFull(rf, remotePrefix)
+				if errRead == nil {
+					localPrefix := make([]byte, remoteStat.Size())
+					_, errLSeek := localFile.Seek(0, io.SeekStart)
 					if errLSeek == nil {
-						remoteFile = rf
-						startOffset = offset
-						logger.Info(fmt.Sprintf("Resuming from offset %d", startOffset))
+						_, errLRead := io.ReadFull(localFile, localPrefix)
+						if errLRead == nil && string(remotePrefix) == string(localPrefix) {
+							match = true
+						}
+					}
+				}
+
+				if match {
+					offset, errSeek := rf.Seek(0, io.SeekEnd)
+					if errSeek == nil {
+						_, errLSeek := localFile.Seek(offset, io.SeekStart)
+						if errLSeek == nil {
+							remoteFile = rf
+							startOffset = offset
+							logger.Info(fmt.Sprintf("Verfied prefix matches. Resuming from offset %d", startOffset))
+						} else {
+							logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
+							_ = rf.Close()
+						}
 					} else {
-						logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
+						logger.Error(fmt.Sprintf("Failed to seek remote file: %v", errSeek))
 						_ = rf.Close()
 					}
 				} else {
-					logger.Error(fmt.Sprintf("Failed to seek remote file: %v", errSeek))
+					logger.Warn(fmt.Sprintf("Partial file content mismatch for %s, restarting from zero.", tempRemotePath))
 					_ = rf.Close()
+					// We'll leave remoteFile nil so it gets Created (truncated) below
 				}
 			} else {
 				logger.Error(fmt.Sprintf("Failed to open remote file for resume: %v", errOpen))

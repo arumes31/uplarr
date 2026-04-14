@@ -59,6 +59,10 @@ func Error(msg string) {
 	LogWithLevel("error", msg, nil)
 }
 
+func Warn(msg string) {
+	LogWithLevel("warn", msg, nil)
+}
+
 // Subscribe creates a buffered log channel, registers it, and returns it.
 func Subscribe() chan string {
 	c := make(chan string, 10)
