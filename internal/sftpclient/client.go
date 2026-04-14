@@ -69,12 +69,19 @@ func (l *Limiter) Limit() rate.Limit {
 	return l.rateLimiter.Limit()
 }
 
-func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
+func (l *Limiter) RecordLatency(latency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	l.lastLatency = latency
 	currentLimit := l.rateLimiter.Limit()
+	
+	// Use our internal MaxLatency which is kept up-to-date by UpdateConfig
+	maxLatency := l.MaxLatency
+	if maxLatency <= 0 {
+		return // Throttling disabled
+	}
+
 	if latency > maxLatency {
 		newLimit := currentLimit * 0.8 // Less aggressive throttle down
 		if newLimit < 10240 {          // 10 KB/s floor
@@ -727,10 +734,10 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 			latency := time.Since(start)
 			if err == nil {
 				_ = conn.Close()
-				s.Limiter.RecordLatency(latency, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+				s.Limiter.RecordLatency(latency)
 			} else {
 				// If dial fails (e.g. timeout), report maximum timeout latency to trigger throttle down
-				s.Limiter.RecordLatency(timeout, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+				s.Limiter.RecordLatency(timeout)
 			}
 		}
 	}
