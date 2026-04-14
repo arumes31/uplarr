@@ -716,10 +716,13 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 			start := time.Now()
 			// TCP Ping: simply dial and close to measure RTT
 			conn, err := net.DialTimeout("tcp", addr, timeout)
+			latency := time.Since(start)
 			if err == nil {
-				latency := time.Since(start)
 				_ = conn.Close()
 				s.Limiter.RecordLatency(latency, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+			} else {
+				// If dial fails (e.g. timeout), report maximum timeout latency to trigger throttle down
+				s.Limiter.RecordLatency(timeout, time.Duration(s.MaxLatencyMs)*time.Millisecond)
 			}
 		}
 	}
