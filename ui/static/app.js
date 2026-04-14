@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Queue Elements
     const queueBody = document.getElementById('queue-body');
+    const metricsOverlay = document.getElementById('metrics-overlay');
 
     // Shared Elements
     const testBtn = document.getElementById('test-btn');
@@ -639,6 +640,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/queue');
             const tasks = await res.json();
+            
+            // Calculate aggregate speed for active hosts
+            const activeSpeeds = new Map(); // host -> totalRate
+            
             queueBody.innerHTML = '';
             tasks.reverse().forEach(task => {
                 const row = document.createElement('tr');
@@ -735,7 +740,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
+
+                // Aggregate calculation (we use the rate we displayed)
+                if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
+                    const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
+                    if (elapsed > 0) {
+                        const rate = task.bytes_uploaded / elapsed;
+                        // Note: host is not in the JSON task usually, so we sum all if only one host, 
+                        // or we might need to expose host in Task. 
+                        // For now, let's just sum all as "Total Speed".
+                        window.globalTotalRate = (window.globalTotalRate || 0) + rate;
+                    }
+                }
             });
+            window.lastTotalRate = window.globalTotalRate || 0;
+            window.globalTotalRate = 0;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
             queueBody.innerHTML = '';
@@ -747,6 +766,45 @@ document.addEventListener('DOMContentLoaded', () => {
             errRow.appendChild(errTd);
             queueBody.appendChild(errRow);
         }
+    };
+
+    const fetchStats = async () => {
+        try {
+            const res = await fetch('/api/stats');
+            if (res.ok) {
+                const stats = await res.json();
+                renderStats(stats);
+            }
+        } catch (e) { console.error("Failed to fetch stats", e); }
+    };
+
+    const renderStats = (stats) => {
+        if (!stats || stats.length === 0) {
+            metricsOverlay.innerHTML = '';
+            return;
+        }
+
+        metricsOverlay.innerHTML = stats.map(s => {
+            const latClass = s.last_latency_ms > 100 ? 'high-latency' : '';
+            const totalSpeed = window.lastTotalRate || 0;
+            return `
+                <div class="metric-card">
+                    <div class="metric-host">${s.host}</div>
+                    <div class="metric-row">
+                        <span class="metric-label">Latency</span>
+                        <span class="metric-value latency ${latClass}">${s.last_latency_ms}ms</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Rate Limit</span>
+                        <span class="metric-value">${(s.current_limit_kb / 1024).toFixed(1)} MB/s</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Current Speed</span>
+                        <span class="metric-value speed">${formatRate(totalSpeed)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
     };
 
     const controlTask = async (id, action) => {
@@ -882,6 +940,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchRemoteFiles(remoteCurrentPath);
         }
         setInterval(fetchQueue, 1000);
+        setInterval(fetchStats, 1000);
     };
 
     logoutBtn.addEventListener('click', async () => {

@@ -26,6 +26,7 @@ type Limiter struct {
 	rateLimiter    *rate.Limiter
 	MaxLimit       rate.Limit
 	MaxLatency     time.Duration
+	lastLatency    time.Duration
 	consecutiveLow int
 	mu             sync.Mutex
 }
@@ -72,6 +73,7 @@ func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.lastLatency = latency
 	currentLimit := l.rateLimiter.Limit()
 	if latency > maxLatency {
 		newLimit := currentLimit * 0.8 // Less aggressive throttle down
@@ -97,6 +99,12 @@ func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
 
 func (l *Limiter) WaitN(ctx context.Context, n int) error {
 	return l.rateLimiter.WaitN(ctx, n)
+}
+
+func (l *Limiter) GetStats() (currentKB, maxKB int, lastLat time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return int(l.rateLimiter.Limit() / 1024), int(l.MaxLimit / 1024), l.lastLatency
 }
 
 func (l *Limiter) Burst() int {

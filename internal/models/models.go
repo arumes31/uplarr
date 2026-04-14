@@ -60,3 +60,12 @@ type Task struct {
 	CreatedAt     time.Time     `json:"created_at"`
 	Config        UploadRequest `json:"-"`
 }
+
+type HostStats struct {
+	Host           string    `json:"host"`
+	LastLatencyMs  int64     `json:"last_latency_ms"`
+	CurrentLimitKB int       `json:"current_limit_kb"`
+	MaxLimitKB     int       `json:"max_limit_kb"`
+	ActiveTasks    int       `json:"active_tasks"`
+	TotalSpeedKBps float64   `json:"total_speed_kbps"`
+}

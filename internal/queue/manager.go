@@ -313,6 +313,38 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	return snapshot
 }
 
+func (qm *QueueManager) GetHostStats() []models.HostStats {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+
+	var stats []models.HostStats
+	for host, limiter := range qm.limiters {
+		// Only report hosts that are actually relevant (have tasks)
+		hasActiveTasks := false
+		activeCount := 0
+		for _, t := range qm.tasks {
+			if t.Config.Host == host && (t.Status == models.TaskRunning || t.Status == models.TaskPending) {
+				hasActiveTasks = true
+				if t.Status == models.TaskRunning {
+					activeCount++
+				}
+			}
+		}
+
+		if hasActiveTasks {
+			curr, max, lat := limiter.GetStats()
+			stats = append(stats, models.HostStats{
+				Host:           host,
+				LastLatencyMs:  lat.Milliseconds(),
+				CurrentLimitKB: curr,
+				MaxLimitKB:     max,
+				ActiveTasks:    activeCount,
+			})
+		}
+	}
+	return stats
+}
+
 func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()

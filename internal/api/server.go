@@ -598,6 +598,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		if r.Method == http.MethodGet {
 			_ = json.NewEncoder(w).Encode(qm.GetTasks())
 		} else if r.Method == http.MethodPost {
+			// (existing POST logic)
+		}
+	}))
+
+	mux.HandleFunc("/api/stats", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
+	}))
 			var req struct {
 				ID     string `json:"id"`
 				Action string `json:"action"`
