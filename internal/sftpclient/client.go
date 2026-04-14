@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"uplarr/internal/logger"
@@ -21,13 +22,82 @@ import (
 	"golang.org/x/time/rate"
 )
 
+type Limiter struct {
+	rateLimiter    *rate.Limiter
+	MaxLimit       rate.Limit
+	MaxLatency     time.Duration
+	consecutiveLow int
+	mu             sync.Mutex
+}
+
+func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter {
+	return &Limiter{
+		rateLimiter: rate.NewLimiter(limit, burst),
+		MaxLimit:    limit,
+		MaxLatency:  maxLatency,
+	}
+}
+
+func (l *Limiter) SetLimit(newLimit rate.Limit) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if newLimit > l.MaxLimit {
+		newLimit = l.MaxLimit
+	}
+	l.rateLimiter.SetLimit(newLimit)
+	l.consecutiveLow = 0
+}
+
+func (l *Limiter) Limit() rate.Limit {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.rateLimiter.Limit()
+}
+
+func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	currentLimit := l.rateLimiter.Limit()
+	if latency > maxLatency {
+		newLimit := currentLimit * 0.7
+		if newLimit < 1024 {
+			newLimit = 1024
+		}
+		l.rateLimiter.SetLimit(newLimit)
+		l.consecutiveLow = 0
+		logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, maxLatency, int(newLimit/1024)))
+	} else if currentLimit < l.MaxLimit {
+		l.consecutiveLow++
+		if l.consecutiveLow >= 20 { // 20 consecutive low latency writes
+			newLimit := currentLimit * 1.1
+			if newLimit > l.MaxLimit {
+				newLimit = l.MaxLimit
+			}
+			l.rateLimiter.SetLimit(newLimit)
+			l.consecutiveLow = 0
+			logger.Info(fmt.Sprintf("Latency stable, increasing speed to %v KB/s", int(newLimit/1024)))
+		}
+	}
+}
+
+func (l *Limiter) WaitN(ctx context.Context, n int) error {
+	return l.rateLimiter.WaitN(ctx, n)
+}
+
+func (l *Limiter) Burst() int {
+	return l.rateLimiter.Burst()
+}
+
 type SFTPFile interface {
 	io.ReadWriteCloser
+	io.Seeker
 	Stat() (os.FileInfo, error)
 }
 
 type SFTPClientInterface interface {
 	Create(path string) (SFTPFile, error)
+	OpenFile(path string, flags int) (SFTPFile, error)
 	Stat(path string) (os.FileInfo, error)
 	ReadDir(p string) ([]os.FileInfo, error)
 	Remove(path string) error
@@ -42,6 +112,10 @@ type realSFTPClient struct {
 
 func (c *realSFTPClient) Create(path string) (SFTPFile, error) {
 	return c.Client.Create(path)
+}
+
+func (c *realSFTPClient) OpenFile(path string, flags int) (SFTPFile, error) {
+	return c.Client.OpenFile(path, flags)
 }
 
 func (c *realSFTPClient) Stat(path string) (os.FileInfo, error) {
@@ -79,6 +153,7 @@ type SFTPClient struct {
 	MaxLatencyMs            int
 	ProgressCallback        func(bytesWritten int64)
 	FileSizeCallback        func(totalBytes int64)
+	Limiter                 *Limiter
 	sshClient               *ssh.Client
 	sftpClient              SFTPClientInterface
 }
@@ -103,7 +178,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 type throttledReader struct {
 	ctx     context.Context
 	r       io.Reader
-	limiter *rate.Limiter
+	limiter *Limiter
 }
 
 func (tr *throttledReader) Read(p []byte) (n int, err error) {
@@ -128,12 +203,11 @@ func (tr *throttledReader) Read(p []byte) (n int, err error) {
 type throttledWriter struct {
 	ctx        context.Context
 	w          io.Writer
-	limiter    *rate.Limiter
+	limiter    *Limiter
 	maxLatency time.Duration
 }
 
 func (tw *throttledWriter) Write(p []byte) (n int, err error) {
-	start := time.Now()
 	if tw.limiter != nil {
 		burst := tw.limiter.Burst()
 		if burst > 0 {
@@ -155,20 +229,11 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 
+	start := time.Now()
 	n, err = tw.w.Write(p)
 	if n > 0 && tw.maxLatency > 0 {
 		latency := time.Since(start)
-		if latency > tw.maxLatency {
-			currentLimit := tw.limiter.Limit()
-			if currentLimit != rate.Inf {
-				newLimit := currentLimit * 0.7
-				if newLimit < 1024 {
-					newLimit = 1024
-				}
-				tw.limiter.SetLimit(newLimit)
-				logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, tw.maxLatency, int(newLimit/1024)))
-			}
-		}
+		tw.limiter.RecordLatency(latency, tw.maxLatency)
 	}
 	return n, err
 }
@@ -189,6 +254,10 @@ func (cw *contextWriter) Write(p []byte) (int, error) {
 
 var osReadFile = os.ReadFile
 var sshParsePrivateKey = ssh.ParsePrivateKey
+
+func (s *SFTPClient) SetLimiter(l *Limiter) {
+	s.Limiter = l
+}
 
 func (s *SFTPClient) Connect() error {
 	var authMethods []ssh.AuthMethod
@@ -370,6 +439,7 @@ func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
 
 type File interface {
 	io.ReadCloser
+	io.Seeker
 	Stat() (os.FileInfo, error)
 }
 
@@ -379,7 +449,7 @@ var osOpen = func(name string) (File, error) {
 
 var osRemove = os.Remove
 
-func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
+func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err error) {
 	fileName := filepath.Base(localPath)
 	// Ensure remote directory is normalized
 	remoteDir := path.Clean(filepath.ToSlash(s.RemoteDir))
@@ -421,23 +491,96 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 		return fmt.Errorf("failed to stat local file: %v", err)
 	}
 
-	remoteFile, err := s.sftpClient.Create(tempRemotePath)
-	if err != nil {
-		return fmt.Errorf("failed to create temp remote file: %v", err)
+	var remoteFile SFTPFile
+	var startOffset int64
+
+	// Check for partial file to resume
+	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
+	if err == nil {
+		if remoteStat.Size() > 0 && remoteStat.Size() < localStat.Size() {
+			logger.Info(fmt.Sprintf("Partial file found (%d/%d bytes). Attempting to resume...", remoteStat.Size(), localStat.Size()))
+			rf, errOpen := s.sftpClient.OpenFile(tempRemotePath, os.O_RDWR)
+			if errOpen == nil {
+				// Verify prefix content matches to prevent corruption
+				match := false
+				remotePrefix := make([]byte, remoteStat.Size())
+				_, errRead := io.ReadFull(rf, remotePrefix)
+				if errRead == nil {
+					localPrefix := make([]byte, remoteStat.Size())
+					_, errLSeek := localFile.Seek(0, io.SeekStart)
+					if errLSeek == nil {
+						_, errLRead := io.ReadFull(localFile, localPrefix)
+						if errLRead == nil && string(remotePrefix) == string(localPrefix) {
+							match = true
+						}
+					}
+				}
+
+				if match {
+					offset, errSeek := rf.Seek(0, io.SeekEnd)
+					if errSeek == nil {
+						_, errLSeek := localFile.Seek(offset, io.SeekStart)
+						if errLSeek == nil {
+							remoteFile = rf
+							startOffset = offset
+							logger.Info(fmt.Sprintf("Verfied prefix matches. Resuming from offset %d", startOffset))
+						} else {
+							logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
+							_ = rf.Close()
+						}
+					} else {
+						logger.Error(fmt.Sprintf("Failed to seek remote file: %v", errSeek))
+						_ = rf.Close()
+					}
+				} else {
+					logger.Warn(fmt.Sprintf("Partial file content mismatch for %s, restarting from zero.", tempRemotePath))
+					_ = rf.Close()
+					// We'll leave remoteFile nil so it gets Created (truncated) below
+				}
+			} else {
+				logger.Error(fmt.Sprintf("Failed to open remote file for resume: %v", errOpen))
+			}
+		} else if remoteStat.Size() >= localStat.Size() {
+			logger.Info(fmt.Sprintf("Existing partial file is larger than or equal to local file (%d >= %d), restarting.", remoteStat.Size(), localStat.Size()))
+		}
+	}
+
+	if remoteFile == nil {
+		remoteFile, err = s.sftpClient.Create(tempRemotePath)
+		if err != nil {
+			return fmt.Errorf("failed to create temp remote file: %v", err)
+		}
 	}
 
 	cleanupRemote := true
+	var verificationErr error
 	defer func() {
+		if remoteFile != nil {
+			closeErr := remoteFile.Close()
+			if err == nil && closeErr != nil {
+				err = fmt.Errorf("failed to close remote file: %v", closeErr)
+			}
+		}
 		if cleanupRemote {
-			_ = remoteFile.Close()
-			if err := s.sftpClient.Remove(tempRemotePath); err != nil {
-				logger.Error(fmt.Sprintf("Failed to cleanup partial upload %s: %v", fileName+".tmp", err))
+			if verificationErr != nil {
+				logger.Error(fmt.Sprintf("Verification failed for %s: %v. Partial file retained.", tempRemotePath, verificationErr))
+			} else if ctx.Err() != nil {
+				logger.Info(fmt.Sprintf("Transfer interrupted. Partial file retained at %s", tempRemotePath))
+			} else if err != nil {
+				logger.Error(fmt.Sprintf("Transfer failed for %s: %v. Partial file retained.", tempRemotePath, err))
 			}
 		}
 	}()
 
 	var writer io.Writer = remoteFile
-	if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
+	if s.Limiter != nil && s.MaxLatencyMs > 0 {
+		writer = &throttledWriter{
+			ctx:        ctx,
+			w:          remoteFile,
+			limiter:    s.Limiter,
+			maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
+		}
+	} else if s.RateLimitKBps > 0 || s.MaxLatencyMs > 0 {
 		limit := rate.Limit(s.RateLimitKBps * 1024)
 		if limit == 0 && s.MaxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024) // 100MB/s
@@ -448,12 +591,13 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 			if int(limit)/10 > burst {
 				burst = int(limit) / 10
 			}
-			limiter := rate.NewLimiter(limit, burst)
+			maxLat := time.Duration(s.MaxLatencyMs) * time.Millisecond
+			s.Limiter = NewLimiter(limit, burst, maxLat)
 			writer = &throttledWriter{
 				ctx:        ctx,
 				w:          remoteFile,
-				limiter:    limiter,
-				maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
+				limiter:    s.Limiter,
+				maxLatency: maxLat,
 			}
 		}
 	}
@@ -464,7 +608,10 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	}
 
 	// Wrap writer in progress tracker
-	writer = &progressWriter{w: writer, callback: s.ProgressCallback}
+	writer = &progressWriter{w: writer, callback: s.ProgressCallback, total: startOffset}
+	if s.ProgressCallback != nil && startOffset > 0 {
+		s.ProgressCallback(startOffset)
+	}
 	
 	// Wrap in context checker to ensure io.Copy respects cancellation
 	writer = &contextWriter{ctx: ctx, w: writer}
@@ -474,22 +621,19 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
-	
-	if err := remoteFile.Close(); err != nil {
-		return fmt.Errorf("failed to close remote file: %v", err)
-	}
 
 	duration := time.Since(startTime)
 	logger.Info(fmt.Sprintf("Uploaded %s -> %s (%d bytes) in %s", localPath, remotePath, localStat.Size(), duration))
 
 	// Verify the temp file
-	remoteStat, err := s.sftpClient.Stat(tempRemotePath)
+	remoteStat, err = s.sftpClient.Stat(tempRemotePath)
 	if err != nil {
 		return fmt.Errorf("failed to stat temp remote file for verification: %v", err)
 	}
 
 	if remoteStat.Size() != localStat.Size() {
-		return fmt.Errorf("verification failed: size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
+		verificationErr = fmt.Errorf("size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
+		return fmt.Errorf("verification failed: %v", verificationErr)
 	}
 
 	// Success! Disable cleanup

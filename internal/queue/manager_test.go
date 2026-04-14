@@ -10,6 +10,7 @@ import (
 
 	"uplarr/internal/models"
 	"uplarr/internal/queue"
+	"uplarr/internal/sftpclient"
 )
 
 // waitForTaskStatus polls qm.GetTasks() until a task matching the predicate is found or timeout elapses.
@@ -37,6 +38,7 @@ func (m *mockClient) ReadRemoteDir(p string) ([]models.FileInfo, error) { return
 func (m *mockClient) Remove(path string) error { return nil }
 func (m *mockClient) Rename(oldpath, newpath string) error { return nil }
 func (m *mockClient) Mkdir(path string) error { return nil }
+func (m *mockClient) SetLimiter(l *sftpclient.Limiter) {}
 
 func TestQueueManager(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "qm_test")

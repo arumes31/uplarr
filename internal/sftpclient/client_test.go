@@ -30,9 +30,18 @@ type mockSFTPFile struct {
 	delay    time.Duration
 	writeCnt int
 	failAt   int
+	pos      int64
+	content  []byte
 }
 
-func (m *mockSFTPFile) Read(p []byte) (n int, err error)  { return 0, io.EOF }
+func (m *mockSFTPFile) Read(p []byte) (n int, err error) {
+	if m.pos >= int64(len(m.content)) {
+		return 0, io.EOF
+	}
+	n = copy(p, m.content[m.pos:])
+	m.pos += int64(n)
+	return n, nil
+}
 func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
@@ -47,6 +56,24 @@ func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 func (m *mockSFTPFile) Close() error { return m.closeErr }
+func (m *mockSFTPFile) Seek(offset int64, whence int) (int64, error) {
+	var newPos int64
+	switch whence {
+	case io.SeekStart:
+		newPos = offset
+	case io.SeekCurrent:
+		newPos = m.pos + offset
+	case io.SeekEnd:
+		newPos = int64(len(m.content)) + offset
+	default:
+		return 0, fmt.Errorf("invalid whence")
+	}
+	if newPos < 0 {
+		return 0, fmt.Errorf("negative position")
+	}
+	m.pos = newPos
+	return m.pos, nil
+}
 func (m *mockSFTPFile) Stat() (os.FileInfo, error) {
 	if m.statErr != nil {
 		return nil, m.statErr
@@ -71,12 +98,14 @@ func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSFTPClient struct {
 	createFunc  func(path string) (SFTPFile, error)
-	statFunc    func(path string) (os.FileInfo, error)
-	readDirFunc func(p string) ([]os.FileInfo, error)
-	mkdirErr    error
-	removeErr   error
-	renameErr   error
-	closeErr    error
+	openFileFunc func(path string, flags int) (SFTPFile, error)
+	statFunc     func(path string) (os.FileInfo, error)
+	readDirFunc  func(p string) ([]os.FileInfo, error)
+	mkdirErr     error
+	removeErr    error
+	renameErr    error
+	closeErr     error
+	files        map[string]*mockSFTPFile
 }
 
 func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
@@ -85,11 +114,23 @@ func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
 	}
 	return nil, fmt.Errorf("create not implemented")
 }
+func (m *mockSFTPClient) OpenFile(path string, flags int) (SFTPFile, error) {
+	if m.openFileFunc != nil {
+		return m.openFileFunc(path, flags)
+	}
+	if f, ok := m.files[path]; ok {
+		return f, nil
+	}
+	return nil, fmt.Errorf("openfile: file not found in mock: %s", path)
+}
 func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
 	if m.statFunc != nil {
 		return m.statFunc(path)
 	}
-	return nil, fmt.Errorf("stat not implemented")
+	if f, ok := m.files[path]; ok {
+		return &mockFileInfo{size: f.statSize, name: filepath.Base(path)}, nil
+	}
+	return nil, os.ErrNotExist
 }
 func (m *mockSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
 	if m.readDirFunc != nil {
@@ -116,6 +157,7 @@ func (m *mockFileObj) Stat() (os.FileInfo, error) {
 }
 func (m *mockFileObj) Close() error { return m.osFile.Close() }
 func (m *mockFileObj) Read(p []byte) (n int, err error) { return m.osFile.Read(p) }
+func (m *mockFileObj) Seek(offset int64, whence int) (int64, error) { return m.osFile.Seek(offset, whence) }
 
 // --- Helpers ---
 
@@ -598,7 +640,7 @@ func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
 }
 
 func TestThrottledReader_LargeRead(t *testing.T) {
-	limiter := rate.NewLimiter(1024, 1024)
+	limiter := NewLimiter(1024, 1024, 0)
 	tr := &throttledReader{
 		ctx:     context.Background(),
 		r:       strings.NewReader(strings.Repeat("a", 2048)),
@@ -611,7 +653,7 @@ func TestThrottledReader_LargeRead(t *testing.T) {
 }
 
 func TestThrottledWriter_LargeWrite(t *testing.T) {
-	limiter := rate.NewLimiter(1024, 1024)
+	limiter := NewLimiter(1024, 1024, 0)
 	tw := &throttledWriter{
 		ctx:     context.Background(),
 		w:       io.Discard,
@@ -626,7 +668,7 @@ func TestThrottledReader_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancel()
-	limiter := rate.NewLimiter(1024, 1024)
+	limiter := NewLimiter(1024, 1024, 0)
 	tr := &throttledReader{
 		ctx:     ctx,
 		r:       strings.NewReader("any"),
@@ -641,7 +683,7 @@ func TestThrottledWriter_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancel()
-	limiter := rate.NewLimiter(1024, 1024)
+	limiter := NewLimiter(1024, 1024, 0)
 	tw := &throttledWriter{
 		ctx:     ctx,
 		w:       io.Discard,
@@ -655,7 +697,7 @@ func TestThrottledWriter_InfLimit(t *testing.T) {
 	tw := &throttledWriter{
 		ctx:     context.Background(),
 		w:       io.Discard,
-		limiter: rate.NewLimiter(rate.Inf, 0),
+		limiter: NewLimiter(rate.Inf, 0, 0),
 		maxLatency: time.Millisecond,
 	}
 	_, err := tw.Write([]byte("any"))
@@ -754,3 +796,51 @@ func TestSFTPClient_UploadRetryFailureExhaustive(t *testing.T) {
 		t.Error("Expected error for UploadFileWithRetry")
 	}
 }
+
+func TestSFTPClient_UploadResumeMismatch(t *testing.T) {
+	tempDir, _ := os.MkdirTemp("", "resume_mismatch")
+	defer os.RemoveAll(tempDir)
+	testFile := filepath.Join(tempDir, "test.txt")
+	// Local file
+	localContent := []byte("NEW CONTENT")
+	os.WriteFile(testFile, localContent, 0644)
+
+	// Remote partial file has different content
+	remoteContent := []byte("OLD CONTENT")
+	mockFile := &mockSFTPFile{
+		content:  remoteContent,
+		statSize: int64(len(remoteContent)),
+	}
+
+	createdNew := false
+	mockC := &mockSFTPClient{
+		statFunc: func(path string) (os.FileInfo, error) {
+			if strings.HasSuffix(path, ".tmp") {
+				return &mockFileInfo{size: int64(len(remoteContent))}, nil
+			}
+			return nil, os.ErrNotExist
+		},
+		openFileFunc: func(path string, flags int) (SFTPFile, error) {
+			return mockFile, nil
+		},
+		createFunc: func(path string) (SFTPFile, error) {
+			createdNew = true
+			return &mockSFTPFile{}, nil
+		},
+	}
+
+	client := &SFTPClient{
+		RemoteDir:  ".",
+		sftpClient: mockC,
+		Overwrite:  true,
+	}
+
+	if err := client.UploadFile(context.Background(), testFile); err != nil {
+		t.Errorf("Expected success after mismatch restart, got %v", err)
+	}
+
+	if !createdNew {
+		t.Error("Expected SFTPClient to call Create() after content mismatch, but it didn't")
+	}
+}
+

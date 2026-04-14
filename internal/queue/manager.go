@@ -13,6 +13,8 @@ import (
 	"uplarr/internal/logger"
 	"uplarr/internal/models"
 	"uplarr/internal/sftpclient"
+
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -28,6 +30,7 @@ type ClientInterface interface {
 	Remove(path string) error
 	Rename(oldpath, newpath string) error
 	Mkdir(path string) error
+	SetLimiter(l *sftpclient.Limiter)
 }
 
 var NewClient = func(req models.UploadRequest) ClientInterface {
@@ -56,17 +59,19 @@ type QueueManager struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
+	limiters      map[string]*sftpclient.Limiter
 }
 
 func NewQueueManager(localDir string) *QueueManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	qm := &QueueManager{
-		tasks:    []*models.Task{},
-		worker:   make(chan struct{}, 1),
+		tasks:         []*models.Task{},
+		worker:        make(chan struct{}, 1),
 		localDir:      localDir,
 		ctx:           ctx,
 		cancel:        cancel,
 		activeCancels: make(map[string]context.CancelFunc),
+		limiters:      make(map[string]*sftpclient.Limiter),
 	}
 	qm.wg.Add(1)
 	go qm.processLoop()
@@ -149,6 +154,32 @@ func (qm *QueueManager) processNext() {
 	logger.Info(fmt.Sprintf("Starting task: %s", nextTask.FileName))
 
 	client := NewClient(nextTask.Config)
+	
+	// Setup persistent dynamic throttling
+	if nextTask.Config.RateLimitKBps > 0 || nextTask.Config.MaxLatencyMs > 0 {
+		qm.mu.Lock()
+		limit := rate.Limit(nextTask.Config.RateLimitKBps * 1024)
+		if limit == 0 {
+			limit = rate.Limit(100 * 1024 * 1024) // Default 100MB/s if only latency is set
+		}
+		maxLat := time.Duration(nextTask.Config.MaxLatencyMs) * time.Millisecond
+		
+		host := nextTask.Config.Host
+		limiter, exists := qm.limiters[host]
+		
+		needsRefresh := !exists || limiter.MaxLimit != limit || limiter.MaxLatency != maxLat
+		
+		if needsRefresh {
+			burst := 16 * 1024
+			if int(limit)/10 > burst {
+				burst = int(limit) / 10
+			}
+			limiter = sftpclient.NewLimiter(limit, burst, maxLat)
+			qm.limiters[host] = limiter
+		}
+		qm.mu.Unlock()
+		client.SetLimiter(limiter)
+	}
 
 	// Wire progress callbacks if this is a real SFTPClient
 	if sc, ok := client.(*sftpclient.SFTPClient); ok {

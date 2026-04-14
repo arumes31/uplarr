@@ -508,6 +508,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
             remoteCurrentPath = data.current_path;
+            
+            // Sync with configuration form input for consistency
+            const remoteDirInput = document.getElementById('remote_dir');
+            if (remoteDirInput) {
+                remoteDirInput.value = remoteCurrentPath;
+            }
+            
             await setSecureItem('uplarr_remote_path', remoteCurrentPath);
             remoteBreadcrumb.textContent = remoteCurrentPath;
             remoteFilesList = data.files || [];
@@ -524,6 +531,17 @@ document.addEventListener('DOMContentLoaded', () => {
             remoteFileListBody.appendChild(row);
         }
     };
+
+    // Manual navigation via remote directory input
+    const remoteDirInputManual = document.getElementById('remote_dir');
+    if (remoteDirInputManual) {
+        remoteDirInputManual.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                fetchRemoteFiles(remoteDirInputManual.value);
+            }
+        });
+    }
 
     remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
     remoteUpBtn.addEventListener('click', () => {
@@ -781,6 +799,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const config = getFormData();
         config.files = filesToUpload;
+        
+        // Final destination enforcement: always use the most recent remoteCurrentPath
+        // This ensures the queue reflects what the user sees in the browser pane
+        if (remoteCurrentPath) {
+            config.remote_dir = remoteCurrentPath;
+        }
+        
+        addLog(`Queueing ${filesToUpload.length} files to: ${config.remote_dir}`, 'info');
+        
         uploadBtn.disabled = true;
         try {
             const res = await fetch('/api/upload', { 
