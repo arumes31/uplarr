@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Shared Elements
     const testBtn = document.getElementById('test-btn');
+    const updateThrottleBtn = document.getElementById('update-throttle-btn');
     const uploadBtn = document.getElementById('upload-btn');
     const logoutBtn = document.getElementById('logout-btn');
     const statusMsg = document.getElementById('status-message');
@@ -777,6 +778,26 @@ document.addEventListener('DOMContentLoaded', () => {
             else showStatus(`Failed: ${data.error || "Unknown error"}`, "error");
         } catch (e) { showStatus("Request failed", "error"); }
         testBtn.disabled = false;
+    });
+
+    updateThrottleBtn.addEventListener('click', async () => {
+        const config = getFormData();
+        updateThrottleBtn.disabled = true;
+        try {
+            const res = await fetch('/api/throttle/update', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(config) 
+            });
+            const data = await res.json();
+            if (res.ok) { 
+                showStatus(`Throttling updated for ${config.host}`, "success"); 
+                addLog(`Updated throttling for ${config.host}: ${config.rate_limit_kbps} KB/s`, 'info');
+            } else {
+                showStatus(`Update failed: ${data.error || "Unknown error"}`, "error");
+            }
+        } catch (e) { showStatus("Request failed", "error"); }
+        updateThrottleBtn.disabled = false;
     });
 
     uploadBtn.addEventListener('click', async () => {

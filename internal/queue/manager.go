@@ -84,6 +84,53 @@ func (qm *QueueManager) Shutdown() {
 	qm.wg.Wait()
 }
 
+func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpclient.Limiter {
+	if config.RateLimitKBps <= 0 && config.MaxLatencyMs <= 0 {
+		return nil
+	}
+
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	limit := rate.Limit(config.RateLimitKBps * 1024)
+	if limit == 0 {
+		limit = rate.Limit(100 * 1024 * 1024) // 100MB/s default
+	}
+	maxLat := time.Duration(config.MaxLatencyMs) * time.Millisecond
+	host := config.Host
+
+	limiter, exists := qm.limiters[host]
+	if !exists {
+		burst := 16 * 1024
+		if int(limit)/10 > burst {
+			burst = int(limit) / 10
+		}
+		limiter = sftpclient.NewLimiter(limit, burst, maxLat)
+		qm.limiters[host] = limiter
+		return limiter
+	}
+
+	// Update existing limiter settings thread-safely
+	limiter.UpdateConfig(limit, maxLat)
+	return limiter
+}
+
+func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps int, maxLatencyMs int) {
+	qm.mu.Lock()
+	limiter, exists := qm.limiters[host]
+	qm.mu.Unlock()
+
+	if exists {
+		limit := rate.Limit(rateLimitKBps * 1024)
+		if limit == 0 && maxLatencyMs > 0 {
+			limit = rate.Limit(100 * 1024 * 1024)
+		}
+		maxLat := time.Duration(maxLatencyMs) * time.Millisecond
+		limiter.UpdateConfig(limit, maxLat)
+		logger.Info(fmt.Sprintf("Live-updated throttling for host %s: %v KB/s, %v ms latency", host, rateLimitKBps, maxLatencyMs))
+	}
+}
+
 func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
 	qm.mu.Lock()
 	qm.nextID++
@@ -155,29 +202,9 @@ func (qm *QueueManager) processNext() {
 
 	client := NewClient(nextTask.Config)
 	
-	// Setup persistent dynamic throttling
-	if nextTask.Config.RateLimitKBps > 0 || nextTask.Config.MaxLatencyMs > 0 {
-		qm.mu.Lock()
-		limit := rate.Limit(nextTask.Config.RateLimitKBps * 1024)
-		if limit == 0 {
-			limit = rate.Limit(100 * 1024 * 1024) // Default 100MB/s if only latency is set
-		}
-		maxLat := time.Duration(nextTask.Config.MaxLatencyMs) * time.Millisecond
-		
-		host := nextTask.Config.Host
-		limiter, exists := qm.limiters[host]
-		
-		needsRefresh := !exists || limiter.MaxLimit != limit || limiter.MaxLatency != maxLat
-		
-		if needsRefresh {
-			burst := 16 * 1024
-			if int(limit)/10 > burst {
-				burst = int(limit) / 10
-			}
-			limiter = sftpclient.NewLimiter(limit, burst, maxLat)
-			qm.limiters[host] = limiter
-		}
-		qm.mu.Unlock()
+	// Setup persistent host-wide dynamic throttling
+	limiter := qm.getOrCreateLimiter(nextTask.Config)
+	if limiter != nil {
 		client.SetLimiter(limiter)
 	}
 
