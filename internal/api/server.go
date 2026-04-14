@@ -574,10 +574,24 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		for _, file := range validFiles {
+			// Update the host-wide limiter with the latest config provided with this upload request
+			qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MaxLatencyMs)
 			qm.AddTask(file, req)
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Tasks added to queue"})
+	}))
+
+	mux.HandleFunc("/api/throttle/update", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		var req models.UploadRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MaxLatencyMs)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Throttling updated"})
 	}))
 
 	mux.HandleFunc("/api/queue", withAuth(func(w http.ResponseWriter, r *http.Request) {

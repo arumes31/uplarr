@@ -38,6 +38,21 @@ func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter 
 	}
 }
 
+func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	
+	// If the user upgraded the max speed, we should allow current limit to scale up.
+	// We don't necessarily reset currentLimit, but we update MaxLimit.
+	l.MaxLimit = newLimit
+	l.MaxLatency = newMaxLatency
+	
+	// Ensure current limit doesn't exceed new MaxLimit immediately.
+	if l.rateLimiter.Limit() > newLimit {
+		l.rateLimiter.SetLimit(newLimit)
+	}
+}
+
 func (l *Limiter) SetLimit(newLimit rate.Limit) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
