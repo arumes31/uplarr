@@ -42,15 +42,14 @@ func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	
-	// If the user upgraded the max speed, we should allow current limit to scale up.
-	// We don't necessarily reset currentLimit, but we update MaxLimit.
 	l.MaxLimit = newLimit
 	l.MaxLatency = newMaxLatency
 	
-	// Ensure current limit doesn't exceed new MaxLimit immediately.
-	if l.rateLimiter.Limit() > newLimit {
-		l.rateLimiter.SetLimit(newLimit)
-	}
+	// When manually updating, we reset the current limit to the new MaxLimit.
+	// This ensures that "Update Throttling" immediately takes effect even if previously throttled.
+	l.rateLimiter.SetLimit(newLimit)
+	l.consecutiveLow = 0
+	logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Max Latency %v", int(newLimit/1024), newMaxLatency))
 }
 
 func (l *Limiter) SetLimit(newLimit rate.Limit) {
@@ -233,16 +232,10 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 	default:
 	}
 
-	// We ONLY measure latency here. 
-	// The actual byte-level throttling (WaitN) is moved to throttledReader
-	// to prevent network RTT from interfering with bandwidth measurement.
-	start := time.Now()
-	n, err = tw.w.Write(p)
-	if n > 0 && tw.limiter != nil && tw.maxLatency > 0 {
-		latency := time.Since(start)
-		tw.limiter.RecordLatency(latency, tw.maxLatency)
-	}
-	return n, err
+	// We no longer measure latency here because Write latency includes synchronous RTT
+	// which causes false-positive throttling on high-latency links.
+	// Latency is now measured in the background via TCP Ping.
+	return tw.w.Write(p)
 }
 
 func (tw *throttledWriter) ReadFrom(r io.Reader) (int64, error) {
@@ -649,6 +642,14 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	targetWriter = &contextWriter{ctx: ctx, w: targetWriter}
 
 	startTime := time.Now()
+	
+	// Start background latency sampler if dynamic throttling is enabled
+	samplerCtx, samplerCancel := context.WithCancel(ctx)
+	defer samplerCancel()
+	if s.Limiter != nil && s.MaxLatencyMs > 0 {
+		go s.startLatencySampler(samplerCtx)
+	}
+
 	// Use ReadFrom if available (provided by pkg/sftp.File for concurrent writes)
 	if rf, ok := targetWriter.(io.ReaderFrom); ok {
 		_, err = rf.ReadFrom(targetReader)
@@ -699,4 +700,27 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	}
 
 	return nil
+}
+func (s *SFTPClient) startLatencySampler(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	addr := net.JoinHostPort(s.Host, s.Port)
+	const timeout = 2 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			start := time.Now()
+			// TCP Ping: simply dial and close to measure RTT
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+			if err == nil {
+				latency := time.Since(start)
+				_ = conn.Close()
+				s.Limiter.RecordLatency(latency, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+			}
+		}
+	}
 }
