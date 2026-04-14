@@ -370,20 +370,30 @@ func (s *SFTPClient) validateRemotePath(p string) (string, error) {
 	}
 	// SFTP paths use forward slashes. Normalize and clean.
 	p = path.Clean(filepath.ToSlash(p))
-	base := path.Clean(filepath.ToSlash(s.RemoteDir))
 
+	// Determine the security base.
+	// If the path is absolute, we allow navigation anywhere in the SFTP account (base = /).
+	// If the path is relative, we jail it to the configured RemoteDir.
+	base := "/"
+	if !path.IsAbs(p) {
+		base = path.Clean(filepath.ToSlash(s.RemoteDir))
+		// Join joining the relative path with the base allows filepath.Rel 
+		// to correctly detect upward traversal on all platforms.
+		p = path.Join(base, p)
+	}
+	
 	rel, err := filepath.Rel(base, p)
 	if err != nil {
 		return "", fmt.Errorf("invalid remote path")
 	}
 	// Normalize to POSIX slashes since SFTP uses forward slashes
 	rel = filepath.ToSlash(rel)
-
+	
 	// Precise escape check: rel == ".." or rel starts with "../"
 	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", fmt.Errorf("unauthorized remote path access: traversal detected")
 	}
-
+	
 	return p, nil
 }
 

@@ -477,7 +477,7 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 
 	mockC := &mockSFTPClient{}
 	client := &SFTPClient{
-		RemoteDir:  ".",
+		RemoteDir:  "/upload",
 		sftpClient: mockC,
 		Overwrite:  true,
 	}
@@ -546,7 +546,7 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 
 	// Test Fixed Rate Limit: 10KB/s. 60KB should take ~6s.
 	client := &SFTPClient{
-		RemoteDir:     ".",
+		RemoteDir:     "/upload",
 		sftpClient:    mockC,
 		RateLimitKBps: 10,
 		Overwrite:     true,
@@ -563,7 +563,7 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 
 	mockFile.delay = 50 * time.Millisecond
 	clientDynamic := &SFTPClient{
-		RemoteDir:    ".",
+		RemoteDir:    "/upload",
 		sftpClient:   mockC,
 		MaxLatencyMs: 10,
 		Overwrite:    true,
@@ -582,14 +582,15 @@ func TestSFTPClient_ValidateRemotePath(t *testing.T) {
 	if err != nil { t.Errorf("Expected success, got %v", err) }
 	if p != "/upload/file.txt" { t.Errorf("Unexpected path: %s", p) }
 
-	_, err = client.validateRemotePath("/upload/../etc/passwd")
-	if err == nil || !strings.Contains(err.Error(), "traversal detected") {
-		t.Errorf("Expected traversal error, got %v", err)
-	}
+	// New behavior: absolute paths are allowed anywhere starting from /
+	p2, err := client.validateRemotePath("/etc/passwd")
+	if err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
+	if p2 != "/etc/passwd" { t.Errorf("Unexpected path: %s", p2) }
 
-	_, err = client.validateRemotePath("/etc/passwd")
+	// Test relative escape attempt
+	_, err = client.validateRemotePath("../forbidden")
 	if err == nil || !strings.Contains(err.Error(), "traversal detected") {
-		t.Errorf("Expected traversal error for path outside base, got %v", err)
+		t.Errorf("Expected traversal error for relative escape, got %v", err)
 	}
 }
 
@@ -601,9 +602,9 @@ func TestSFTPClient_FileSystemActions(t *testing.T) {
 	if err := client.Remove("/upload/old"); err != nil { t.Error(err) }
 	if err := client.Rename("/upload/old", "/upload/new"); err != nil { t.Error(err) }
 
-	if err := client.Mkdir("/root"); err == nil { t.Error("Expected traversal error") }
-	if err := client.Remove("/root"); err == nil { t.Error("Expected traversal error") }
-	if err := client.Rename("/upload/a", "/root"); err == nil { t.Error("Expected traversal error") }
+	if err := client.Mkdir("/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
+	if err := client.Remove("/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
+	if err := client.Rename("/upload/a", "/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
 }
 
 func TestSFTPClient_ReadRemoteDir(t *testing.T) {
@@ -618,7 +619,7 @@ func TestSFTPClient_ReadRemoteDir(t *testing.T) {
 	if len(files) != 1 { t.Errorf("Expected 1 file, got %d", len(files)) }
 
 	_, err = client.ReadRemoteDir("/etc")
-	if err == nil { t.Error("Expected traversal error") }
+	if err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
 }
 
 func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
@@ -830,7 +831,7 @@ func TestSFTPClient_UploadResumeMismatch(t *testing.T) {
 	}
 
 	client := &SFTPClient{
-		RemoteDir:  ".",
+		RemoteDir:  "/upload",
 		sftpClient: mockC,
 		Overwrite:  true,
 	}
