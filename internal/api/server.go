@@ -596,16 +596,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 	mux.HandleFunc("/api/queue", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(qm.GetTasks())
 		} else if r.Method == http.MethodPost {
-			// (existing POST logic)
-		}
-	}))
-
-	mux.HandleFunc("/api/stats", withAuth(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
-	}))
 			var req struct {
 				ID     string `json:"id"`
 				Action string `json:"action"`
@@ -626,10 +619,13 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.Header().Set("Allow", "GET, POST")
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
 
+	mux.HandleFunc("/api/stats", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
+	}))
 	return mux, nil
 }
