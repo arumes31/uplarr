@@ -564,8 +564,10 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		if cleanupRemote {
 			if verificationErr != nil {
 				logger.Error(fmt.Sprintf("Verification failed for %s: %v. Partial file retained.", tempRemotePath, verificationErr))
-			} else {
+			} else if ctx.Err() != nil {
 				logger.Info(fmt.Sprintf("Transfer interrupted. Partial file retained at %s", tempRemotePath))
+			} else if err != nil {
+				logger.Error(fmt.Sprintf("Transfer failed for %s: %v. Partial file retained.", tempRemotePath, err))
 			}
 		}
 	}()

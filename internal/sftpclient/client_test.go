@@ -99,12 +99,13 @@ func (m *mockFileInfo) Sys() interface{}   { return nil }
 type mockSFTPClient struct {
 	createFunc  func(path string) (SFTPFile, error)
 	openFileFunc func(path string, flags int) (SFTPFile, error)
-	statFunc    func(path string) (os.FileInfo, error)
-	readDirFunc func(p string) ([]os.FileInfo, error)
-	mkdirErr    error
-	removeErr   error
-	renameErr   error
-	closeErr    error
+	statFunc     func(path string) (os.FileInfo, error)
+	readDirFunc  func(p string) ([]os.FileInfo, error)
+	mkdirErr     error
+	removeErr    error
+	renameErr    error
+	closeErr     error
+	files        map[string]*mockSFTPFile
 }
 
 func (m *mockSFTPClient) Create(path string) (SFTPFile, error) {
@@ -117,13 +118,19 @@ func (m *mockSFTPClient) OpenFile(path string, flags int) (SFTPFile, error) {
 	if m.openFileFunc != nil {
 		return m.openFileFunc(path, flags)
 	}
-	return nil, fmt.Errorf("openfile not implemented")
+	if f, ok := m.files[path]; ok {
+		return f, nil
+	}
+	return nil, fmt.Errorf("openfile: file not found in mock: %s", path)
 }
 func (m *mockSFTPClient) Stat(path string) (os.FileInfo, error) {
 	if m.statFunc != nil {
 		return m.statFunc(path)
 	}
-	return nil, fmt.Errorf("stat not implemented")
+	if f, ok := m.files[path]; ok {
+		return &mockFileInfo{size: f.statSize, name: filepath.Base(path)}, nil
+	}
+	return nil, os.ErrNotExist
 }
 func (m *mockSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
 	if m.readDirFunc != nil {
