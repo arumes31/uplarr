@@ -157,16 +157,20 @@ func (qm *QueueManager) processNext() {
 	// Setup persistent dynamic throttling
 	if nextTask.Config.RateLimitKBps > 0 || nextTask.Config.MaxLatencyMs > 0 {
 		qm.mu.Lock()
-		if qm.limiter == nil {
-			limit := nextTask.Config.RateLimitKBps * 1024
-			if limit == 0 {
-				limit = 100 * 1024 * 1024 // Default 100MB/s if only latency is set
-			}
+		limit := rate.Limit(nextTask.Config.RateLimitKBps * 1024)
+		if limit == 0 {
+			limit = rate.Limit(100 * 1024 * 1024) // Default 100MB/s if only latency is set
+		}
+		maxLat := time.Duration(nextTask.Config.MaxLatencyMs) * time.Millisecond
+		
+		needsRefresh := qm.limiter == nil || qm.limiter.MaxLimit != limit || qm.limiter.MaxLatency != maxLat
+		
+		if needsRefresh {
 			burst := 16 * 1024
-			if limit/10 > burst {
-				burst = limit / 10
+			if int(limit)/10 > burst {
+				burst = int(limit) / 10
 			}
-			qm.limiter = sftpclient.NewLimiter(rate.Limit(limit), burst)
+			qm.limiter = sftpclient.NewLimiter(limit, burst, maxLat)
 		}
 		qm.mu.Unlock()
 		client.SetLimiter(qm.limiter)

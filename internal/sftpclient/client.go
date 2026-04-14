@@ -24,23 +24,25 @@ import (
 
 type Limiter struct {
 	rateLimiter    *rate.Limiter
-	maxLimit       rate.Limit
+	MaxLimit       rate.Limit
+	MaxLatency     time.Duration
 	consecutiveLow int
 	mu             sync.Mutex
 }
 
-func NewLimiter(limit rate.Limit, burst int) *Limiter {
+func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter {
 	return &Limiter{
 		rateLimiter: rate.NewLimiter(limit, burst),
-		maxLimit:    limit,
+		MaxLimit:    limit,
+		MaxLatency:  maxLatency,
 	}
 }
 
 func (l *Limiter) SetLimit(newLimit rate.Limit) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if newLimit > l.maxLimit {
-		newLimit = l.maxLimit
+	if newLimit > l.MaxLimit {
+		newLimit = l.MaxLimit
 	}
 	l.rateLimiter.SetLimit(newLimit)
 	l.consecutiveLow = 0
@@ -65,12 +67,12 @@ func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
 		l.rateLimiter.SetLimit(newLimit)
 		l.consecutiveLow = 0
 		logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, maxLatency, int(newLimit/1024)))
-	} else if currentLimit < l.maxLimit {
+	} else if currentLimit < l.MaxLimit {
 		l.consecutiveLow++
 		if l.consecutiveLow >= 20 { // 20 consecutive low latency writes
 			newLimit := currentLimit * 1.1
-			if newLimit > l.maxLimit {
-				newLimit = l.maxLimit
+			if newLimit > l.MaxLimit {
+				newLimit = l.MaxLimit
 			}
 			l.rateLimiter.SetLimit(newLimit)
 			l.consecutiveLow = 0
@@ -447,7 +449,7 @@ var osOpen = func(name string) (File, error) {
 
 var osRemove = os.Remove
 
-func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
+func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err error) {
 	fileName := filepath.Base(localPath)
 	// Ensure remote directory is normalized
 	remoteDir := path.Clean(filepath.ToSlash(s.RemoteDir))
@@ -530,12 +532,20 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	}
 
 	cleanupRemote := true
+	var verificationErr error
 	defer func() {
+		if remoteFile != nil {
+			closeErr := remoteFile.Close()
+			if err == nil && closeErr != nil {
+				err = fmt.Errorf("failed to close remote file: %v", closeErr)
+			}
+		}
 		if cleanupRemote {
-			_ = remoteFile.Close()
-			// We no longer remove partial files on every error, to allow resuming.
-			// Only log failure.
-			logger.Info(fmt.Sprintf("Transfer interrupted. Partial file retained at %s", tempRemotePath))
+			if verificationErr != nil {
+				logger.Error(fmt.Sprintf("Verification failed for %s: %v. Partial file retained.", tempRemotePath, verificationErr))
+			} else {
+				logger.Info(fmt.Sprintf("Transfer interrupted. Partial file retained at %s", tempRemotePath))
+			}
 		}
 	}()
 
@@ -558,12 +568,13 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 			if int(limit)/10 > burst {
 				burst = int(limit) / 10
 			}
-			s.Limiter = NewLimiter(limit, burst)
+			maxLat := time.Duration(s.MaxLatencyMs) * time.Millisecond
+			s.Limiter = NewLimiter(limit, burst, maxLat)
 			writer = &throttledWriter{
 				ctx:        ctx,
 				w:          remoteFile,
 				limiter:    s.Limiter,
-				maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
+				maxLatency: maxLat,
 			}
 		}
 	}
@@ -587,10 +598,6 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
-	
-	if err := remoteFile.Close(); err != nil {
-		return fmt.Errorf("failed to close remote file: %v", err)
-	}
 
 	duration := time.Since(startTime)
 	logger.Info(fmt.Sprintf("Uploaded %s -> %s (%d bytes) in %s", localPath, remotePath, localStat.Size(), duration))
@@ -602,7 +609,8 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
 	}
 
 	if remoteStat.Size() != localStat.Size() {
-		return fmt.Errorf("verification failed: size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
+		verificationErr = fmt.Errorf("size mismatch (local: %d, remote: %d)", localStat.Size(), remoteStat.Size())
+		return fmt.Errorf("verification failed: %v", verificationErr)
 	}
 
 	// Success! Disable cleanup
