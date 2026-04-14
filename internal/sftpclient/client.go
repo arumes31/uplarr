@@ -325,8 +325,8 @@ func (s *SFTPClient) Connect() error {
 	s.sshClient = client
 
 	sftpClient, err := sftp.NewClient(client, 
-		sftp.MaxConcurrentRequestsPerFile(64),
-		sftp.MaxPacket(32768),
+		sftp.MaxConcurrentRequestsPerFile(128),
+		sftp.MaxPacket(65536),
 	)
 	if err != nil {
 		_ = client.Close() // #nosec G104
