@@ -9,14 +9,15 @@ import (
 
 func main() {
 	paths := []string{"/upload/file.txt", "/etc/passwd", "/upload/../etc/passwd", "../forbidden", "/", "/root"}
-	base := "/"
 	
 	for _, p := range paths {
 		cleanedP := path.Clean(filepath.ToSlash(p))
 		
-		effectiveBase := base
+		// Always validate against the intended boundary (RemoteDir)
+		effectiveBase := "/upload" // mock RemoteDir
 		if !path.IsAbs(cleanedP) {
-			effectiveBase = "/upload" // mock RemoteDir
+			// Join relative path with base so filepath.Rel can detect traversal
+			cleanedP = path.Join(effectiveBase, cleanedP)
 		}
 		
 		rel, err := filepath.Rel(effectiveBase, cleanedP)

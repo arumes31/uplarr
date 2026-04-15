@@ -124,6 +124,21 @@ Run with: `docker compose up -d`
 
 ---
 
+## 🔧 SFTP Tuning
+
+### `MaxConcurrentRequestsPerFile`
+
+The SFTP client uses up to **128** concurrent outstanding requests per file transfer (controlled by the `DefaultMaxConcurrentRequestsPerFile` constant in `internal/sftpclient/client.go`). This was raised from the library default of 64 to improve throughput on high-bandwidth / high-latency links.
+
+**Compatibility notes:**
+- **OpenSSH sshd**: Works well with 128 concurrent requests (tested).
+- **ProFTPD mod_sftp**: Some configurations with strict per-connection request limits may reject transfers. If you encounter disconnects, reduce to 64.
+- **FileZilla Server**: Generally works, but restrictive configurations may need a lower value.
+
+**To change the value**, edit the `DefaultMaxConcurrentRequestsPerFile` constant in [`internal/sftpclient/client.go`](internal/sftpclient/client.go) and rebuild. A safe fallback value is `64`.
+
+---
+
 ## 🧪 Testing & Quality
 
 Uplarr maintains **97.9% code coverage**, ensuring every critical path is verified.

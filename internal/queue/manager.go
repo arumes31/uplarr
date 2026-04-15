@@ -333,12 +333,25 @@ func (qm *QueueManager) GetHostStats() []models.HostStats {
 
 		if hasActiveTasks {
 			curr, max, lat := limiter.GetStats()
+
+			// Compute per-host total speed from running tasks
+			var hostSpeedBps float64
+			for _, t := range qm.tasks {
+				if t.Config.Host == host && t.Status == models.TaskRunning && t.StartedAt != nil && t.BytesUploaded > 0 {
+					elapsed := time.Since(*t.StartedAt).Seconds()
+					if elapsed > 0 {
+						hostSpeedBps += float64(t.BytesUploaded) / elapsed
+					}
+				}
+			}
+
 			stats = append(stats, models.HostStats{
 				Host:           host,
 				LastLatencyMs:  lat.Milliseconds(),
 				CurrentLimitKB: curr,
 				MaxLimitKB:     max,
 				ActiveTasks:    activeCount,
+				TotalSpeedKBps: hostSpeedBps / 1024,
 			})
 		}
 	}

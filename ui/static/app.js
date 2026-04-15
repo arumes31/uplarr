@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
 
+    // Rate tracking (module-scoped instead of window globals)
+    let globalTotalRate = 0;
+    let lastTotalRate = 0;
+
     // --- Secure Storage Wrappers ---
     let masterKey = null;
 
@@ -746,15 +750,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
                     if (elapsed > 0) {
                         const rate = task.bytes_uploaded / elapsed;
-                        // Note: host is not in the JSON task usually, so we sum all if only one host, 
-                        // or we might need to expose host in Task. 
-                        // For now, let's just sum all as "Total Speed".
-                        window.globalTotalRate = (window.globalTotalRate || 0) + rate;
+                        globalTotalRate += rate;
                     }
                 }
             });
-            window.lastTotalRate = window.globalTotalRate || 0;
-            window.globalTotalRate = 0;
+            lastTotalRate = globalTotalRate;
+            globalTotalRate = 0;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
             queueBody.innerHTML = '';
@@ -784,27 +785,60 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        metricsOverlay.innerHTML = stats.map(s => {
-            const latClass = s.last_latency_ms > 100 ? 'high-latency' : '';
-            const totalSpeed = window.lastTotalRate || 0;
-            return `
-                <div class="metric-card">
-                    <div class="metric-host">${s.host}</div>
-                    <div class="metric-row">
-                        <span class="metric-label">Latency</span>
-                        <span class="metric-value latency ${latClass}">${s.last_latency_ms}ms</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Rate Limit</span>
-                        <span class="metric-value">${(s.current_limit_kb / 1024).toFixed(1)} MB/s</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Current Speed</span>
-                        <span class="metric-value speed">${formatRate(totalSpeed)}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        // Build DOM safely to prevent XSS from user-controlled host values
+        metricsOverlay.innerHTML = '';
+        stats.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'metric-card';
+
+            const hostEl = document.createElement('div');
+            hostEl.className = 'metric-host';
+            hostEl.textContent = s.host;
+            card.appendChild(hostEl);
+
+            // Latency row
+            const latRow = document.createElement('div');
+            latRow.className = 'metric-row';
+            const latLabel = document.createElement('span');
+            latLabel.className = 'metric-label';
+            latLabel.textContent = 'Latency';
+            const latValue = document.createElement('span');
+            latValue.className = 'metric-value latency' + (s.last_latency_ms > 100 ? ' high-latency' : '');
+            latValue.textContent = s.last_latency_ms + 'ms';
+            latRow.appendChild(latLabel);
+            latRow.appendChild(latValue);
+            card.appendChild(latRow);
+
+            // Rate Limit row
+            const rlRow = document.createElement('div');
+            rlRow.className = 'metric-row';
+            const rlLabel = document.createElement('span');
+            rlLabel.className = 'metric-label';
+            rlLabel.textContent = 'Rate Limit';
+            const rlValue = document.createElement('span');
+            rlValue.className = 'metric-value';
+            rlValue.textContent = (s.current_limit_kb / 1024).toFixed(1) + ' MB/s';
+            rlRow.appendChild(rlLabel);
+            rlRow.appendChild(rlValue);
+            card.appendChild(rlRow);
+
+            // Current Speed row — uses per-host speed from backend
+            const spRow = document.createElement('div');
+            spRow.className = 'metric-row';
+            const spLabel = document.createElement('span');
+            spLabel.className = 'metric-label';
+            spLabel.textContent = 'Current Speed';
+            const spValue = document.createElement('span');
+            spValue.className = 'metric-value speed';
+            // total_speed_kbps is KB/s from backend; formatRate expects bytes/s
+            const hostSpeed = (s.total_speed_kbps || 0) * 1024;
+            spValue.textContent = formatRate(hostSpeed);
+            spRow.appendChild(spLabel);
+            spRow.appendChild(spValue);
+            card.appendChild(spRow);
+
+            metricsOverlay.appendChild(card);
+        });
     };
 
     const controlTask = async (id, action) => {

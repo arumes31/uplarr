@@ -624,6 +624,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	}))
 
 	mux.HandleFunc("/api/stats", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
 	}))

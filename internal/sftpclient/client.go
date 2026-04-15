@@ -22,6 +22,15 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// DefaultMaxConcurrentRequestsPerFile controls the maximum number of concurrent
+// outstanding requests per file during SFTP transfers. Raised from the library
+// default of 64 to 128 for higher throughput on high-bandwidth links.
+// Some SFTP servers with strict request/connection limits (e.g., certain
+// ProFTPD mod_sftp or FileZilla Server configurations) may need a lower value.
+// If you experience transfer failures or server disconnects, try reducing
+// this to 64.
+const DefaultMaxConcurrentRequestsPerFile = 128
+
 type Limiter struct {
 	rateLimiter    *rate.Limiter
 	MaxLimit       rate.Limit
@@ -332,7 +341,7 @@ func (s *SFTPClient) Connect() error {
 	s.sshClient = client
 
 	sftpClient, err := sftp.NewClient(client, 
-		sftp.MaxConcurrentRequestsPerFile(128),
+		sftp.MaxConcurrentRequestsPerFile(DefaultMaxConcurrentRequestsPerFile),
 		sftp.MaxPacket(32768),
 	)
 	if err != nil {
