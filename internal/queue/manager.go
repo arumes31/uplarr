@@ -46,6 +46,7 @@ var NewClient = func(req models.UploadRequest) ClientInterface {
 		SkipHostKeyVerification: req.SkipHostKeyVerification,
 		RateLimitKBps:           req.RateLimitKBps,
 		MaxLatencyMs:            req.MaxLatencyMs,
+		MinLimitKBps:            req.MinLimitKBps,
 	}
 }
 
@@ -96,6 +97,12 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 	if limit == 0 {
 		limit = rate.Limit(100 * 1024 * 1024) // 100MB/s default
 	}
+	
+	minLimit := rate.Limit(config.MinLimitKBps * 1024)
+	if minLimit == 0 {
+		minLimit = 10240 // Default 10 KB/s floor
+	}
+
 	maxLat := time.Duration(config.MaxLatencyMs) * time.Millisecond
 	host := config.Host
 
@@ -105,17 +112,17 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
 		}
-		limiter = sftpclient.NewLimiter(limit, burst, maxLat)
+		limiter = sftpclient.NewLimiter(limit, rate.Limit(burst), minLimit, maxLat)
 		qm.limiters[host] = limiter
 		return limiter
 	}
 
 	// Update existing limiter settings thread-safely
-	limiter.UpdateConfig(limit, maxLat)
+	limiter.UpdateConfig(limit, minLimit, maxLat)
 	return limiter
 }
 
-func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps int, maxLatencyMs int) {
+func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKBps, maxLatencyMs int) {
 	qm.mu.Lock()
 	limiter, exists := qm.limiters[host]
 	qm.mu.Unlock()
@@ -125,9 +132,15 @@ func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps int, maxLat
 		if limit == 0 && maxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024)
 		}
+		
+		minLimit := rate.Limit(minLimitKBps * 1024)
+		if minLimit == 0 {
+			minLimit = 10240
+		}
+
 		maxLat := time.Duration(maxLatencyMs) * time.Millisecond
-		limiter.UpdateConfig(limit, maxLat)
-		logger.Info(fmt.Sprintf("Live-updated throttling for host %s: %v KB/s, %v ms latency", host, rateLimitKBps, maxLatencyMs))
+		limiter.UpdateConfig(limit, minLimit, maxLat)
+		logger.Info(fmt.Sprintf("Live-updated throttling for host %s: %v KB/s, %v KB/s min, %v ms latency", host, rateLimitKBps, minLimitKBps, maxLatencyMs))
 	}
 }
 

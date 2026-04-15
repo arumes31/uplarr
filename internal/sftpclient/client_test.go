@@ -641,7 +641,7 @@ func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
 }
 
 func TestThrottledReader_LargeRead(t *testing.T) {
-	limiter := NewLimiter(1024, 1024, 0)
+	limiter := NewLimiter(1024, 1024, 0, 0)
 	tr := &throttledReader{
 		ctx:     context.Background(),
 		r:       strings.NewReader(strings.Repeat("a", 2048)),
@@ -654,7 +654,7 @@ func TestThrottledReader_LargeRead(t *testing.T) {
 }
 
 func TestThrottledWriter_LargeWrite(t *testing.T) {
-	limiter := NewLimiter(1024, 1024, 0)
+	limiter := NewLimiter(1024, 1024, 0, 0)
 	tw := &throttledWriter{
 		ctx:     context.Background(),
 		w:       io.Discard,
@@ -669,7 +669,7 @@ func TestThrottledReader_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancel()
-	limiter := NewLimiter(1024, 1024, 0)
+	limiter := NewLimiter(1024, 1024, 0, 0)
 	tr := &throttledReader{
 		ctx:     ctx,
 		r:       strings.NewReader("any"),
@@ -684,7 +684,7 @@ func TestThrottledWriter_WaitError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancel()
-	limiter := NewLimiter(1024, 1024, 0)
+	limiter := NewLimiter(1024, 1024, 0, 0)
 	tw := &throttledWriter{
 		ctx:     ctx,
 		w:       io.Discard,
@@ -698,7 +698,7 @@ func TestThrottledWriter_InfLimit(t *testing.T) {
 	tw := &throttledWriter{
 		ctx:     context.Background(),
 		w:       io.Discard,
-		limiter: NewLimiter(rate.Inf, 0, 0),
+		limiter: NewLimiter(rate.Inf, 0, 0, time.Millisecond),
 		maxLatency: time.Millisecond,
 	}
 	_, err := tw.Write([]byte("any"))

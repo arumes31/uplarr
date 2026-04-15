@@ -34,21 +34,23 @@ const DefaultMaxConcurrentRequestsPerFile = 128
 type Limiter struct {
 	rateLimiter    *rate.Limiter
 	MaxLimit       rate.Limit
+	MinLimit       rate.Limit
 	MaxLatency     time.Duration
 	lastLatency    time.Duration
 	consecutiveLow int
 	mu             sync.Mutex
 }
 
-func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter {
+func NewLimiter(limit, burst rate.Limit, minLimit rate.Limit, maxLatency time.Duration) *Limiter {
 	return &Limiter{
-		rateLimiter: rate.NewLimiter(limit, burst),
+		rateLimiter: rate.NewLimiter(limit, int(burst)),
 		MaxLimit:    limit,
+		MinLimit:    minLimit,
 		MaxLatency:  maxLatency,
 	}
 }
 
-func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration) {
+func (l *Limiter) UpdateConfig(newLimit, newMinLimit rate.Limit, newMaxLatency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -60,6 +62,7 @@ func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration)
 	}
 
 	l.MaxLimit = effective
+	l.MinLimit = newMinLimit
 	l.MaxLatency = newMaxLatency
 
 	// When manually updating, we reset the current limit to the new MaxLimit.
@@ -67,9 +70,9 @@ func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration)
 	l.rateLimiter.SetLimit(effective)
 	l.consecutiveLow = 0
 	if effective == rate.Inf {
-		logger.Info(fmt.Sprintf("Throttling configuration updated: Speed unlimited, Max Latency %v", newMaxLatency))
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Speed unlimited, Min Speed %v KB/s, Max Latency %v", int(newMinLimit/1024), newMaxLatency))
 	} else {
-		logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Max Latency %v", int(effective/1024), newMaxLatency))
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Min Speed %v KB/s, Max Latency %v", int(effective/1024), int(newMinLimit/1024), newMaxLatency))
 	}
 }
 
@@ -104,8 +107,11 @@ func (l *Limiter) RecordLatency(latency time.Duration) {
 
 	if latency > maxLatency {
 		newLimit := currentLimit * 0.8 // Less aggressive throttle down
-		if newLimit < 10240 {          // 10 KB/s floor
-			newLimit = 10240
+		if newLimit < l.MinLimit {     // Use configurable floor
+			newLimit = l.MinLimit
+		}
+		if newLimit < 1024 { // Absolute minimum floor (1 KB/s) to prevent stall
+			newLimit = 1024
 		}
 		l.rateLimiter.SetLimit(newLimit)
 		l.consecutiveLow = 0
@@ -200,6 +206,7 @@ type SFTPClient struct {
 	SkipHostKeyVerification bool
 	RateLimitKBps           int
 	MaxLatencyMs            int
+	MinLimitKBps            int
 	ProgressCallback        func(bytesWritten int64)
 	FileSizeCallback        func(totalBytes int64)
 	Limiter                 *Limiter
@@ -633,11 +640,17 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		if limit == 0 && s.MaxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024)
 		}
+		
+		minLimit := rate.Limit(s.MinLimitKBps * 1024)
+		if minLimit == 0 {
+			minLimit = 10240 // Default 10 KB/s floor
+		}
+
 		burst := 16 * 1024
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
 		}
-		s.Limiter = NewLimiter(limit, burst, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+		s.Limiter = NewLimiter(limit, rate.Limit(burst), minLimit, time.Duration(s.MaxLatencyMs)*time.Millisecond)
 	}
 
 	var targetWriter io.Writer = remoteFile

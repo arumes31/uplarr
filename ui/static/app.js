@@ -245,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
             skip_host_key_verification: formData.get('skip_host_key_verification') === 'on',
             rate_limit_kbps: parseInt(formData.get('rate_limit_kbps')) || 0,
             max_latency_ms: parseInt(formData.get('max_latency_ms')) || 0,
+            min_limit_kbps: parseInt(formData.get('min_limit_kbps')) || 0,
             files: Array.from(queuedFiles.keys())
         };
     };
