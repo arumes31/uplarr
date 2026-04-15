@@ -51,15 +51,26 @@ func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter 
 func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
-	l.MaxLimit = newLimit
+
+	// The UI uses 0 to mean "unlimited". Map that to rate.Inf so we don't
+	// accidentally block all traffic (rate.Limit(0) = 0 events/sec).
+	effective := newLimit
+	if effective == 0 {
+		effective = rate.Inf
+	}
+
+	l.MaxLimit = effective
 	l.MaxLatency = newMaxLatency
-	
+
 	// When manually updating, we reset the current limit to the new MaxLimit.
 	// This ensures that "Update Throttling" immediately takes effect even if previously throttled.
-	l.rateLimiter.SetLimit(newLimit)
+	l.rateLimiter.SetLimit(effective)
 	l.consecutiveLow = 0
-	logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Max Latency %v", int(newLimit/1024), newMaxLatency))
+	if effective == rate.Inf {
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Speed unlimited, Max Latency %v", newMaxLatency))
+	} else {
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Max Latency %v", int(effective/1024), newMaxLatency))
+	}
 }
 
 func (l *Limiter) SetLimit(newLimit rate.Limit) {
@@ -745,8 +756,11 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 				_ = conn.Close()
 				s.Limiter.RecordLatency(latency)
 			} else {
-				// If dial fails (e.g. timeout), report maximum timeout latency to trigger throttle down
-				s.Limiter.RecordLatency(timeout)
+				// If dial fails (e.g. timeout), record a latency that is guaranteed
+				// to exceed the limiter's MaxLatency threshold so throttle-down
+				// triggers regardless of the configured threshold.
+				exceed := s.Limiter.MaxLatency + time.Millisecond
+				s.Limiter.RecordLatency(exceed)
 			}
 		}
 	}

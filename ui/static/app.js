@@ -772,11 +772,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchStats = async () => {
         try {
             const res = await fetch('/api/stats');
+            if (res.status === 401) {
+                window.location.href = '/';
+                return;
+            }
             if (res.ok) {
                 const stats = await res.json();
                 renderStats(stats);
+            } else {
+                // Non-OK response — clear stale metrics so the overlay doesn't lie
+                renderStats([]);
             }
-        } catch (e) { console.error("Failed to fetch stats", e); }
+        } catch (e) {
+            // Network error — clear stale metrics
+            console.error("Failed to fetch stats", e);
+            renderStats([]);
+        }
     };
 
     const renderStats = (stats) => {
