@@ -460,10 +460,41 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 				qm.saveStateLocked()
 				qm.trigger()
 				return true, nil
+			case "retry":
+				if t.Status == models.TaskFailed || t.Status == models.TaskCompleted {
+					t.Status = models.TaskPending
+					t.Error = ""
+					t.Progress = 0
+					t.BytesUploaded = 0
+					t.StartedAt = nil
+					qm.saveStateLocked()
+					qm.trigger()
+					return true, nil
+				}
+				return false, fmt.Errorf("task is not in a retryable state")
 			default:
 				return false, fmt.Errorf("unknown action: %s", action)
 			}
 		}
+	}
+
+	if action == "retry_all_failed" {
+		found := false
+		for _, t := range qm.tasks {
+			if t.Status == models.TaskFailed {
+				t.Status = models.TaskPending
+				t.Error = ""
+				t.Progress = 0
+				t.BytesUploaded = 0
+				t.StartedAt = nil
+				found = true
+			}
+		}
+		if found {
+			qm.saveStateLocked()
+			qm.trigger()
+		}
+		return true, nil
 	}
 
 	if action == "clear_finished" {

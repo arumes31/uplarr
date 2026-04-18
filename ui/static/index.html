@@ -89,9 +89,14 @@
         <section class="queue-section">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
                 <h3 style="margin: 0;">Background Queue</h3>
-                <button id="clear-queue-btn" class="compact-btn secondary-btn" title="Clear completed or failed tasks">
-                    <i class="icon-delete"></i> Clear Finished
-                </button>
+                <div class="button-group" style="margin: 0;">
+                    <button id="retry-all-failed-btn" class="compact-btn info-btn" title="Retry all failed tasks">
+                        <i class="icon-refresh"></i> Retry All Failed
+                    </button>
+                    <button id="clear-queue-btn" class="compact-btn secondary-btn" title="Clear completed or failed tasks">
+                        <i class="icon-delete"></i> Clear Finished
+                    </button>
+                </div>
             </div>
             <div class="queue-table-container">
                 <table id="queue-table">

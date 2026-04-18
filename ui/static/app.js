@@ -731,6 +731,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.textContent = 'Resume';
                     btn.addEventListener('click', () => controlTask(task.id, 'resume'));
                     tdActions.appendChild(btn);
+                } else if (task.status === 'Failed' || task.status === 'Completed') {
+                    const btn = document.createElement('button');
+                    btn.textContent = 'Retry';
+                    btn.addEventListener('click', () => controlTask(task.id, 'retry'));
+                    tdActions.appendChild(btn);
                 }
                 const remBtn = document.createElement('button');
                 remBtn.textContent = 'Remove';
@@ -869,6 +874,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearQueueBtn = document.getElementById('clear-queue-btn');
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', () => controlTask('', 'clear_finished'));
+    }
+
+    const retryAllFailedBtn = document.getElementById('retry-all-failed-btn');
+    if (retryAllFailedBtn) {
+        retryAllFailedBtn.addEventListener('click', () => controlTask('', 'retry_all_failed'));
     }
 
     // --- Actions ---
