@@ -52,13 +52,13 @@ var NewClient = func(req models.UploadRequest) ClientInterface {
 }
 
 type QueueManager struct {
-	tasks    []*models.Task
-	mu       sync.RWMutex
-	worker   chan struct{}
+	tasks         []*models.Task
+	mu            sync.RWMutex
+	worker        chan struct{}
 	localDir      string
 	configDir     string
 	nextID        uint64
-	wg       sync.WaitGroup
+	wg            sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
@@ -170,7 +170,7 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 	if limit == 0 {
 		limit = rate.Limit(100 * 1024 * 1024) // 100MB/s default
 	}
-	
+
 	minLimit := rate.Limit(config.MinLimitKBps * 1024)
 	if minLimit == 0 {
 		minLimit = 10240 // Default 10 KB/s floor
@@ -205,7 +205,7 @@ func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKB
 		if limit == 0 && maxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024)
 		}
-		
+
 		minLimit := rate.Limit(minLimitKBps * 1024)
 		if minLimit == 0 {
 			minLimit = 10240
@@ -288,7 +288,7 @@ func (qm *QueueManager) processNext() {
 	logger.Info(fmt.Sprintf("Starting task: %s", nextTask.FileName))
 
 	client := NewClient(nextTask.Config)
-	
+
 	// Setup persistent host-wide dynamic throttling
 	limiter := qm.getOrCreateLimiter(nextTask.Config)
 	if limiter != nil {
@@ -314,7 +314,9 @@ func (qm *QueueManager) processNext() {
 
 	err := func() error {
 		baseDir, err := FilepathAbs(qm.localDir)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		if evalBase, evalErr := filepath.EvalSymlinks(baseDir); evalErr != nil {
 			logger.Info(fmt.Sprintf("Warning: could not evaluate symlinks for base dir %s: %v", baseDir, evalErr))
 		} else {
@@ -323,7 +325,9 @@ func (qm *QueueManager) processNext() {
 
 		candidatePath := filepath.Join(baseDir, nextTask.FileName)
 		candidatePath, err = FilepathAbs(candidatePath)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 
 		if realPath, evalErr := filepath.EvalSymlinks(candidatePath); evalErr != nil {
 			logger.Info(fmt.Sprintf("Warning: could not evaluate symlinks for candidate path %s: %v", candidatePath, evalErr))
@@ -475,7 +479,7 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 					if cancel, ok := qm.activeCancels[t.ID]; ok {
 						cancel()
 					}
-					// Note: the task will find its way out of the list when it finishes with error, 
+					// Note: the task will find its way out of the list when it finishes with error,
 					// but we also remove it immediately so it disappears from UI.
 				}
 				qm.tasks = append(qm.tasks[:i], qm.tasks[i+1:]...)

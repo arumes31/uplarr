@@ -3,10 +3,10 @@ package models
 import "time"
 
 type Config struct {
-	LocalDir      string
-	ConfigDir     string
-	WebPort       string
-	AuthPassword  string
+	LocalDir     string
+	ConfigDir    string
+	WebPort      string
+	AuthPassword string
 }
 
 type UploadRequest struct {
@@ -50,25 +50,25 @@ const (
 )
 
 type Task struct {
-	ID            string        `json:"id"`
-	FileName      string        `json:"file_name"`
-	RemoteDir     string        `json:"remote_dir"`
-	Status        TaskStatus    `json:"status"`
-	Progress      int           `json:"progress"`
-	BytesUploaded int64         `json:"bytes_uploaded"`
-	TotalBytes    int64         `json:"total_bytes"`
-	StartedAt     *time.Time    `json:"started_at,omitempty"`
-	Error         string        `json:"error,omitempty"`
+	ID              string        `json:"id"`
+	FileName        string        `json:"file_name"`
+	RemoteDir       string        `json:"remote_dir"`
+	Status          TaskStatus    `json:"status"`
+	Progress        int           `json:"progress"`
+	BytesUploaded   int64         `json:"bytes_uploaded"`
+	TotalBytes      int64         `json:"total_bytes"`
+	StartedAt       *time.Time    `json:"started_at,omitempty"`
+	Error           string        `json:"error,omitempty"`
 	CreatedAt       time.Time     `json:"created_at"`
 	LocalFileExists bool          `json:"local_file_exists"`
 	Config          UploadRequest `json:"-"`
 }
 
 type HostStats struct {
-	Host           string    `json:"host"`
-	LastLatencyMs  int64     `json:"last_latency_ms"`
-	CurrentLimitKB int       `json:"current_limit_kb"`
-	MaxLimitKB     int       `json:"max_limit_kb"`
-	ActiveTasks    int       `json:"active_tasks"`
-	TotalSpeedKBps float64   `json:"total_speed_kbps"`
+	Host           string  `json:"host"`
+	LastLatencyMs  int64   `json:"last_latency_ms"`
+	CurrentLimitKB int     `json:"current_limit_kb"`
+	MaxLimitKB     int     `json:"max_limit_kb"`
+	ActiveTasks    int     `json:"active_tasks"`
+	TotalSpeedKBps float64 `json:"total_speed_kbps"`
 }

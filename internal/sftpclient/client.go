@@ -98,7 +98,7 @@ func (l *Limiter) RecordLatency(latency time.Duration) {
 
 	l.lastLatency = latency
 	currentLimit := l.rateLimiter.Limit()
-	
+
 	// Use our internal MaxLatency which is kept up-to-date by UpdateConfig
 	maxLatency := l.MaxLatency
 	if maxLatency <= 0 {
@@ -358,7 +358,7 @@ func (s *SFTPClient) Connect() error {
 	}
 	s.sshClient = client
 
-	sftpClient, err := sftp.NewClient(client, 
+	sftpClient, err := sftp.NewClient(client,
 		sftp.MaxConcurrentRequestsPerFile(DefaultMaxConcurrentRequestsPerFile),
 		sftp.MaxPacket(32768),
 	)
@@ -429,23 +429,23 @@ func (s *SFTPClient) validateRemotePath(p string) (string, error) {
 	base := "/"
 	if !path.IsAbs(p) {
 		base = path.Clean(filepath.ToSlash(s.RemoteDir))
-		// Join joining the relative path with the base allows filepath.Rel 
+		// Join joining the relative path with the base allows filepath.Rel
 		// to correctly detect upward traversal on all platforms.
 		p = path.Join(base, p)
 	}
-	
+
 	rel, err := filepath.Rel(base, p)
 	if err != nil {
 		return "", fmt.Errorf("invalid remote path")
 	}
 	// Normalize to POSIX slashes since SFTP uses forward slashes
 	rel = filepath.ToSlash(rel)
-	
+
 	// Precise escape check: rel == ".." or rel starts with "../"
 	if rel == ".." || strings.HasPrefix(rel, "../") {
 		return "", fmt.Errorf("unauthorized remote path access: traversal detected")
 	}
-	
+
 	return p, nil
 }
 
@@ -487,7 +487,7 @@ func (s *SFTPClient) ReadRemoteDir(p string) ([]models.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var fileInfos []models.FileInfo
 	for _, entry := range entries {
 		fileInfos = append(fileInfos, models.FileInfo{
@@ -521,7 +521,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	if _, err := s.validateRemotePath(remotePath); err != nil {
 		return err
 	}
-	
+
 	tempRemotePath := remotePath + ".tmp"
 	logger.Info(fmt.Sprintf("Copying file from %s -> %s", localPath, remotePath))
 
@@ -540,7 +540,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %v", err)
 	}
-	
+
 	closed := false
 	defer func() {
 		if !closed {
@@ -640,7 +640,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		if limit == 0 && s.MaxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024)
 		}
-		
+
 		minLimit := rate.Limit(s.MinLimitKBps * 1024)
 		if minLimit == 0 {
 			minLimit = 10240 // Default 10 KB/s floor
@@ -685,12 +685,12 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	if s.ProgressCallback != nil && startOffset > 0 {
 		s.ProgressCallback(startOffset)
 	}
-	
+
 	// Wrap in context checker
 	targetWriter = &contextWriter{ctx: ctx, w: targetWriter}
 
 	startTime := time.Now()
-	
+
 	// Start background latency sampler if dynamic throttling is enabled
 	samplerCtx, samplerCancel := context.WithCancel(ctx)
 	defer samplerCancel()

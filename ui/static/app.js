@@ -271,7 +271,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     el.value = data[key];
                 }
             }
-        } catch (e) { console.error('Failed to restore form data', e); }
+        } catch (e) { 
+            console.error('Failed to restore form data', e);
+            localStorage.removeItem('uplarr_form_data');
+        }
     };
 
     sftpForm.addEventListener('input', saveFormData);
@@ -987,11 +990,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         masterKey = await SecureStorage.getKey();
         if (!masterKey) {
-            // Check if backend actually requires auth
-            const res = await fetch('/api/queue');
-            if (res.status === 401) {
-                window.location.href = '/';
-                return;
+            try {
+                const authRes = await fetch('/api/auth/status');
+                const authData = await authRes.json();
+                if (authData.auth_required) {
+                    // Backend requires auth but we have no masterKey (e.g. opened in a new tab)
+                    // We must force log out to prompt for password to derive the key
+                    await fetch('/api/logout', { method: 'POST' });
+                    window.location.href = '/';
+                    return;
+                }
+            } catch (e) {
+                console.error("Failed to check auth status", e);
             }
         }
 
