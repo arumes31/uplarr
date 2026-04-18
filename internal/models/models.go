@@ -4,6 +4,7 @@ import "time"
 
 type Config struct {
 	LocalDir      string
+	ConfigDir     string
 	WebPort       string
 	AuthPassword  string
 }

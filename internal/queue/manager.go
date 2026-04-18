@@ -55,8 +55,9 @@ type QueueManager struct {
 	tasks    []*models.Task
 	mu       sync.RWMutex
 	worker   chan struct{}
-	localDir string
-	nextID   uint64
+	localDir      string
+	configDir     string
+	nextID        uint64
 	wg       sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -64,12 +65,16 @@ type QueueManager struct {
 	limiters      map[string]*sftpclient.Limiter
 }
 
-func NewQueueManager(localDir string) *QueueManager {
+func NewQueueManager(localDir, configDir string) *QueueManager {
+	// Ensure config directory exists
+	_ = os.MkdirAll(configDir, 0755)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	qm := &QueueManager{
 		tasks:         []*models.Task{},
 		worker:        make(chan struct{}, 1),
 		localDir:      localDir,
+		configDir:     configDir,
 		ctx:           ctx,
 		cancel:        cancel,
 		activeCancels: make(map[string]context.CancelFunc),
@@ -93,9 +98,9 @@ func (qm *QueueManager) saveStateLocked() {
 	}
 	data, err := json.MarshalIndent(dt, "", "  ")
 	if err == nil {
-		root, err := OsOpenRoot(qm.localDir)
+		root, err := OsOpenRoot(qm.configDir)
 		if err != nil {
-			logger.Error(fmt.Sprintf("failed to open root for saving state: %v", err))
+			logger.Error(fmt.Sprintf("failed to open config root for saving state: %v", err))
 			return
 		}
 		defer root.Close()
@@ -110,7 +115,7 @@ func (qm *QueueManager) saveState() {
 }
 
 func (qm *QueueManager) loadState() {
-	root, err := OsOpenRoot(qm.localDir)
+	root, err := OsOpenRoot(qm.configDir)
 	if err != nil {
 		return
 	}

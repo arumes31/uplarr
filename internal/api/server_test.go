@@ -33,7 +33,7 @@ func TestCoverageFlat(t *testing.T) {
 
 	tempDir, _ := os.MkdirTemp("", "api_cov_flat")
 	defer os.RemoveAll(tempDir)
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	defer qm.Shutdown()
 
 	config := models.Config{LocalDir: tempDir}

@@ -117,6 +117,7 @@ Run with: `docker compose up -d`
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
+| `CONFIG_DIR` | Directory for application state (queue) | `./config` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
 | `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
 
@@ -124,15 +125,16 @@ Run with: `docker compose up -d`
 124: 
 125: ---
 126: 
-127: ## 💾 Storage & Persistence
-128: 
-129: Uplarr maintains a background queue that survives container and process restarts.
-130: 
-131: - **State File**: `.queue_state.json`
-132: - **Location**: Stored in the root of your configured `LOCAL_DIR`.
-133: - **Permissions**: The `LOCAL_DIR` mount **must be writable** (`:rw`) for the application to save its state. If mounted as read-only, the queue will function in-memory only and will reset upon restart.
-134: 
-135: ---
+## 💾 Storage & Persistence
+
+Uplarr maintains a background queue that survives container and process restarts.
+
+- **State File**: `.queue_state.json`
+- **Location**: Stored in your configured `CONFIG_DIR` (defaults to `./config`).
+- **Isolation**: Keeping state in a separate directory allows you to mount `LOCAL_DIR` as **read-only** (`:ro`), improving overall security for your media files.
+- **Persistence**: The `CONFIG_DIR` mount **must be writable** (`:rw`) for the application to save its queue.
+
+---
 
 ---
 

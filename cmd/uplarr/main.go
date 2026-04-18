@@ -39,11 +39,12 @@ var (
 func Run() error {
 	config := models.Config{
 		LocalDir:     getEnv("LOCAL_DIR", "./test_data"),
+		ConfigDir:    getEnv("CONFIG_DIR", "./config"),
 		WebPort:      getEnv("WEB_PORT", "8080"),
 		AuthPassword: getEnv("AUTH_PASSWORD", ""),
 	}
 
-	qm := queue.NewQueueManager(config.LocalDir)
+	qm := queue.NewQueueManager(config.LocalDir, config.ConfigDir)
 
 	mux, err := apiSetupApp(config, qm)
 	if err != nil {

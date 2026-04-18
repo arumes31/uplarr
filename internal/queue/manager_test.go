@@ -47,7 +47,7 @@ func TestQueueManager(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	defer qm.Shutdown()
 
 	// Test AddTask
@@ -80,7 +80,7 @@ func TestQueueManager_Control(t *testing.T) {
 	}
 	defer func() { queue.NewClient = oldNewClient }()
 
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 
 	// 1. Task Not Found
 	_, err = qm.ControlTask("non-existent", "remove")
@@ -187,7 +187,7 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 	oldAbs := queue.FilepathAbs
 	defer func() { queue.FilepathAbs = oldAbs }()
 
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 
 	// Test first FilepathAbs error
 	queue.FilepathAbs = func(path string) (string, error) {
@@ -224,7 +224,7 @@ func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
 	}
 	defer func() { queue.OsOpenRoot = oldOpenRoot }()
 
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	qm.AddTask("any.txt", models.UploadRequest{})
 	time.Sleep(50 * time.Millisecond)
 	qm.Shutdown()
@@ -236,7 +236,7 @@ func TestQueueManager_ProcessNext_Traversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tempDir)
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	qm.AddTask("../escaped.txt", models.UploadRequest{})
 
 	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
@@ -284,7 +284,7 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 		return &mockClient{}
 	}
 
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	// MaxRetries = 0 should trigger default = 3
 	qm.AddTask("retry.txt", models.UploadRequest{MaxRetries: 0})
 	// MaxRetries = 5 should hit the other branch
