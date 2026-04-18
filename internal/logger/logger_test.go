@@ -86,7 +86,7 @@ func TestLogger(t *testing.T) {
 	LogClients[blockedCh] = true
 	Mu.Unlock()
 
-	blockedCh <- "fill" // Fill the channel
+	blockedCh <- "fill"             // Fill the channel
 	BroadcastLog("dropped message") // Should not block
 
 	Mu.Lock()

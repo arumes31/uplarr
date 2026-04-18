@@ -32,13 +32,15 @@ type mockClient struct {
 }
 
 func (m *mockClient) Connect() error { return m.connectErr }
-func (m *mockClient) Close() {}
-func (m *mockClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error { return m.uploadErr }
+func (m *mockClient) Close()         {}
+func (m *mockClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error {
+	return m.uploadErr
+}
 func (m *mockClient) ReadRemoteDir(p string) ([]models.FileInfo, error) { return nil, nil }
-func (m *mockClient) Remove(path string) error { return nil }
-func (m *mockClient) Rename(oldpath, newpath string) error { return nil }
-func (m *mockClient) Mkdir(path string) error { return nil }
-func (m *mockClient) SetLimiter(l *sftpclient.Limiter) {}
+func (m *mockClient) Remove(path string) error                          { return nil }
+func (m *mockClient) Rename(oldpath, newpath string) error              { return nil }
+func (m *mockClient) Mkdir(path string) error                           { return nil }
+func (m *mockClient) SetLimiter(l *sftpclient.Limiter)                  {}
 
 func TestQueueManager(t *testing.T) {
 	localDir, err := os.MkdirTemp("", "qm_test_local")
@@ -105,13 +107,13 @@ func TestQueueManager_Control(t *testing.T) {
 		t.Fatalf("Failed to write fixture task1.txt: %v", err)
 	}
 	qm.AddTask("task1.txt", models.UploadRequest{})
-	
+
 	// Add second task - will stay Pending
 	qm.AddTask("task2.txt", models.UploadRequest{})
-	
+
 	// Add third task - will stay Pending
 	qm.AddTask("task3.txt", models.UploadRequest{})
-	
+
 	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
 		for _, task := range tasks {
 			if task.Status == models.TaskRunning {
@@ -121,7 +123,7 @@ func TestQueueManager_Control(t *testing.T) {
 		return false
 	}, 2*time.Second)
 	tasks := qm.GetTasks()
-	
+
 	var runningID, pendingID, pendingID2 string
 	for _, t := range tasks {
 		if t.Status == models.TaskRunning {
@@ -138,18 +140,22 @@ func TestQueueManager_Control(t *testing.T) {
 	if runningID != "" {
 		// Test pause fail (running)
 		_, err = qm.ControlTask(runningID, "pause")
-		if err == nil { t.Error("Expected error pausing running task") }
-		
+		if err == nil {
+			t.Error("Expected error pausing running task")
+		}
+
 		// Test remove success (running) - THIS IS NOW ALLOWED
 		success, err := qm.ControlTask(runningID, "remove")
 		if err != nil || !success {
 			t.Errorf("Expected success removing running task, got %v", err)
 		}
-		
+
 		// Wait for it to disappear from tasks
 		waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
 			for _, t := range tasks {
-				if t.ID == runningID { return false }
+				if t.ID == runningID {
+					return false
+				}
 			}
 			return true
 		}, 1*time.Second)
@@ -161,28 +167,32 @@ func TestQueueManager_Control(t *testing.T) {
 		if err != nil || !success {
 			t.Errorf("Expected success pausing pending task, got %v", err)
 		}
-		
+
 		// Test resume success
 		success, err = qm.ControlTask(pendingID, "resume")
 		if err != nil || !success {
 			t.Errorf("Expected success resuming paused task, got %v", err)
 		}
-		
+
 		// Test resume fail (already pending)
 		_, err = qm.ControlTask(pendingID, "resume")
-		if err == nil { t.Error("Expected error resuming already pending task") }
-		
+		if err == nil {
+			t.Error("Expected error resuming already pending task")
+		}
+
 		// Test remove success (pending)
 		success, err = qm.ControlTask(pendingID, "remove")
 		if err != nil || !success {
 			t.Errorf("Expected success removing pending task, got %v", err)
 		}
 	}
-	
+
 	if pendingID2 != "" {
 		// Test unknown action
 		_, err = qm.ControlTask(pendingID2, "unknown")
-		if err == nil { t.Error("Expected error for unknown action") }
+		if err == nil {
+			t.Error("Expected error for unknown action")
+		}
 	}
 
 	// Unblock and shutdown
@@ -215,7 +225,7 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 	}
 	qm.AddTask("any.txt", models.UploadRequest{})
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Test second FilepathAbs error
 	callCount := 0
 	queue.FilepathAbs = func(path string) (string, error) {
@@ -336,7 +346,7 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 	qm.AddTask("retry5.txt", models.UploadRequest{MaxRetries: 5})
 	// Also add a non-existent file to trigger root.Open error
 	qm.AddTask("non-existent.txt", models.UploadRequest{})
-	
+
 	time.Sleep(200 * time.Millisecond)
 	qm.Shutdown()
 }
@@ -345,6 +355,7 @@ type blockingClient struct {
 	mockClient
 	block chan struct{}
 }
+
 func (b *blockingClient) Connect() error {
 	<-b.block
 	return nil

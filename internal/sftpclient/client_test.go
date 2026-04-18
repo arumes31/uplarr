@@ -97,7 +97,7 @@ func (m *mockFileInfo) ModTime() time.Time { return m.modTime }
 func (m *mockFileInfo) Sys() interface{}   { return nil }
 
 type mockSFTPClient struct {
-	createFunc  func(path string) (SFTPFile, error)
+	createFunc   func(path string) (SFTPFile, error)
 	openFileFunc func(path string, flags int) (SFTPFile, error)
 	statFunc     func(path string) (os.FileInfo, error)
 	readDirFunc  func(p string) ([]os.FileInfo, error)
@@ -138,10 +138,10 @@ func (m *mockSFTPClient) ReadDir(p string) ([]os.FileInfo, error) {
 	}
 	return []os.FileInfo{}, nil
 }
-func (m *mockSFTPClient) Mkdir(path string) error { return m.mkdirErr }
-func (m *mockSFTPClient) Remove(path string) error { return m.removeErr }
+func (m *mockSFTPClient) Mkdir(path string) error              { return m.mkdirErr }
+func (m *mockSFTPClient) Remove(path string) error             { return m.removeErr }
 func (m *mockSFTPClient) Rename(oldpath, newpath string) error { return m.renameErr }
-func (m *mockSFTPClient) Close() error { return m.closeErr }
+func (m *mockSFTPClient) Close() error                         { return m.closeErr }
 
 type mockFileObj struct {
 	io.ReadCloser
@@ -155,9 +155,11 @@ func (m *mockFileObj) Stat() (os.FileInfo, error) {
 	}
 	return m.osFile.Stat()
 }
-func (m *mockFileObj) Close() error { return m.osFile.Close() }
+func (m *mockFileObj) Close() error                     { return m.osFile.Close() }
 func (m *mockFileObj) Read(p []byte) (n int, err error) { return m.osFile.Read(p) }
-func (m *mockFileObj) Seek(offset int64, whence int) (int64, error) { return m.osFile.Seek(offset, whence) }
+func (m *mockFileObj) Seek(offset int64, whence int) (int64, error) {
+	return m.osFile.Seek(offset, whence)
+}
 
 // --- Helpers ---
 
@@ -288,7 +290,7 @@ func TestSFTPClientConnect(t *testing.T) {
 	if err := client.Connect(); err != nil {
 		t.Fatalf("Expected connect to succeed: %v", err)
 	}
-	
+
 	if client.sftpClient != nil {
 		_ = client.sftpClient.Mkdir("testdir")
 		_, _ = client.sftpClient.Stat("testdir")
@@ -301,7 +303,7 @@ func TestSFTPClientConnect(t *testing.T) {
 		_ = client.sftpClient.Rename("test.txt", "test2.txt")
 		_ = client.sftpClient.Remove("test2.txt")
 	}
-	
+
 	client.Close()
 
 	// 2. Missing Host Key Verification
@@ -367,7 +369,7 @@ func TestSFTPClientConnect_MockErrors(t *testing.T) {
 	if err := clientKH.Connect(); err == nil || !strings.Contains(err.Error(), "failed to load known hosts") {
 		t.Errorf("Expected known hosts error, got %v", err)
 	}
-	
+
 	// 5. ssh.Dial error
 	clientDial := &SFTPClient{Host: "invalid", Port: "22", User: "u", Password: "p", SkipHostKeyVerification: true}
 	if err := clientDial.Connect(); err == nil {
@@ -584,15 +586,23 @@ func TestSFTPClient_RateLimiting(t *testing.T) {
 
 func TestSFTPClient_ValidateRemotePath(t *testing.T) {
 	client := &SFTPClient{RemoteDir: "/upload", sftpClient: &mockSFTPClient{}}
-	
+
 	p, err := client.validateRemotePath("/upload/file.txt")
-	if err != nil { t.Errorf("Expected success, got %v", err) }
-	if p != "/upload/file.txt" { t.Errorf("Unexpected path: %s", p) }
+	if err != nil {
+		t.Errorf("Expected success, got %v", err)
+	}
+	if p != "/upload/file.txt" {
+		t.Errorf("Unexpected path: %s", p)
+	}
 
 	// New behavior: absolute paths are allowed anywhere starting from /
 	p2, err := client.validateRemotePath("/etc/passwd")
-	if err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
-	if p2 != "/etc/passwd" { t.Errorf("Unexpected path: %s", p2) }
+	if err != nil {
+		t.Errorf("Expected success for absolute path, got %v", err)
+	}
+	if p2 != "/etc/passwd" {
+		t.Errorf("Unexpected path: %s", p2)
+	}
 
 	// Test relative escape attempt
 	_, err = client.validateRemotePath("../forbidden")
@@ -605,13 +615,25 @@ func TestSFTPClient_FileSystemActions(t *testing.T) {
 	mockC := &mockSFTPClient{}
 	client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC}
 
-	if err := client.Mkdir("/upload/new"); err != nil { t.Error(err) }
-	if err := client.Remove("/upload/old"); err != nil { t.Error(err) }
-	if err := client.Rename("/upload/old", "/upload/new"); err != nil { t.Error(err) }
+	if err := client.Mkdir("/upload/new"); err != nil {
+		t.Error(err)
+	}
+	if err := client.Remove("/upload/old"); err != nil {
+		t.Error(err)
+	}
+	if err := client.Rename("/upload/old", "/upload/new"); err != nil {
+		t.Error(err)
+	}
 
-	if err := client.Mkdir("/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
-	if err := client.Remove("/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
-	if err := client.Rename("/upload/a", "/root"); err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
+	if err := client.Mkdir("/root"); err != nil {
+		t.Errorf("Expected success for absolute path, got %v", err)
+	}
+	if err := client.Remove("/root"); err != nil {
+		t.Errorf("Expected success for absolute path, got %v", err)
+	}
+	if err := client.Rename("/upload/a", "/root"); err != nil {
+		t.Errorf("Expected success for absolute path, got %v", err)
+	}
 }
 
 func TestSFTPClient_ReadRemoteDir(t *testing.T) {
@@ -622,11 +644,17 @@ func TestSFTPClient_ReadRemoteDir(t *testing.T) {
 		return []os.FileInfo{&mockFileInfo{name: "f1", size: 100}}, nil
 	}
 	files, err := client.ReadRemoteDir("/upload")
-	if err != nil { t.Fatal(err) }
-	if len(files) != 1 { t.Errorf("Expected 1 file, got %d", len(files)) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Errorf("Expected 1 file, got %d", len(files))
+	}
 
 	_, err = client.ReadRemoteDir("/etc")
-	if err != nil { t.Errorf("Expected success for absolute path, got %v", err) }
+	if err != nil {
+		t.Errorf("Expected success for absolute path, got %v", err)
+	}
 }
 
 func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
@@ -658,8 +686,12 @@ func TestThrottledReader_LargeRead(t *testing.T) {
 	}
 	p := make([]byte, 2048)
 	n, err := tr.Read(p)
-	if err != nil { t.Fatal(err) }
-	if n != 2048 { t.Errorf("Expected 2048 bytes, got %d", n) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2048 {
+		t.Errorf("Expected 2048 bytes, got %d", n)
+	}
 }
 
 func TestThrottledWriter_LargeWrite(t *testing.T) {
@@ -670,8 +702,12 @@ func TestThrottledWriter_LargeWrite(t *testing.T) {
 		limiter: limiter,
 	}
 	n, err := tw.Write([]byte(strings.Repeat("a", 2048)))
-	if err != nil { t.Fatal(err) }
-	if n != 2048 { t.Errorf("Expected 2048 bytes, got %d", n) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2048 {
+		t.Errorf("Expected 2048 bytes, got %d", n)
+	}
 }
 
 func TestThrottledReader_WaitError(t *testing.T) {
@@ -686,7 +722,9 @@ func TestThrottledReader_WaitError(t *testing.T) {
 	}
 	p := make([]byte, 3)
 	_, err := tr.Read(p)
-	if err == nil { t.Error("Expected context error") }
+	if err == nil {
+		t.Error("Expected context error")
+	}
 }
 
 func TestThrottledWriter_WaitError(t *testing.T) {
@@ -700,38 +738,48 @@ func TestThrottledWriter_WaitError(t *testing.T) {
 		limiter: limiter,
 	}
 	_, err := tw.Write([]byte("any"))
-	if err == nil { t.Error("Expected context error") }
+	if err == nil {
+		t.Error("Expected context error")
+	}
 }
 
 func TestThrottledWriter_InfLimit(t *testing.T) {
 	tw := &throttledWriter{
-		ctx:     context.Background(),
-		w:       io.Discard,
-		limiter: NewLimiter(rate.Inf, 0, 0, time.Millisecond),
+		ctx:        context.Background(),
+		w:          io.Discard,
+		limiter:    NewLimiter(rate.Inf, 0, 0, time.Millisecond),
 		maxLatency: time.Millisecond,
 	}
 	_, err := tw.Write([]byte("any"))
-	if err != nil { t.Error(err) }
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func TestSFTPClient_ConnectFailuresExhaustive(t *testing.T) {
 	client := &SFTPClient{
-		Host: "localhost", Port: "22", User: "u", 
+		Host: "localhost", Port: "22", User: "u",
 		KeyPath: "invalid", KnownHostsPath: "invalid",
 	}
 
 	oldRead := osReadFile
 	osReadFile = func(name string) ([]byte, error) { return nil, os.ErrPermission }
-	if err := client.Connect(); err == nil { t.Error("Expected error for osReadFile") }
+	if err := client.Connect(); err == nil {
+		t.Error("Expected error for osReadFile")
+	}
 	osReadFile = oldRead
 
 	client.KeyPath = ""
-	if err := client.Connect(); err == nil { t.Error("Expected error for knownhosts.New") }
+	if err := client.Connect(); err == nil {
+		t.Error("Expected error for knownhosts.New")
+	}
 
 	client.KnownHostsPath = ""
 	client.SkipHostKeyVerification = true
 	client.Password = "p"
-	if err := client.Connect(); err == nil { t.Error("Expected error for ssh.Dial") }
+	if err := client.Connect(); err == nil {
+		t.Error("Expected error for ssh.Dial")
+	}
 }
 
 func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
@@ -748,7 +796,9 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		oldOpen := osOpen
 		osOpen = func(name string) (File, error) { return nil, os.ErrPermission }
 		defer func() { osOpen = oldOpen }()
-		if err := client.UploadFile(context.Background(), testFile); err == nil { t.Error("Expected error for osOpen") }
+		if err := client.UploadFile(context.Background(), testFile); err == nil {
+			t.Error("Expected error for osOpen")
+		}
 	})
 
 	t.Run("sftpClient.Create Error", func(t *testing.T) {
@@ -762,7 +812,9 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		}
 
 		mockC.createFunc = func(path string) (SFTPFile, error) { return nil, os.ErrPermission }
-		if err := client.UploadFile(context.Background(), testFile); err == nil { t.Error("Expected error for sftpClient.Create") }
+		if err := client.UploadFile(context.Background(), testFile); err == nil {
+			t.Error("Expected error for sftpClient.Create")
+		}
 	})
 
 	t.Run("Cleanup Error", func(t *testing.T) {
@@ -797,7 +849,9 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		oldRemove := osRemove
 		osRemove = func(name string) error { return os.ErrPermission }
 		defer func() { osRemove = oldRemove }()
-		if err := client.UploadFile(context.Background(), testFile); err != nil { t.Error(err) }
+		if err := client.UploadFile(context.Background(), testFile); err != nil {
+			t.Error(err)
+		}
 	})
 }
 
@@ -865,4 +919,3 @@ func TestSFTPClient_UploadResumeMismatch(t *testing.T) {
 		t.Error("Expected SFTPClient to call Create() after content mismatch, but it didn't")
 	}
 }
-

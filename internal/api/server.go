@@ -11,18 +11,18 @@ import (
 	"strconv"
 	"strings"
 
+	"crypto/rand"
+	"encoding/base64"
+	"sync"
 	"uplarr/internal/logger"
 	"uplarr/internal/models"
 	"uplarr/internal/queue"
 	"uplarr/internal/sftpclient"
 	"uplarr/ui"
-	"crypto/rand"
-	"encoding/base64"
-	"sync"
 )
 
 var (
-	sessions = make(map[string]bool)
+	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
 )
 
@@ -166,7 +166,6 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		sessions[token] = true
 		sessionsMu.Unlock()
 
-		// #nosec G124
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    token,
@@ -176,6 +175,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			SameSite: http.SameSiteStrictMode,
 		})
 		w.WriteHeader(http.StatusOK)
+	})
+
+	mux.HandleFunc("/api/auth/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"auth_required": config.AuthPassword != ""})
 	})
 
 	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +280,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		absLocalDir, _ = FilepathEvalSymlinks(absLocalDir)
-		
+
 		absFullPath, err := FilepathAbs(fullPath)
 		if err == nil {
 			absFullPath, _ = FilepathEvalSymlinks(absFullPath)

@@ -13,17 +13,27 @@ import (
 func TestGetEnv(t *testing.T) {
 	os.Setenv("TEST_VAR", "value")
 	defer os.Unsetenv("TEST_VAR")
-	if getEnv("TEST_VAR", "fallback") != "value" { t.Error("Expected value") }
-	if getEnv("MISSING_VAR", "fallback") != "fallback" { t.Error("Expected fallback") }
+	if getEnv("TEST_VAR", "fallback") != "value" {
+		t.Error("Expected value")
+	}
+	if getEnv("MISSING_VAR", "fallback") != "fallback" {
+		t.Error("Expected fallback")
+	}
 }
 
 func TestGetEnvInt(t *testing.T) {
 	os.Setenv("TEST_INT", "123")
 	defer os.Unsetenv("TEST_INT")
-	if getEnvInt("TEST_INT", 0) != 123 { t.Error("Expected 123") }
-	if getEnvInt("MISSING_INT", 456) != 456 { t.Error("Expected 456") }
+	if getEnvInt("TEST_INT", 0) != 123 {
+		t.Error("Expected 123")
+	}
+	if getEnvInt("MISSING_INT", 456) != 456 {
+		t.Error("Expected 456")
+	}
 	os.Setenv("INVALID_INT", "abc")
-	if getEnvInt("INVALID_INT", 789) != 789 { t.Error("Expected fallback for invalid int") }
+	if getEnvInt("INVALID_INT", 789) != 789 {
+		t.Error("Expected fallback for invalid int")
+	}
 }
 
 func TestRunSuccess(t *testing.T) {
@@ -75,10 +85,14 @@ func TestMainFunc(t *testing.T) {
 	// Test failure path
 	httpListenAndServe = func(addr string, handler http.Handler) error { return fmt.Errorf("fail") }
 	exitCalled := false
-	osExit = func(code int) { 
-		exitCalled = true 
-		if code != 1 { t.Errorf("Expected code 1, got %d", code) }
+	osExit = func(code int) {
+		exitCalled = true
+		if code != 1 {
+			t.Errorf("Expected code 1, got %d", code)
+		}
 	}
 	main()
-	if !exitCalled { t.Error("Expected osExit to be called") }
+	if !exitCalled {
+		t.Error("Expected osExit to be called")
+	}
 }
