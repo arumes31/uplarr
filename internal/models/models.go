@@ -22,6 +22,7 @@ type UploadRequest struct {
 	Files                   []string `json:"files"`
 	RateLimitKBps           int      `json:"rate_limit_kbps"`
 	MaxLatencyMs            int      `json:"max_latency_ms"`
+	MinLimitKBps            int      `json:"min_limit_kbps"`
 }
 
 type FileActionRequest struct {
@@ -57,6 +58,16 @@ type Task struct {
 	TotalBytes    int64         `json:"total_bytes"`
 	StartedAt     *time.Time    `json:"started_at,omitempty"`
 	Error         string        `json:"error,omitempty"`
-	CreatedAt     time.Time     `json:"created_at"`
-	Config        UploadRequest `json:"-"`
+	CreatedAt       time.Time     `json:"created_at"`
+	LocalFileExists bool          `json:"local_file_exists"`
+	Config          UploadRequest `json:"-"`
+}
+
+type HostStats struct {
+	Host           string    `json:"host"`
+	LastLatencyMs  int64     `json:"last_latency_ms"`
+	CurrentLimitKB int       `json:"current_limit_kb"`
+	MaxLimitKB     int       `json:"max_limit_kb"`
+	ActiveTasks    int       `json:"active_tasks"`
+	TotalSpeedKBps float64   `json:"total_speed_kbps"`
 }

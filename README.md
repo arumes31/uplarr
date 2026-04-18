@@ -40,7 +40,7 @@ graph TD
 
 ## ✨ Key Features
 
-- 📦 **Background Queue**: Persistent task manager for background uploads with pause/resume support.
+- 📦 **Background Queue**: Persistent task manager that survives container restarts, with full queue management and pause/resume support.
 - 📁 **File Management**: Create folders, rename, and delete files on both local and remote filesystems.
 - 📂 **WinSCP-Style Browser**: Advanced dual-pane interface for browsing local and remote files with full directory navigation.
 - 🖱️ **Drag & Drop**: Seamlessly upload files by dragging them from the local pane to the remote directory of your choice.
@@ -121,6 +121,21 @@ Run with: `docker compose up -d`
 | `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
+
+---
+
+## 🔧 SFTP Tuning
+
+### `MaxConcurrentRequestsPerFile`
+
+The SFTP client uses up to **128** concurrent outstanding requests per file transfer (controlled by the `DefaultMaxConcurrentRequestsPerFile` constant in `internal/sftpclient/client.go`). This was raised from the library default of 64 to improve throughput on high-bandwidth / high-latency links.
+
+**Compatibility notes:**
+- **OpenSSH sshd**: Works well with 128 concurrent requests (tested).
+- **ProFTPD mod_sftp**: Some configurations with strict per-connection request limits may reject transfers. If you encounter disconnects, reduce to 64.
+- **FileZilla Server**: Generally works, but restrictive configurations may need a lower value.
+
+**To change the value**, edit the `DefaultMaxConcurrentRequestsPerFile` constant in [`internal/sftpclient/client.go`](internal/sftpclient/client.go) and rebuild. A safe fallback value is `64`.
 
 ---
 

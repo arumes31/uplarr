@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Queue Elements
     const queueBody = document.getElementById('queue-body');
+    const metricsOverlay = document.getElementById('metrics-overlay');
 
     // Shared Elements
     const testBtn = document.getElementById('test-btn');
@@ -42,6 +43,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const remoteCompactToggle = document.getElementById('remote-compact-toggle');
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
+
+    // Rate tracking (module-scoped instead of window globals)
+    let globalTotalRate = 0;
+    let lastTotalRate = 0;
 
     // --- Secure Storage Wrappers ---
     let masterKey = null;
@@ -240,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
             skip_host_key_verification: formData.get('skip_host_key_verification') === 'on',
             rate_limit_kbps: parseInt(formData.get('rate_limit_kbps')) || 0,
             max_latency_ms: parseInt(formData.get('max_latency_ms')) || 0,
+            min_limit_kbps: parseInt(formData.get('min_limit_kbps')) || 0,
             files: Array.from(queuedFiles.keys())
         };
     };
@@ -639,6 +645,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch('/api/queue');
             const tasks = await res.json();
+            
+            // Calculate aggregate speed for active hosts
+            const activeSpeeds = new Map(); // host -> totalRate
+            
             queueBody.innerHTML = '';
             tasks.reverse().forEach(task => {
                 const row = document.createElement('tr');
@@ -721,6 +731,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.textContent = 'Resume';
                     btn.addEventListener('click', () => controlTask(task.id, 'resume'));
                     tdActions.appendChild(btn);
+                } else if (task.status === 'Failed' || task.status === 'Completed') {
+                    if (task.local_file_exists) {
+                        const btn = document.createElement('button');
+                        btn.textContent = 'Retry';
+                        btn.title = 'Retry this upload';
+                        btn.addEventListener('click', () => controlTask(task.id, 'retry'));
+                        tdActions.appendChild(btn);
+                    } else {
+                        const span = document.createElement('span');
+                        span.className = 'status-msg warn';
+                        span.textContent = 'File Missing';
+                        span.title = 'Local file no longer exists. Cannot retry.';
+                        tdActions.appendChild(span);
+                    }
                 }
                 const remBtn = document.createElement('button');
                 remBtn.textContent = 'Remove';
@@ -735,7 +759,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
+
+                // Aggregate calculation (we use the rate we displayed)
+                if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
+                    const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
+                    if (elapsed > 0) {
+                        const rate = task.bytes_uploaded / elapsed;
+                        globalTotalRate += rate;
+                    }
+                }
             });
+            lastTotalRate = globalTotalRate;
+            globalTotalRate = 0;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
             queueBody.innerHTML = '';
@@ -747,6 +782,89 @@ document.addEventListener('DOMContentLoaded', () => {
             errRow.appendChild(errTd);
             queueBody.appendChild(errRow);
         }
+    };
+
+    const fetchStats = async () => {
+        try {
+            const res = await fetch('/api/stats');
+            if (res.status === 401) {
+                window.location.href = '/';
+                return;
+            }
+            if (res.ok) {
+                const stats = await res.json();
+                renderStats(stats);
+            } else {
+                // Non-OK response — clear stale metrics so the overlay doesn't lie
+                renderStats([]);
+            }
+        } catch (e) {
+            // Network error — clear stale metrics
+            console.error("Failed to fetch stats", e);
+            renderStats([]);
+        }
+    };
+
+    const renderStats = (stats) => {
+        if (!stats || stats.length === 0) {
+            metricsOverlay.innerHTML = '';
+            return;
+        }
+
+        // Build DOM safely to prevent XSS from user-controlled host values
+        metricsOverlay.innerHTML = '';
+        stats.forEach(s => {
+            const card = document.createElement('div');
+            card.className = 'metric-card';
+
+            const hostEl = document.createElement('div');
+            hostEl.className = 'metric-host';
+            hostEl.textContent = s.host;
+            card.appendChild(hostEl);
+
+            // Latency row
+            const latRow = document.createElement('div');
+            latRow.className = 'metric-row';
+            const latLabel = document.createElement('span');
+            latLabel.className = 'metric-label';
+            latLabel.textContent = 'Latency';
+            const latValue = document.createElement('span');
+            latValue.className = 'metric-value latency' + (s.last_latency_ms > 100 ? ' high-latency' : '');
+            latValue.textContent = s.last_latency_ms + 'ms';
+            latRow.appendChild(latLabel);
+            latRow.appendChild(latValue);
+            card.appendChild(latRow);
+
+            // Rate Limit row
+            const rlRow = document.createElement('div');
+            rlRow.className = 'metric-row';
+            const rlLabel = document.createElement('span');
+            rlLabel.className = 'metric-label';
+            rlLabel.textContent = 'Rate Limit';
+            const rlValue = document.createElement('span');
+            rlValue.className = 'metric-value';
+            rlValue.textContent = (s.current_limit_kb / 1024).toFixed(1) + ' MB/s';
+            rlRow.appendChild(rlLabel);
+            rlRow.appendChild(rlValue);
+            card.appendChild(rlRow);
+
+            // Current Speed row — uses per-host speed from backend
+            const spRow = document.createElement('div');
+            spRow.className = 'metric-row';
+            const spLabel = document.createElement('span');
+            spLabel.className = 'metric-label';
+            spLabel.textContent = 'Current Speed';
+            const spValue = document.createElement('span');
+            spValue.className = 'metric-value speed';
+            // total_speed_kbps is KB/s from backend; formatRate expects bytes/s
+            const hostSpeed = (s.total_speed_kbps || 0) * 1024;
+            spValue.textContent = formatRate(hostSpeed);
+            spRow.appendChild(spLabel);
+            spRow.appendChild(spValue);
+            card.appendChild(spRow);
+
+            metricsOverlay.appendChild(card);
+        });
     };
 
     const controlTask = async (id, action) => {
@@ -761,6 +879,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         fetchQueue();
     };
+
+    const clearQueueBtn = document.getElementById('clear-queue-btn');
+    if (clearQueueBtn) {
+        clearQueueBtn.addEventListener('click', () => controlTask('', 'clear_finished'));
+    }
+
+    const retryAllFailedBtn = document.getElementById('retry-all-failed-btn');
+    if (retryAllFailedBtn) {
+        retryAllFailedBtn.addEventListener('click', () => controlTask('', 'retry_all_failed'));
+    }
 
     // --- Actions ---
 
@@ -882,6 +1010,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchRemoteFiles(remoteCurrentPath);
         }
         setInterval(fetchQueue, 1000);
+        setInterval(fetchStats, 1000);
     };
 
     logoutBtn.addEventListener('click', async () => {

@@ -22,34 +22,57 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// DefaultMaxConcurrentRequestsPerFile controls the maximum number of concurrent
+// outstanding requests per file during SFTP transfers. Raised from the library
+// default of 64 to 128 for higher throughput on high-bandwidth links.
+// Some SFTP servers with strict request/connection limits (e.g., certain
+// ProFTPD mod_sftp or FileZilla Server configurations) may need a lower value.
+// If you experience transfer failures or server disconnects, try reducing
+// this to 64.
+const DefaultMaxConcurrentRequestsPerFile = 128
+
 type Limiter struct {
 	rateLimiter    *rate.Limiter
 	MaxLimit       rate.Limit
+	MinLimit       rate.Limit
 	MaxLatency     time.Duration
+	lastLatency    time.Duration
 	consecutiveLow int
 	mu             sync.Mutex
 }
 
-func NewLimiter(limit rate.Limit, burst int, maxLatency time.Duration) *Limiter {
+func NewLimiter(limit, burst rate.Limit, minLimit rate.Limit, maxLatency time.Duration) *Limiter {
 	return &Limiter{
-		rateLimiter: rate.NewLimiter(limit, burst),
+		rateLimiter: rate.NewLimiter(limit, int(burst)),
 		MaxLimit:    limit,
+		MinLimit:    minLimit,
 		MaxLatency:  maxLatency,
 	}
 }
 
-func (l *Limiter) UpdateConfig(newLimit rate.Limit, newMaxLatency time.Duration) {
+func (l *Limiter) UpdateConfig(newLimit, newMinLimit rate.Limit, newMaxLatency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
-	// If the user upgraded the max speed, we should allow current limit to scale up.
-	// We don't necessarily reset currentLimit, but we update MaxLimit.
-	l.MaxLimit = newLimit
+
+	// The UI uses 0 to mean "unlimited". Map that to rate.Inf so we don't
+	// accidentally block all traffic (rate.Limit(0) = 0 events/sec).
+	effective := newLimit
+	if effective == 0 {
+		effective = rate.Inf
+	}
+
+	l.MaxLimit = effective
+	l.MinLimit = newMinLimit
 	l.MaxLatency = newMaxLatency
-	
-	// Ensure current limit doesn't exceed new MaxLimit immediately.
-	if l.rateLimiter.Limit() > newLimit {
-		l.rateLimiter.SetLimit(newLimit)
+
+	// When manually updating, we reset the current limit to the new MaxLimit.
+	// This ensures that "Update Throttling" immediately takes effect even if previously throttled.
+	l.rateLimiter.SetLimit(effective)
+	l.consecutiveLow = 0
+	if effective == rate.Inf {
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Speed unlimited, Min Speed %v KB/s, Max Latency %v", int(newMinLimit/1024), newMaxLatency))
+	} else {
+		logger.Info(fmt.Sprintf("Throttling configuration updated: Max Speed %v KB/s, Min Speed %v KB/s, Max Latency %v", int(effective/1024), int(newMinLimit/1024), newMaxLatency))
 	}
 }
 
@@ -69,15 +92,26 @@ func (l *Limiter) Limit() rate.Limit {
 	return l.rateLimiter.Limit()
 }
 
-func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
+func (l *Limiter) RecordLatency(latency time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.lastLatency = latency
 	currentLimit := l.rateLimiter.Limit()
+	
+	// Use our internal MaxLatency which is kept up-to-date by UpdateConfig
+	maxLatency := l.MaxLatency
+	if maxLatency <= 0 {
+		return // Throttling disabled
+	}
+
 	if latency > maxLatency {
 		newLimit := currentLimit * 0.8 // Less aggressive throttle down
-		if newLimit < 10240 {          // 10 KB/s floor
-			newLimit = 10240
+		if newLimit < l.MinLimit {     // Use configurable floor
+			newLimit = l.MinLimit
+		}
+		if newLimit < 1024 { // Absolute minimum floor (1 KB/s) to prevent stall
+			newLimit = 1024
 		}
 		l.rateLimiter.SetLimit(newLimit)
 		l.consecutiveLow = 0
@@ -98,6 +132,12 @@ func (l *Limiter) RecordLatency(latency, maxLatency time.Duration) {
 
 func (l *Limiter) WaitN(ctx context.Context, n int) error {
 	return l.rateLimiter.WaitN(ctx, n)
+}
+
+func (l *Limiter) GetStats() (currentKB, maxKB int, lastLat time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return int(l.rateLimiter.Limit() / 1024), int(l.MaxLimit / 1024), l.lastLatency
 }
 
 func (l *Limiter) Burst() int {
@@ -166,6 +206,7 @@ type SFTPClient struct {
 	SkipHostKeyVerification bool
 	RateLimitKBps           int
 	MaxLatencyMs            int
+	MinLimitKBps            int
 	ProgressCallback        func(bytesWritten int64)
 	FileSizeCallback        func(totalBytes int64)
 	Limiter                 *Limiter
@@ -233,16 +274,10 @@ func (tw *throttledWriter) Write(p []byte) (n int, err error) {
 	default:
 	}
 
-	// We ONLY measure latency here. 
-	// The actual byte-level throttling (WaitN) is moved to throttledReader
-	// to prevent network RTT from interfering with bandwidth measurement.
-	start := time.Now()
-	n, err = tw.w.Write(p)
-	if n > 0 && tw.limiter != nil && tw.maxLatency > 0 {
-		latency := time.Since(start)
-		tw.limiter.RecordLatency(latency, tw.maxLatency)
-	}
-	return n, err
+	// We no longer measure latency here because Write latency includes synchronous RTT
+	// which causes false-positive throttling on high-latency links.
+	// Latency is now measured in the background via TCP Ping.
+	return tw.w.Write(p)
 }
 
 func (tw *throttledWriter) ReadFrom(r io.Reader) (int64, error) {
@@ -324,7 +359,7 @@ func (s *SFTPClient) Connect() error {
 	s.sshClient = client
 
 	sftpClient, err := sftp.NewClient(client, 
-		sftp.MaxConcurrentRequestsPerFile(64),
+		sftp.MaxConcurrentRequestsPerFile(DefaultMaxConcurrentRequestsPerFile),
 		sftp.MaxPacket(32768),
 	)
 	if err != nil {
@@ -605,11 +640,17 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		if limit == 0 && s.MaxLatencyMs > 0 {
 			limit = rate.Limit(100 * 1024 * 1024)
 		}
+		
+		minLimit := rate.Limit(s.MinLimitKBps * 1024)
+		if minLimit == 0 {
+			minLimit = 10240 // Default 10 KB/s floor
+		}
+
 		burst := 16 * 1024
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
 		}
-		s.Limiter = NewLimiter(limit, burst, time.Duration(s.MaxLatencyMs)*time.Millisecond)
+		s.Limiter = NewLimiter(limit, rate.Limit(burst), minLimit, time.Duration(s.MaxLatencyMs)*time.Millisecond)
 	}
 
 	var targetWriter io.Writer = remoteFile
@@ -649,6 +690,14 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	targetWriter = &contextWriter{ctx: ctx, w: targetWriter}
 
 	startTime := time.Now()
+	
+	// Start background latency sampler if dynamic throttling is enabled
+	samplerCtx, samplerCancel := context.WithCancel(ctx)
+	defer samplerCancel()
+	if s.Limiter != nil && s.MaxLatencyMs > 0 {
+		go s.startLatencySampler(samplerCtx)
+	}
+
 	// Use ReadFrom if available (provided by pkg/sftp.File for concurrent writes)
 	if rf, ok := targetWriter.(io.ReaderFrom); ok {
 		_, err = rf.ReadFrom(targetReader)
@@ -699,4 +748,33 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	}
 
 	return nil
+}
+func (s *SFTPClient) startLatencySampler(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	addr := net.JoinHostPort(s.Host, s.Port)
+	const timeout = 2 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			start := time.Now()
+			// TCP Ping: simply dial and close to measure RTT
+			conn, err := net.DialTimeout("tcp", addr, timeout)
+			latency := time.Since(start)
+			if err == nil {
+				_ = conn.Close()
+				s.Limiter.RecordLatency(latency)
+			} else {
+				// If dial fails (e.g. timeout), record a latency that is guaranteed
+				// to exceed the limiter's MaxLatency threshold so throttle-down
+				// triggers regardless of the configured threshold.
+				exceed := s.Limiter.MaxLatency + time.Millisecond
+				s.Limiter.RecordLatency(exceed)
+			}
+		}
+	}
 }

@@ -575,7 +575,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 		for _, file := range validFiles {
 			// Update the host-wide limiter with the latest config provided with this upload request
-			qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MaxLatencyMs)
+			qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MinLimitKBps, req.MaxLatencyMs)
 			qm.AddTask(file, req)
 		}
 
@@ -589,13 +589,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MaxLatencyMs)
+		qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MinLimitKBps, req.MaxLatencyMs)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Throttling updated"})
 	}))
 
 	mux.HandleFunc("/api/queue", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(qm.GetTasks())
 		} else if r.Method == http.MethodPost {
 			var req struct {
@@ -618,10 +619,18 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.Header().Set("Allow", "GET, POST")
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
 
+	mux.HandleFunc("/api/stats", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
+	}))
 	return mux, nil
 }

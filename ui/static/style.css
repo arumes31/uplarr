@@ -588,3 +588,74 @@ button:focus-visible {
         grid-column: span 1;
     }
 }
+/* Metrics Overlay */
+.metrics-overlay {
+    position: fixed;
+    top: 55px; /* Below the banner if present, but fixed relative to viewport */
+    left: 10px;
+    z-index: 999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none; /* Don't block clicking things underneath */
+}
+
+.metric-card {
+    background: rgba(15, 23, 42, 0.7); /* Dark obsidian with transparency */
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: #e2e8f0;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    min-width: 180px;
+    pointer-events: auto; /* Allow hover/clicks on card if needed */
+    transition: transform 0.2s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    background: rgba(15, 23, 42, 0.8);
+}
+
+.metric-host {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    font-weight: 700;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 2px;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: #cbd5e1;
+}
+
+.metric-value {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #60a5fa; /* Soft blue */
+}
+
+.metric-value.latency {
+    color: #4ade80; /* Green */
+}
+
+.metric-value.high-latency {
+    color: #f87171; /* Red */
+}
+
+.metric-value.speed {
+    color: #fbbf24; /* Amber */
+}
