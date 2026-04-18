@@ -10,4 +10,6 @@ services:
       - WEB_PORT=8080
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
-      - /path/to/your/local/files:/data:ro
+      # Note: This volume must be writable (:rw) for queue persistence to function.
+      # The state is stored in .queue_state.json within this directory.
+      - /path/to/your/local/files:/data

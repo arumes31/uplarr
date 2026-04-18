@@ -121,6 +121,18 @@ Run with: `docker compose up -d`
 | `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
+124: 
+125: ---
+126: 
+127: ## 💾 Storage & Persistence
+128: 
+129: Uplarr maintains a background queue that survives container and process restarts.
+130: 
+131: - **State File**: `.queue_state.json`
+132: - **Location**: Stored in the root of your configured `LOCAL_DIR`.
+133: - **Permissions**: The `LOCAL_DIR` mount **must be writable** (`:rw`) for the application to save its state. If mounted as read-only, the queue will function in-memory only and will reset upon restart.
+134: 
+135: ---
 
 ---
 
