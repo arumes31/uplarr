@@ -93,8 +93,13 @@ func (qm *QueueManager) saveStateLocked() {
 	}
 	data, err := json.MarshalIndent(dt, "", "  ")
 	if err == nil {
-		p := filepath.Join(qm.localDir, ".queue_state.json")
-		_ = os.WriteFile(p, data, 0644)
+		root, err := OsOpenRoot(qm.localDir)
+		if err != nil {
+			logger.Error(fmt.Sprintf("failed to open root for saving state: %v", err))
+			return
+		}
+		defer root.Close()
+		_ = root.WriteFile(".queue_state.json", data, 0600)
 	}
 }
 
@@ -105,8 +110,13 @@ func (qm *QueueManager) saveState() {
 }
 
 func (qm *QueueManager) loadState() {
-	p := filepath.Join(qm.localDir, ".queue_state.json")
-	data, err := os.ReadFile(p)
+	root, err := OsOpenRoot(qm.localDir)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+
+	data, err := root.ReadFile(".queue_state.json")
 	if err == nil {
 		var dt []diskTask
 		if err := json.Unmarshal(data, &dt); err == nil {
