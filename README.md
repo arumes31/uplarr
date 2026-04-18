@@ -83,7 +83,11 @@ docker run -d \
 
 ### Using Docker Compose
 
-Create a `docker-compose.yml` file:
+For a complete production-ready setup using the GitHub Container Registry image, see the [docker-compose.ghcr.yml](docker-compose.ghcr.yml) example.
+
+Quick setup: `docker compose -f docker-compose.ghcr.yml up -d`
+
+Or create a manual `docker-compose.yml`:
 
 ```yaml
 services:
@@ -93,10 +97,13 @@ services:
       - "8080:8080"
     environment:
       - LOCAL_DIR=/data
+      - CONFIG_DIR=/config
       - AUTH_PASSWORD=your_secure_password
     volumes:
+      - ./config:/config:rw
       - /path/to/local/data:/data:ro
 ```
+
 
 Run with: `docker compose up -d`
 

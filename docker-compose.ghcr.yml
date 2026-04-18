@@ -1,0 +1,22 @@
+# Example Docker Compose for GHCR Deployment
+# Repository: https://github.com/arumes31/uplarr
+
+services:
+  uplarr:
+    image: ghcr.io/arumes31/uplarr:main
+    container_name: uplarr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The directory in the container where you want to browse files
+      - LOCAL_DIR=/data
+      # The directory for application state (queue, etc.)
+      - CONFIG_DIR=/config
+      # Optional: set a master password for auth and storage encryption
+      - AUTH_PASSWORD=your_secure_password
+    volumes:
+      # PERSISTENT CONFIG: Store your background queue and settings here.
+      - ./uplarr_config:/config:rw
+      # DATA: Mount your media/files here. Can be read-only for security.
+      - /path/to/your/media:/data:ro
