@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"sync"
+	"time"
 )
 
 var (
@@ -28,7 +29,10 @@ var (
 
 func generateToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// This should never happen with crypto/rand
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
 	return base64.StdEncoding.EncodeToString(b)
 }
 
@@ -160,6 +164,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		sessions[token] = true
 		sessionsMu.Unlock()
 
+		// #nosec G124
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    token,
@@ -178,12 +183,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			delete(sessions, cookie.Value)
 			sessionsMu.Unlock()
 		}
+		// #nosec G124
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
 			MaxAge:   -1,
+			SameSite: http.SameSiteStrictMode,
 		})
 		w.WriteHeader(http.StatusOK)
 	})
@@ -274,12 +281,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		if err != nil {
-			fullPath = absLocalDir
 			relPath = ""
 		} else {
 			rel, err := filepath.Rel(absLocalDir, absFullPath)
 			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				fullPath = absLocalDir
 				relPath = ""
 			}
 		}

@@ -38,9 +38,8 @@ func TestCoverageFlat(t *testing.T) {
 
 	config := models.Config{LocalDir: tempDir}
 
-	// 1. SetupApp Fail (95-97)
 	OsMkdirAll = func(p string, perm os.FileMode) error { return errors.New("f") }
-	SetupApp(config, nil)
+	_, _ = SetupApp(config, nil)
 	OsMkdirAll = oldMkdir
 
 	mux, _ := SetupApp(config, qm)
@@ -138,7 +137,7 @@ func TestCoverageFlat(t *testing.T) {
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/queue", nil))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader("!")))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"none","action":"pause"}`)))
-	os.WriteFile(filepath.Join(tempDir, "real.txt"), []byte("d"), 0644)
+	_ = os.WriteFile(filepath.Join(tempDir, "real.txt"), []byte("d"), 0644)
 	qm.AddTask("real.txt", models.UploadRequest{})
 	taskID := qm.GetTasks()[len(qm.GetTasks())-1].ID
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"pause"}`)))

@@ -89,7 +89,7 @@ func TestQueueManager_Control(t *testing.T) {
 	}
 
 	// 2. Add first task - will block in Connect (become Running)
-	os.WriteFile(filepath.Join(tempDir, "task1.txt"), []byte("data"), 0644)
+	_ = os.WriteFile(filepath.Join(tempDir, "task1.txt"), []byte("data"), 0644)
 	qm.AddTask("task1.txt", models.UploadRequest{})
 	
 	// Add second task - will stay Pending
@@ -276,7 +276,7 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 	testFile := filepath.Join(tempDir, "retry.txt")
-	os.WriteFile(testFile, []byte("data"), 0644)
+	_ = os.WriteFile(testFile, []byte("data"), 0644)
 
 	oldNewClient := queue.NewClient
 	defer func() { queue.NewClient = oldNewClient }()
@@ -288,7 +288,7 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 	// MaxRetries = 0 should trigger default = 3
 	qm.AddTask("retry.txt", models.UploadRequest{MaxRetries: 0})
 	// MaxRetries = 5 should hit the other branch
-	os.WriteFile(filepath.Join(tempDir, "retry5.txt"), []byte("data"), 0644)
+	_ = os.WriteFile(filepath.Join(tempDir, "retry5.txt"), []byte("data"), 0644)
 	qm.AddTask("retry5.txt", models.UploadRequest{MaxRetries: 5})
 	// Also add a non-existent file to trigger root.Open error
 	qm.AddTask("non-existent.txt", models.UploadRequest{})
