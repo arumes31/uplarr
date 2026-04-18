@@ -866,6 +866,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchQueue();
     };
 
+    const clearQueueBtn = document.getElementById('clear-queue-btn');
+    if (clearQueueBtn) {
+        clearQueueBtn.addEventListener('click', () => controlTask('', 'clear_finished'));
+    }
+
     // --- Actions ---
 
     testBtn.addEventListener('click', async () => {

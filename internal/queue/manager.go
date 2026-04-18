@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,9 +75,64 @@ func NewQueueManager(localDir string) *QueueManager {
 		activeCancels: make(map[string]context.CancelFunc),
 		limiters:      make(map[string]*sftpclient.Limiter),
 	}
+	qm.loadState()
 	qm.wg.Add(1)
 	go qm.processLoop()
 	return qm
+}
+
+type diskTask struct {
+	Task   *models.Task         `json:"task"`
+	Config models.UploadRequest `json:"config"`
+}
+
+func (qm *QueueManager) saveStateLocked() {
+	var dt []diskTask
+	for _, t := range qm.tasks {
+		dt = append(dt, diskTask{Task: t, Config: t.Config})
+	}
+	data, err := json.MarshalIndent(dt, "", "  ")
+	if err == nil {
+		p := filepath.Join(qm.localDir, ".queue_state.json")
+		_ = os.WriteFile(p, data, 0644)
+	}
+}
+
+func (qm *QueueManager) saveState() {
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+	qm.saveStateLocked()
+}
+
+func (qm *QueueManager) loadState() {
+	p := filepath.Join(qm.localDir, ".queue_state.json")
+	data, err := os.ReadFile(p)
+	if err == nil {
+		var dt []diskTask
+		if err := json.Unmarshal(data, &dt); err == nil {
+			var loaded []*models.Task
+			for _, d := range dt {
+				if d.Task != nil {
+					d.Task.Config = d.Config
+					if d.Task.Status == models.TaskRunning {
+						d.Task.Status = models.TaskPending
+					}
+					idVal, _ := strconv.ParseUint(d.Task.ID, 10, 64)
+					if idVal > qm.nextID {
+						qm.nextID = idVal
+					}
+					loaded = append(loaded, d.Task)
+				}
+			}
+			qm.tasks = loaded
+			if len(qm.tasks) > 0 {
+				go func() {
+					// ensure worker is triggered to process pending tasks on startup
+					qm.trigger()
+				}()
+			}
+		}
+	}
 }
 
 func (qm *QueueManager) Shutdown() {
@@ -158,6 +214,7 @@ func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
 	}
 	qm.tasks = append(qm.tasks, task)
 	qm.mu.Unlock()
+	qm.saveState()
 	qm.trigger()
 }
 
@@ -306,6 +363,7 @@ func (qm *QueueManager) processNext() {
 		logger.Info(fmt.Sprintf("Task completed: %s", nextTask.FileName))
 	}
 	qm.mu.Unlock()
+	qm.saveState()
 
 	qm.trigger()
 }
@@ -399,12 +457,26 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 					// but we also remove it immediately so it disappears from UI.
 				}
 				qm.tasks = append(qm.tasks[:i], qm.tasks[i+1:]...)
+				qm.saveStateLocked()
 				qm.trigger()
 				return true, nil
 			default:
 				return false, fmt.Errorf("unknown action: %s", action)
 			}
 		}
+	}
+
+	if action == "clear_finished" {
+		var active []*models.Task
+		for _, t := range qm.tasks {
+			if t.Status != models.TaskCompleted && t.Status != models.TaskFailed {
+				active = append(active, t)
+			}
+		}
+		qm.tasks = active
+		qm.saveStateLocked()
+		qm.trigger()
+		return true, nil
 	}
 	return false, fmt.Errorf("task not found")
 }

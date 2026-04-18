@@ -87,7 +87,12 @@
 
         <!-- Background Queue Section -->
         <section class="queue-section">
-            <h3>Background Queue</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+                <h3 style="margin: 0;">Background Queue</h3>
+                <button id="clear-queue-btn" class="compact-btn secondary-btn" title="Clear completed or failed tasks">
+                    <i class="icon-delete"></i> Clear Finished
+                </button>
+            </div>
             <div class="queue-table-container">
                 <table id="queue-table">
                     <thead>
