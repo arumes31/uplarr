@@ -33,14 +33,16 @@ func TestCoverageFlat(t *testing.T) {
 
 	tempDir, _ := os.MkdirTemp("", "api_cov_flat")
 	defer os.RemoveAll(tempDir)
-	qm := queue.NewQueueManager(tempDir)
+	qm := queue.NewQueueManager(tempDir, tempDir)
 	defer qm.Shutdown()
 
 	config := models.Config{LocalDir: tempDir}
 
-	// 1. SetupApp Fail (95-97)
 	OsMkdirAll = func(p string, perm os.FileMode) error { return errors.New("f") }
-	SetupApp(config, nil)
+	_, setupErr := SetupApp(config, nil)
+	if setupErr == nil {
+		t.Error("Expected error from SetupApp when MkdirAll fails")
+	}
 	OsMkdirAll = oldMkdir
 
 	mux, _ := SetupApp(config, qm)
@@ -138,7 +140,9 @@ func TestCoverageFlat(t *testing.T) {
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/queue", nil))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader("!")))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"none","action":"pause"}`)))
-	os.WriteFile(filepath.Join(tempDir, "real.txt"), []byte("d"), 0644)
+	if err := os.WriteFile(filepath.Join(tempDir, "real.txt"), []byte("d"), 0644); err != nil {
+		t.Fatalf("Failed to write fixture: %v", err)
+	}
 	qm.AddTask("real.txt", models.UploadRequest{})
 	taskID := qm.GetTasks()[len(qm.GetTasks())-1].ID
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"pause"}`)))

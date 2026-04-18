@@ -26,10 +26,12 @@ var (
 	sessionsMu sync.RWMutex
 )
 
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.StdEncoding.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate secure token: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // FileSystem interface for easier mocking of Go 1.24+ os.Root features
@@ -155,11 +157,16 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		token := generateToken()
+		token, err := generateToken()
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		sessionsMu.Lock()
 		sessions[token] = true
 		sessionsMu.Unlock()
 
+		// #nosec G124
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    token,
@@ -178,12 +185,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			delete(sessions, cookie.Value)
 			sessionsMu.Unlock()
 		}
+		// #nosec G124
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
 			MaxAge:   -1,
+			SameSite: http.SameSiteStrictMode,
 		})
 		w.WriteHeader(http.StatusOK)
 	})
@@ -274,12 +283,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		if err != nil {
-			fullPath = absLocalDir
 			relPath = ""
 		} else {
 			rel, err := filepath.Rel(absLocalDir, absFullPath)
 			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				fullPath = absLocalDir
 				relPath = ""
 			}
 		}

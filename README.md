@@ -83,7 +83,11 @@ docker run -d \
 
 ### Using Docker Compose
 
-Create a `docker-compose.yml` file:
+For a complete production-ready setup using the GitHub Container Registry image, see the [docker-compose.ghcr.yml](docker-compose.ghcr.yml) example.
+
+Quick setup: `docker compose -f docker-compose.ghcr.yml up -d`
+
+Or create a manual `docker-compose.yml`:
 
 ```yaml
 services:
@@ -93,10 +97,13 @@ services:
       - "8080:8080"
     environment:
       - LOCAL_DIR=/data
+      - CONFIG_DIR=/config
       - AUTH_PASSWORD=your_secure_password
     volumes:
+      - ./config:/config:rw
       - /path/to/local/data:/data:ro
 ```
+
 
 Run with: `docker compose up -d`
 
@@ -117,10 +124,22 @@ Run with: `docker compose up -d`
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
+| `CONFIG_DIR` | Directory for application state (queue) | `./config` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
-| `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
+| `AUTH_PASSWORD` | Password for Web UI authentication | (None) |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
+
+---
+
+## 💾 Storage & Persistence
+
+Uplarr maintains a background queue that survives container and process restarts.
+
+- **State File**: `.queue_state.json`
+- **Location**: Stored in your configured `CONFIG_DIR` (defaults to `./config`).
+- **Isolation**: Keeping state in a separate directory allows you to mount `LOCAL_DIR` as **read-only** (`:ro`), improving overall security for your media files.
+- **Persistence**: The `CONFIG_DIR` mount **must be writable** (`:rw`) for the application to save its queue.
 
 ---
 
