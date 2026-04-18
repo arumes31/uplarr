@@ -41,13 +41,19 @@ func (m *mockClient) Mkdir(path string) error { return nil }
 func (m *mockClient) SetLimiter(l *sftpclient.Limiter) {}
 
 func TestQueueManager(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test")
+	localDir, err := os.MkdirTemp("", "qm_test_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(localDir)
 
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	configDir, err := os.MkdirTemp("", "qm_test_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
+
+	qm := queue.NewQueueManager(localDir, configDir)
 	defer qm.Shutdown()
 
 	// Test AddTask
@@ -59,11 +65,17 @@ func TestQueueManager(t *testing.T) {
 }
 
 func TestQueueManager_Control(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test_ctrl")
+	localDir, err := os.MkdirTemp("", "qm_ctrl_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(localDir)
+
+	configDir, err := os.MkdirTemp("", "qm_ctrl_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
 
 	// Mock NewClient to block so we can pause a pending task
 	oldNewClient := queue.NewClient
@@ -80,7 +92,7 @@ func TestQueueManager_Control(t *testing.T) {
 	}
 	defer func() { queue.NewClient = oldNewClient }()
 
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	qm := queue.NewQueueManager(localDir, configDir)
 
 	// 1. Task Not Found
 	_, err = qm.ControlTask("non-existent", "remove")
@@ -89,7 +101,9 @@ func TestQueueManager_Control(t *testing.T) {
 	}
 
 	// 2. Add first task - will block in Connect (become Running)
-	_ = os.WriteFile(filepath.Join(tempDir, "task1.txt"), []byte("data"), 0644)
+	if err := os.WriteFile(filepath.Join(localDir, "task1.txt"), []byte("data"), 0644); err != nil {
+		t.Fatalf("Failed to write fixture task1.txt: %v", err)
+	}
 	qm.AddTask("task1.txt", models.UploadRequest{})
 	
 	// Add second task - will stay Pending
@@ -178,16 +192,22 @@ func TestQueueManager_Control(t *testing.T) {
 }
 
 func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test_abs_errs")
+	localDir, err := os.MkdirTemp("", "qm_abs_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(localDir)
+
+	configDir, err := os.MkdirTemp("", "qm_abs_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
 
 	oldAbs := queue.FilepathAbs
 	defer func() { queue.FilepathAbs = oldAbs }()
 
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	qm := queue.NewQueueManager(localDir, configDir)
 
 	// Test first FilepathAbs error
 	queue.FilepathAbs = func(path string) (string, error) {
@@ -212,11 +232,17 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 }
 
 func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test_root_err")
+	localDir, err := os.MkdirTemp("", "qm_root_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(localDir)
+
+	configDir, err := os.MkdirTemp("", "qm_root_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
 
 	oldOpenRoot := queue.OsOpenRoot
 	queue.OsOpenRoot = func(name string) (*os.Root, error) {
@@ -224,19 +250,26 @@ func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
 	}
 	defer func() { queue.OsOpenRoot = oldOpenRoot }()
 
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	qm := queue.NewQueueManager(localDir, configDir)
 	qm.AddTask("any.txt", models.UploadRequest{})
 	time.Sleep(50 * time.Millisecond)
 	qm.Shutdown()
 }
 
 func TestQueueManager_ProcessNext_Traversal(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test_trav")
+	localDir, err := os.MkdirTemp("", "qm_trav_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	defer os.RemoveAll(localDir)
+
+	configDir, err := os.MkdirTemp("", "qm_trav_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
+
+	qm := queue.NewQueueManager(localDir, configDir)
 	qm.AddTask("../escaped.txt", models.UploadRequest{})
 
 	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
@@ -270,13 +303,22 @@ func TestQueueManager_DefaultNewClient(t *testing.T) {
 }
 
 func TestQueueManager_RetriesDefault(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "qm_test_retries")
+	localDir, err := os.MkdirTemp("", "qm_retries_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
-	testFile := filepath.Join(tempDir, "retry.txt")
-	_ = os.WriteFile(testFile, []byte("data"), 0644)
+	defer os.RemoveAll(localDir)
+
+	configDir, err := os.MkdirTemp("", "qm_retries_config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(configDir)
+
+	testFile := filepath.Join(localDir, "retry.txt")
+	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
+		t.Fatalf("Failed to write fixture retry.txt: %v", err)
+	}
 
 	oldNewClient := queue.NewClient
 	defer func() { queue.NewClient = oldNewClient }()
@@ -284,11 +326,13 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 		return &mockClient{}
 	}
 
-	qm := queue.NewQueueManager(tempDir, tempDir)
+	qm := queue.NewQueueManager(localDir, configDir)
 	// MaxRetries = 0 should trigger default = 3
 	qm.AddTask("retry.txt", models.UploadRequest{MaxRetries: 0})
 	// MaxRetries = 5 should hit the other branch
-	_ = os.WriteFile(filepath.Join(tempDir, "retry5.txt"), []byte("data"), 0644)
+	if err := os.WriteFile(filepath.Join(localDir, "retry5.txt"), []byte("data"), 0644); err != nil {
+		t.Fatalf("Failed to write fixture retry5.txt: %v", err)
+	}
 	qm.AddTask("retry5.txt", models.UploadRequest{MaxRetries: 5})
 	// Also add a non-existent file to trigger root.Open error
 	qm.AddTask("non-existent.txt", models.UploadRequest{})

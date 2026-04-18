@@ -126,12 +126,12 @@ Run with: `docker compose up -d`
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
 | `CONFIG_DIR` | Directory for application state (queue) | `./config` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
-| `AUTH_PASSWORD` | Master password for Web UI and storage encryption | (None) |
+| `AUTH_PASSWORD` | Password for Web UI authentication | (None) |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
-124: 
-125: ---
-126: 
+
+---
+
 ## 💾 Storage & Persistence
 
 Uplarr maintains a background queue that survives container and process restarts.
@@ -140,8 +140,6 @@ Uplarr maintains a background queue that survives container and process restarts
 - **Location**: Stored in your configured `CONFIG_DIR` (defaults to `./config`).
 - **Isolation**: Keeping state in a separate directory allows you to mount `LOCAL_DIR` as **read-only** (`:ro`), improving overall security for your media files.
 - **Persistence**: The `CONFIG_DIR` mount **must be writable** (`:rw`) for the application to save its queue.
-
----
 
 ---
 

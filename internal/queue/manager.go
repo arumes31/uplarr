@@ -67,7 +67,9 @@ type QueueManager struct {
 
 func NewQueueManager(localDir, configDir string) *QueueManager {
 	// Ensure config directory exists
-	_ = os.MkdirAll(configDir, 0750)
+	if err := os.MkdirAll(configDir, 0750); err != nil {
+		logger.Error(fmt.Sprintf("failed to create config directory %q: %v — queue persistence will be unavailable", configDir, err))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	qm := &QueueManager{

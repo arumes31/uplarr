@@ -13,8 +13,8 @@ services:
       - LOCAL_DIR=/data
       # The directory for application state (queue, etc.)
       - CONFIG_DIR=/config
-      # Optional: set a master password for auth and storage encryption
-      - AUTH_PASSWORD=your_secure_password
+      # Optional: set a password for Web UI authentication
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       # PERSISTENT CONFIG: Store your background queue and settings here.
       - ./uplarr_config:/config:rw

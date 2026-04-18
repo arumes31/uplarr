@@ -19,7 +19,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"sync"
-	"time"
 )
 
 var (
@@ -27,13 +26,12 @@ var (
 	sessionsMu sync.RWMutex
 )
 
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// This should never happen with crypto/rand
-		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+		return "", fmt.Errorf("failed to generate secure token: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // FileSystem interface for easier mocking of Go 1.24+ os.Root features
@@ -159,7 +157,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		token := generateToken()
+		token, err := generateToken()
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		sessionsMu.Lock()
 		sessions[token] = true
 		sessionsMu.Unlock()
