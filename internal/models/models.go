@@ -58,8 +58,9 @@ type Task struct {
 	TotalBytes    int64         `json:"total_bytes"`
 	StartedAt     *time.Time    `json:"started_at,omitempty"`
 	Error         string        `json:"error,omitempty"`
-	CreatedAt     time.Time     `json:"created_at"`
-	Config        UploadRequest `json:"-"`
+	CreatedAt       time.Time     `json:"created_at"`
+	LocalFileExists bool          `json:"local_file_exists"`
+	Config          UploadRequest `json:"-"`
 }
 
 type HostStats struct {

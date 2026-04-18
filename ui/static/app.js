@@ -732,10 +732,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.addEventListener('click', () => controlTask(task.id, 'resume'));
                     tdActions.appendChild(btn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Retry';
-                    btn.addEventListener('click', () => controlTask(task.id, 'retry'));
-                    tdActions.appendChild(btn);
+                    if (task.local_file_exists) {
+                        const btn = document.createElement('button');
+                        btn.textContent = 'Retry';
+                        btn.title = 'Retry this upload';
+                        btn.addEventListener('click', () => controlTask(task.id, 'retry'));
+                        tdActions.appendChild(btn);
+                    } else {
+                        const span = document.createElement('span');
+                        span.className = 'status-msg warn';
+                        span.textContent = 'File Missing';
+                        span.title = 'Local file no longer exists. Cannot retry.';
+                        tdActions.appendChild(span);
+                    }
                 }
                 const remBtn = document.createElement('button');
                 remBtn.textContent = 'Remove';

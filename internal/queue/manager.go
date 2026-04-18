@@ -374,6 +374,11 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	snapshot := make([]*models.Task, len(qm.tasks))
 	for i, t := range qm.tasks {
 		copyTask := *t
+		// Check if local file still exists
+		fullPath := filepath.Join(qm.localDir, t.FileName)
+		_, err := os.Stat(fullPath)
+		copyTask.LocalFileExists = (err == nil)
+
 		// Deep-copy mutable reference fields so snapshot doesn't share state
 		if t.Config.Files != nil {
 			copyTask.Config.Files = make([]string, len(t.Config.Files))
@@ -462,6 +467,11 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 				return true, nil
 			case "retry":
 				if t.Status == models.TaskFailed || t.Status == models.TaskCompleted {
+					fullPath := filepath.Join(qm.localDir, t.FileName)
+					if _, err := os.Stat(fullPath); err != nil {
+						return false, fmt.Errorf("local file no longer exists: %s", t.FileName)
+					}
+
 					t.Status = models.TaskPending
 					t.Error = ""
 					t.Progress = 0
@@ -482,6 +492,10 @@ func (qm *QueueManager) ControlTask(id string, action string) (bool, error) {
 		found := false
 		for _, t := range qm.tasks {
 			if t.Status == models.TaskFailed {
+				fullPath := filepath.Join(qm.localDir, t.FileName)
+				if _, err := os.Stat(fullPath); err != nil {
+					continue // file missing, skip
+				}
 				t.Status = models.TaskPending
 				t.Error = ""
 				t.Progress = 0
