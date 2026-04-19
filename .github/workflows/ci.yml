@@ -4,28 +4,52 @@ on:
   push:
     branches: [ main, v2_test ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, v2_test ]
 
 jobs:
-  test:
+  lint:
+    name: Linting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
+          cache: true
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
 
-      - name: Verify dependencies
-        run: go mod verify
-
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
       - name: Run tests with coverage
         run: go test -v -coverprofile=coverage.out ./...
-
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.out
           fail_ci_if_error: false
+
+  build-check:
+    name: Cross-Build Verification
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+      - name: Build binary
+        run: go build -v -o uplarr${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+
