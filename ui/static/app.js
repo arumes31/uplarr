@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const tdName = document.createElement('td');
             tdName.className = 'col-name';
             const icon = document.createElement('span');
-            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            icon.innerHTML = `<svg class="icon-inline" width="16" height="16"><use href="#${file.is_dir ? 'icon-folder' : 'icon-file'}"></use></svg> `;
             tdName.appendChild(icon);
             tdName.appendChild(document.createTextNode(file.name));
             tdName.title = file.name;
@@ -485,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const tdName = document.createElement('td');
             tdName.className = 'col-name';
             const icon = document.createElement('span');
-            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            icon.innerHTML = `<svg class="icon-inline" width="16" height="16"><use href="#${file.is_dir ? 'icon-folder' : 'icon-file'}"></use></svg> `;
             tdName.appendChild(icon);
             tdName.appendChild(document.createTextNode(file.name));
             tdName.title = file.name;
@@ -724,16 +724,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
                 
                 const tdActions = document.createElement('td');
-                if (task.status === 'Pending') {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Pause';
-                    btn.addEventListener('click', () => controlTask(task.id, 'pause'));
-                    tdActions.appendChild(btn);
-                } else if (task.status === 'Paused') {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Resume';
-                    btn.addEventListener('click', () => controlTask(task.id, 'resume'));
-                    tdActions.appendChild(btn);
+                if (task.status === 'Pending' || task.status === 'Paused') {
+                    const controlBtn = document.createElement('button');
+                    controlBtn.className = task.status === 'Paused' ? 'primary-btn action-btn' : 'secondary-btn action-btn';
+                    controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
+                    controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
+                    tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
                     if (task.local_file_exists) {
                         const btn = document.createElement('button');
