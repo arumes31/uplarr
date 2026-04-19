@@ -51,6 +51,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const remoteCompactToggle = document.getElementById('remote-compact-toggle');
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
+    
+    // Phase 3 Elements
+    const selectionBar = document.getElementById('selection-bar');
+    const selectionCount = document.getElementById('selection-count');
+    const selectionQueueBtn = document.getElementById('selection-queue-btn');
+    const selectionDeleteBtn = document.getElementById('selection-delete-btn');
+    const selectionClearBtn = document.getElementById('selection-clear-btn');
+    const dropOverlay = document.getElementById('drop-overlay');
 
     // Rate tracking (module-scoped instead of window globals)
     let globalTotalRate = 0;
@@ -193,11 +201,12 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = '';
         for (let i = 0; i < count; i++) {
             const row = document.createElement('tr');
-            row.className = 'skeleton-row';
+            row.id = `queue-row-${id}`;
             row.innerHTML = `
-                <td class="col-check"></td>
-                <td class="col-name"></td>
-                <td class="col-size"></td>
+                <td class="col-status">
+                    ${createProgressRing(id)}
+                </td>
+                <td class="col-file">${info.name}</td>
                 <td class="col-type"></td>
             `;
             container.appendChild(row);
@@ -233,6 +242,103 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
+    // --- Selection Bar & Shortcut Logic ---
+
+    const updateSelectionBar = () => {
+        const count = queuedFiles.size;
+        selectionCount.textContent = count;
+        if (count > 0) {
+            selectionBar.classList.remove('hidden');
+        } else {
+            selectionBar.classList.add('hidden');
+        }
+    };
+
+    selectionClearBtn.addEventListener('click', () => {
+        queuedFiles.clear();
+        renderLocalFiles();
+        updateUploadButtonText();
+        updateSelectionBar();
+    });
+
+    selectionQueueBtn.addEventListener('click', () => {
+        uploadBtn.click();
+    });
+
+    selectionDeleteBtn.addEventListener('click', () => {
+        deleteBtn.click();
+    });
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Prevent shortcuts when typing in inputs
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            if (e.key === 'Escape') document.activeElement.blur();
+            return;
+        }
+
+        switch (e.key) {
+            case '/':
+                e.preventDefault();
+                localSearchInput.focus();
+                break;
+            case 'Backspace':
+                e.preventDefault();
+                upBtn.click();
+                break;
+            case 'Delete':
+                deleteBtn.click();
+                break;
+            case 'Enter':
+                if (e.ctrlKey) uploadBtn.click();
+                break;
+            case 'Escape':
+                selectionClearBtn.click();
+                break;
+        }
+    });
+
+    // Progress Ring Helper
+    const createProgressRing = (id, radius = 8) => {
+        const circumference = 2 * Math.PI * radius;
+        return `
+            <svg class="progress-ring" height="${radius * 2.5}" width="${radius * 2.5}">
+                <circle class="progress-bg" stroke="currentColor" stroke-width="2" fill="transparent" r="${radius}" cx="${radius * 1.25}" cy="${radius * 1.25}" />
+                <circle id="ring-${id}" class="progress-ring__circle" stroke-width="2" stroke-dasharray="${circumference} ${circumference}" stroke-dashoffset="${circumference}" fill="transparent" r="${radius}" cx="${radius * 1.25}" cy="${radius * 1.25}" />
+            </svg>
+        `;
+    };
+
+    const setProgress = (id, percent) => {
+        const ring = document.getElementById(`ring-${id}`);
+        if (!ring) return;
+        const radius = ring.r.baseVal.value;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (percent / 100 * circumference);
+        ring.style.strokeDashoffset = offset;
+    };
+
+    // Global Drag & Drop Feedback
+    let dragCounter = 0;
+    window.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropOverlay.classList.remove('hidden');
+    });
+
+    window.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter === 0) dropOverlay.classList.add('hidden');
+    });
+
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropOverlay.classList.add('hidden');
+    });
+
     const updateSortHeaders = (tableId, sortState) => {
         const table = document.getElementById(tableId);
         table.querySelectorAll('th.sortable').forEach(th => {
@@ -245,6 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     };
+
 
     // Bind sort clicks for local file table
     document.querySelectorAll('#file-table th.sortable').forEach(th => {
@@ -418,6 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 lastCheckedIndex = currentIndex;
                 updateUploadButtonText();
+                updateSelectionBar();
             });
             tdCheck.appendChild(cb);
 
@@ -511,6 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog(`${failedPaths.length} file(s) could not be deleted`, 'warn');
         }
         updateUploadButtonText();
+        updateSelectionBar();
         fetchFiles(currentPath);
     });
 
@@ -524,6 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
             else queuedFiles.delete(path);
         });
         updateUploadButtonText();
+        updateSelectionBar();
     });
 
     // --- Remote Files ---
@@ -723,60 +833,52 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/queue');
             const tasks = await res.json();
             
-            // Calculate aggregate speed for active hosts
-            const activeSpeeds = new Map(); // host -> totalRate
-            
             queueBody.innerHTML = '';
             tasks.reverse().forEach(task => {
+                const id = task.id;
                 const row = document.createElement('tr');
+                row.id = `queue-row-${id}`;
                 
                 const tdFile = document.createElement('td');
                 tdFile.textContent = task.file_name;
                 tdFile.title = task.file_name;
-                tdFile.style.maxWidth = '200px';
-                tdFile.style.overflow = 'hidden';
-                tdFile.style.textOverflow = 'ellipsis';
-                tdFile.style.whiteSpace = 'nowrap';
+                tdFile.className = 'col-file';
                 
                 const tdDest = document.createElement('td');
                 tdDest.textContent = task.remote_dir || '';
                 tdDest.title = task.remote_dir || '';
-                tdDest.style.maxWidth = '200px';
-                tdDest.style.overflow = 'hidden';
-                tdDest.style.textOverflow = 'ellipsis';
-                tdDest.style.whiteSpace = 'nowrap';
+                tdDest.className = 'col-dest';
                 
                 const tdStatus = document.createElement('td');
-                tdStatus.className = `status-${task.status}`;
-                tdStatus.textContent = task.status + (task.error ? ` (${task.error})` : '');
-
-                // Progress column
-                const tdProgress = document.createElement('td');
-                tdProgress.style.minWidth = '120px';
-                if (task.status === 'Running' && task.total_bytes > 0) {
-                    const pct = Math.min(100, task.progress || 0);
-                    const barContainer = document.createElement('div');
-                    barContainer.className = 'progress-bar-container';
-                    const barFill = document.createElement('div');
-                    barFill.className = 'progress-bar-fill';
-                    barFill.style.width = pct + '%';
-                    barContainer.appendChild(barFill);
-                    const label = document.createElement('span');
-                    label.className = 'progress-label';
-                    label.textContent = `${pct}% (${formatSize(task.bytes_uploaded)} / ${formatSize(task.total_bytes)})`;
-                    tdProgress.appendChild(barContainer);
-                    tdProgress.appendChild(label);
+                tdStatus.className = `col-status status-${task.status.toLowerCase()}`;
+                
+                if (task.status === 'Running') {
+                    tdStatus.innerHTML = createProgressRing(id);
+                    // Defer setting progress until after row is in DOM
+                    setTimeout(() => {
+                        const pct = Math.round((task.bytes_uploaded / (task.total_bytes || 1)) * 100);
+                        setProgress(id, pct);
+                    }, 0);
                 } else if (task.status === 'Completed') {
-                    tdProgress.textContent = task.total_bytes > 0 ? formatSize(task.total_bytes) : '100%';
+                    tdStatus.innerHTML = `<svg class="icon-success" width="16" height="16"><use href="#icon-check"></use></svg>`;
                 } else if (task.status === 'Failed') {
-                    tdProgress.textContent = task.bytes_uploaded > 0 ? formatSize(task.bytes_uploaded) : '-';
+                    tdStatus.innerHTML = `<span class="status-badge status-failed">Failed</span>`;
+                    tdStatus.title = task.error || 'Unknown error';
+                } else {
+                    tdStatus.textContent = task.status;
+                }
+
+                const tdProgress = document.createElement('td');
+                tdProgress.className = 'col-progress';
+                if (task.status === 'Running' || task.status === 'Completed' || task.status === 'Failed') {
+                    const pct = Math.round((task.bytes_uploaded / (task.total_bytes || 1)) * 100);
+                    tdProgress.textContent = `${pct}% (${formatSize(task.bytes_uploaded)} / ${formatSize(task.total_bytes)})`;
                 } else {
                     tdProgress.textContent = '-';
                 }
 
-                // Rate column
                 const tdRate = document.createElement('td');
-                tdRate.style.whiteSpace = 'nowrap';
+                tdRate.className = 'col-rate';
                 if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
                     const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
                     if (elapsed > 0) {
@@ -784,11 +886,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         const remaining = task.total_bytes - task.bytes_uploaded;
                         const eta = remaining > 0 && rate > 0 ? remaining / rate : 0;
                         tdRate.textContent = formatRate(rate);
-                        if (eta > 0) {
-                            tdRate.textContent += ` (${formatETA(eta)})`;
-                        }
-                    } else {
-                        tdRate.textContent = '-';
+                        if (eta > 0) tdRate.textContent += ` (${formatETA(eta)})`;
+                        globalTotalRate += rate;
                     }
                 } else {
                     tdRate.textContent = '-';
@@ -798,64 +897,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
                 
                 const tdActions = document.createElement('td');
+                tdActions.className = 'col-actions';
                 if (task.status === 'Pending' || task.status === 'Paused') {
                     const controlBtn = document.createElement('button');
-                    controlBtn.className = task.status === 'Paused' ? 'primary-btn action-btn' : 'secondary-btn action-btn';
+                    controlBtn.className = 'action-btn';
                     controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
                     controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
                     tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
                     if (task.local_file_exists) {
-                        const btn = document.createElement('button');
-                        btn.textContent = 'Retry';
-                        btn.title = 'Retry this upload';
-                        btn.addEventListener('click', () => controlTask(task.id, 'retry'));
-                        tdActions.appendChild(btn);
-                    } else {
-                        const span = document.createElement('span');
-                        span.className = 'status-msg warn';
-                        span.textContent = 'File Missing';
-                        span.title = 'Local file no longer exists. Cannot retry.';
-                        tdActions.appendChild(span);
+                        const retryBtn = document.createElement('button');
+                        retryBtn.className = 'action-btn';
+                        retryBtn.textContent = 'Retry';
+                        retryBtn.addEventListener('click', () => controlTask(task.id, 'retry'));
+                        tdActions.appendChild(retryBtn);
                     }
                 }
                 const remBtn = document.createElement('button');
+                remBtn.className = 'action-btn btn-danger-text';
                 remBtn.textContent = 'Remove';
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 
+                row.appendChild(tdStatus);
                 row.appendChild(tdFile);
                 row.appendChild(tdDest);
-                row.appendChild(tdStatus);
                 row.appendChild(tdProgress);
                 row.appendChild(tdRate);
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
-
-                // Aggregate calculation (we use the rate we displayed)
-                if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
-                    const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
-                    if (elapsed > 0) {
-                        const rate = task.bytes_uploaded / elapsed;
-                        globalTotalRate += rate;
-                    }
-                }
             });
             lastTotalRate = globalTotalRate;
             globalTotalRate = 0;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
-            queueBody.innerHTML = '';
-            const errRow = document.createElement('tr');
-            const errTd = document.createElement('td');
-            errTd.colSpan = 7;
-            errTd.className = 'log-error';
-            errTd.textContent = 'Failed to load queue';
-            errRow.appendChild(errTd);
-            queueBody.appendChild(errRow);
         }
     };
+
 
     const fetchStats = async () => {
         try {
@@ -1041,6 +1120,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showStatus("Tasks added to background queue", "success");
                 queuedFiles.clear();
                 updateUploadButtonText();
+                updateSelectionBar();
                 fetchQueue();
             } else {
                 const data = await res.json().catch(() => ({}));

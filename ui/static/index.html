@@ -252,6 +252,32 @@
             <div id="log-container" class="log-window"></div>
         </section>
     </div>
+    <div id="selection-bar" class="selection-bar hidden">
+        <div class="selection-info">
+            <span id="selection-count">0</span> items selected
+        </div>
+        <div class="selection-actions">
+            <button id="selection-queue-btn" class="btn-primary" aria-label="Queue selected files">
+                <svg class="icon-inline"><use href="#icon-upload"></use></svg>
+                Queue Selected
+            </button>
+            <button id="selection-delete-btn" class="btn-danger" aria-label="Delete selected files">
+                <svg class="icon-inline"><use href="#icon-delete"></use></svg>
+                Delete
+            </button>
+            <button id="selection-clear-btn" class="btn-secondary" aria-label="Clear selection">Clear</button>
+        </div>
+    </div>
+
+    <!-- Drag & Drop Overlays -->
+    <div id="drop-overlay" class="drop-overlay hidden">
+        <div class="drop-message">
+            <svg class="icon-large" width="48" height="48"><use href="#icon-upload"></use></svg>
+            <h3>Drop to Upload</h3>
+            <p>Release to add files to queue</p>
+        </div>
+    </div>
+
     <script src="/static/crypto.js"></script>
     <script src="/static/app.js"></script>
 </body>

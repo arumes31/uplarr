@@ -455,6 +455,98 @@ button {
     left: -100px;
     background: rgba(56, 189, 248, 0.3);
 }
+/* Selection Bar */
+.selection-bar {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--accent-primary);
+    padding: 0.75rem 1.5rem;
+    border-radius: 100px;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    z-index: 1000;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.2);
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.selection-bar.hidden {
+    bottom: -5rem;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.selection-info {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.selection-info span {
+    font-weight: 700;
+    color: var(--accent-primary);
+}
+
+.selection-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* Drop Overlay */
+.drop-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    border: 4px dashed var(--accent-primary);
+    transition: all 0.3s ease;
+}
+
+.drop-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.drop-message {
+    text-align: center;
+    color: var(--text-primary);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Progress Ring */
+.progress-ring {
+    width: 20px;
+    height: 20px;
+}
+
+.progress-ring__circle {
+    transition: stroke-dashoffset 0.35s;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    stroke: var(--accent-primary);
+    stroke-linecap: round;
+}
+
+.progress-bg {
+    stroke: rgba(255, 255, 255, 0.1);
+}
 
 .blob-2 {
     width: 500px;
