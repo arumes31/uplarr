@@ -568,8 +568,107 @@ button {
     animation-duration: 30s;
 }
 
-@keyframes move {
-    from { transform: translate(0, 0) scale(1); }
-    to { transform: translate(100px, 100px) scale(1.1); }
+/* --- Phase 4: Toast system & Sparklines --- */
+
+.toast-container {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    pointer-events: none;
 }
+
+.toast {
+    pointer-events: auto;
+    width: 320px;
+    padding: 1rem;
+    background: rgba(30, 41, 59, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    animation: toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: all 0.3s ease;
+}
+
+.toast.removing {
+    transform: translateX(120%);
+    opacity: 0;
+}
+
+.toast-icon {
+    flex-shrink: 0;
+}
+
+.toast-content {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.toast-info { border-left: 4px solid var(--accent-primary); }
+.toast-success { border-left: 4px solid #10b981; }
+.toast-error { border-left: 4px solid #ef4444; }
+.toast-warn { border-left: 4px solid #f59e0b; }
+
+@keyframes toast-slide-in {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Sparklines */
+.sparkline {
+    fill: none;
+    stroke: var(--accent-primary);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 2px var(--accent-primary-alpha));
+}
+
+.metrics-overlay .metric-row {
+    position: relative;
+}
+
+.sparkline-container {
+    position: absolute;
+    right: 0;
+    bottom: -4px;
+    width: 60px;
+    height: 16px;
+    opacity: 0.6;
+}
+
+/* Log Search Header */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.search-input-sm {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    width: 180px;
+    transition: all 0.2s ease;
+}
+
+.search-input-sm:focus {
+    width: 240px;
+    border-color: var(--accent-primary);
+    outline: none;
+    background: rgba(15, 23, 42, 0.8);
+}
+
 

@@ -58,11 +58,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectionQueueBtn = document.getElementById('selection-queue-btn');
     const selectionDeleteBtn = document.getElementById('selection-delete-btn');
     const selectionClearBtn = document.getElementById('selection-clear-btn');
-    const dropOverlay = document.getElementById('drop-overlay');
+    // Phase 4 Elements
+    const toastContainer = document.getElementById('toast-container');
+    const logSearchInput = document.getElementById('log-search');
 
-    // Rate tracking (module-scoped instead of window globals)
+    // Rate tracking
     let globalTotalRate = 0;
     let lastTotalRate = 0;
+    const speedHistory = new Map(); // host -> [rates...] for sparklines
 
     // --- Secure Storage Wrappers ---
     let masterKey = null;
@@ -383,7 +386,86 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Phase 4: Toast System ---
+    const showToast = (message, type = 'info', duration = 4000) => {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        let iconName = 'icon-info';
+        if (type === 'success') iconName = 'icon-check';
+        if (type === 'error') iconName = 'icon-alert';
+        if (type === 'warn') iconName = 'icon-alert';
+
+        toast.innerHTML = `
+            <div class="toast-icon">
+                <svg width="20" height="20"><use href="#${iconName}"></use></svg>
+            </div>
+            <div class="toast-content">${message}</div>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        const remove = () => {
+            toast.classList.add('removing');
+            setTimeout(() => toast.remove(), 300);
+        };
+
+        if (duration > 0) {
+            setTimeout(remove, duration);
+        }
+
+        toast.addEventListener('click', remove);
+    };
+
+    // Replace showStatus with showToast
+    const showStatus = (msg, type) => {
+        showToast(msg, type);
+    };
+
+    // Log Filtering
+    let currentLogFilter = '';
+    logSearchInput.addEventListener('input', (e) => {
+        currentLogFilter = e.target.value.toLowerCase();
+        const logs = logContainer.querySelectorAll('.log-entry');
+        logs.forEach(log => {
+            const visible = !currentLogFilter || log.textContent.toLowerCase().includes(currentLogFilter);
+            log.style.display = visible ? 'block' : 'none';
+        });
+    });
+
+    const addLog = (msg, level = 'info') => {
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${level}`;
+        const time = new Date().toLocaleTimeString();
+        entry.textContent = `[${time}] ${msg}`;
+        
+        if (currentLogFilter && !msg.toLowerCase().includes(currentLogFilter)) {
+            entry.style.display = 'none';
+        }
+        
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+        
+        // Limit logs
+        while (logContainer.children.length > 200) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+    };
+
+    // Sparkline Generator
+    const generateSparklinePath = (data, width, height) => {
+        if (data.length < 2) return '';
+        const max = Math.max(...data, 1024); // min scale to 1KB/s
+        const points = data.map((val, i) => {
+            const x = (i / (data.length - 1)) * width;
+            const y = height - (val / max) * height;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        });
+        return `M ${points.join(' L ')}`;
+    };
+
     // --- Helpers ---
+
 
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';
@@ -963,7 +1045,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Build DOM safely to prevent XSS from user-controlled host values
         metricsOverlay.innerHTML = '';
         stats.forEach(s => {
             const card = document.createElement('div');
@@ -1000,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rlRow.appendChild(rlValue);
             card.appendChild(rlRow);
 
-            // Current Speed row — uses per-host speed from backend
+            // Current Speed row with Sparkline
             const spRow = document.createElement('div');
             spRow.className = 'metric-row';
             const spLabel = document.createElement('span');
@@ -1008,16 +1089,29 @@ document.addEventListener('DOMContentLoaded', () => {
             spLabel.textContent = 'Current Speed';
             const spValue = document.createElement('span');
             spValue.className = 'metric-value speed';
-            // total_speed_kbps is KB/s from backend; formatRate expects bytes/s
+            
             const hostSpeed = (s.total_speed_kbps || 0) * 1024;
             spValue.textContent = formatRate(hostSpeed);
+            
+            // Phase 4 Sparkline logic
+            if (!speedHistory.has(s.host)) speedHistory.set(s.host, []);
+            const history = speedHistory.get(s.host);
+            history.push(hostSpeed);
+            if (history.length > 20) history.shift();
+
+            const sparkSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            sparkSvg.setAttribute("class", "sparkline-container");
+            sparkSvg.innerHTML = `<path class="sparkline" d="${generateSparklinePath(history, 60, 16)}" />`;
+            
             spRow.appendChild(spLabel);
             spRow.appendChild(spValue);
+            spRow.appendChild(sparkSvg);
             card.appendChild(spRow);
 
             metricsOverlay.appendChild(card);
         });
     };
+
 
     const controlTask = async (id, action) => {
         const res = await fetch('/api/queue', { 
@@ -1026,9 +1120,10 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({ id, action }) 
         });
         if (!res.ok) {
-            const data = await res.json();
-            alert(`Action failed: ${data.error || res.statusText}`);
+            const data = await res.json().catch(() => ({}));
+            showToast(`Action failed: ${data.error || res.statusText}`, 'error');
         }
+
         fetchQueue();
     };
 

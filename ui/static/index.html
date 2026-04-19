@@ -247,10 +247,14 @@
             <div id="status-message" class="status-msg hidden"></div>
         </section>
 
-        <section class="logs-section glass-panel">
-            <h3 style="color: var(--accent-secondary); margin-bottom: 1rem;">Process Logs</h3>
+        <section class="logs-section glass-panel" aria-labelledby="logs-title">
+            <div class="section-header">
+                <h3 id="logs-title" style="color: var(--accent-secondary); margin-bottom: 0;">Process Logs</h3>
+                <input type="text" id="log-search" placeholder="Search activity..." class="search-input-sm" aria-label="Search process logs">
+            </div>
             <div id="log-container" class="log-window"></div>
         </section>
+
     </div>
     <div id="selection-bar" class="selection-bar hidden">
         <div class="selection-info">
@@ -277,6 +281,9 @@
             <p>Release to add files to queue</p>
         </div>
     </div>
+
+    <!-- Notification System -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script src="/static/crypto.js"></script>
     <script src="/static/app.js"></script>
