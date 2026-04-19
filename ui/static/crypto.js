@@ -14,7 +14,8 @@ const SecureStorage = (() => {
 
     const ALGO = 'AES-GCM';
     const SALT = new TextEncoder().encode('uplarr-salt-v1'); // Static salt for key derivation
-    const PBKDF2_ITERATIONS = 100000;
+    const PBKDF2_ITERATIONS = 600000; // Updated to 2026 security recommendations
+
 
     const deriveKey = async (password) => {
         const passwordKey = await crypto.subtle.importKey(
