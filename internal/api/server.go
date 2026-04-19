@@ -181,8 +181,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   isSecureRequest(r),
+			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
+			MaxAge:   3600 * 24 * 7, // 1 week
 		})
 		w.WriteHeader(http.StatusOK)
 	})
