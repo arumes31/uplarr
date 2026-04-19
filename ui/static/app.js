@@ -58,13 +58,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectionQueueBtn = document.getElementById('selection-queue-btn');
     const selectionDeleteBtn = document.getElementById('selection-delete-btn');
     const selectionClearBtn = document.getElementById('selection-clear-btn');
-    // Phase 4 Elements
-    const toastContainer = document.getElementById('toast-container');
-    const logSearchInput = document.getElementById('log-search');
+    // Phase 5 Elements
+    const sessionStats = document.getElementById('session-stats');
+    const statTotalData = document.getElementById('stat-total-data');
+    const statAvgSpeed = document.getElementById('stat-avg-speed');
+    const viewToggleBtn = document.getElementById('view-toggle-btn');
+    const viewMenu = document.getElementById('view-menu');
+    const renameModal = document.getElementById('rename-modal');
+    const renameSearch = document.getElementById('rename-search');
+    const renameReplace = document.getElementById('rename-replace');
+    const renamePreview = document.getElementById('rename-preview');
+    const renameCancelBtn = document.getElementById('rename-cancel-btn');
+    const renameConfirmBtn = document.getElementById('rename-confirm-btn');
+    const selectionRenameBtn = document.getElementById('selection-rename-btn');
+    const renameCountBadge = document.getElementById('rename-count-badge');
 
     // Rate tracking
     let globalTotalRate = 0;
     let lastTotalRate = 0;
+    let sessionTotalBytes = 0;
+    let sessionStart = Date.now();
     const speedHistory = new Map(); // host -> [rates...] for sparklines
 
     // --- Secure Storage Wrappers ---
@@ -464,7 +477,140 @@ document.addEventListener('DOMContentLoaded', () => {
         return `M ${points.join(' L ')}`;
     };
 
+    // --- Phase 5: Command Center Logic ---
+
+    // Theme Customizer
+    document.querySelectorAll('.theme-swatch').forEach(swatch => {
+        swatch.addEventListener('click', () => {
+            const color = swatch.dataset.color;
+            document.documentElement.style.setProperty('--accent-primary', color);
+            // Derive a secondary/glow color (lighter)
+            document.documentElement.style.setProperty('--accent-secondary', color + 'CC');
+            setSecureItem('uplarr_theme_accent', color);
+            showToast(`Theme updated`, 'success', 2000);
+        });
+    });
+
+    const initTheme = async () => {
+        const saved = await getSecureItem('uplarr_theme_accent');
+        if (saved) {
+            document.documentElement.style.setProperty('--accent-primary', saved);
+            document.documentElement.style.setProperty('--accent-secondary', saved + 'CC');
+        }
+    };
+
+    // Layout Toggles
+    viewToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!viewMenu.contains(e.target)) viewMenu.classList.add('hidden');
+    });
+
+    ['metrics', 'queue', 'logs'].forEach(id => {
+        const cb = document.getElementById(`toggle-${id}`);
+        const section = document.querySelector(`.section-${id}`);
+        
+        cb.addEventListener('change', async () => {
+            if (section) section.style.display = cb.checked ? '' : 'none';
+            await setSecureItem(`uplarr_view_${id}`, cb.checked);
+        });
+
+        // Restore state
+        getSecureItem(`uplarr_view_${id}`).then(val => {
+            if (val === 'false') {
+                cb.checked = false;
+                if (section) section.style.display = 'none';
+            }
+        });
+    });
+
+    // Bulk Renaming
+    const updateRenamePreview = () => {
+        const search = renameSearch.value;
+        const replace = renameReplace.value;
+        const files = Array.from(queuedFiles.keys());
+        renamePreview.innerHTML = '';
+        
+        files.forEach((oldPath, idx) => {
+            const oldName = oldPath.split('/').pop();
+            let newName = oldName;
+            
+            try {
+                if (search) {
+                    const re = new RegExp(search, 'g');
+                    newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+                }
+            } catch (e) {}
+
+            const item = document.createElement('div');
+            item.className = 'rename-preview-item';
+            item.innerHTML = `
+                <span class="rename-from">${oldName}</span>
+                <span class="rename-arrow">&rarr;</span>
+                <span class="rename-to">${newName}</span>
+            `;
+            renamePreview.appendChild(item);
+        });
+    };
+
+    selectionRenameBtn.addEventListener('click', () => {
+        if (queuedFiles.size === 0) return showToast("Select files to rename", "warn");
+        renameCountBadge.textContent = queuedFiles.size;
+        renameSearch.value = '';
+        renameReplace.value = '';
+        updateRenamePreview();
+        renameModal.classList.remove('hidden');
+    });
+
+    renameSearch.addEventListener('input', updateRenamePreview);
+    renameReplace.addEventListener('input', updateRenamePreview);
+    renameCancelBtn.addEventListener('click', () => renameModal.classList.add('hidden'));
+
+    renameConfirmBtn.addEventListener('click', async () => {
+        const search = renameSearch.value;
+        const replace = renameReplace.value;
+        if (!search) return;
+
+        const files = Array.from(queuedFiles.keys());
+        let successCount = 0;
+
+        for (const [idx, oldPath] of files.entries()) {
+            const oldName = oldPath.split('/').pop();
+            const re = new RegExp(search, 'g');
+            const newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+            
+            if (newName === oldName) continue;
+
+            const res = await fetch('/api/files/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'rename', path: oldPath, new_name: newName })
+            });
+
+            if (res.ok) successCount++;
+            else addLog(`Rename failed: ${oldName} -> ${newName}`, 'error');
+        }
+
+        showToast(`Renamed ${successCount} files`, 'success');
+        renameModal.classList.add('hidden');
+        queuedFiles.clear();
+        updateSelectionBar();
+        fetchFiles(currentPath);
+    });
+
+    // Session Analytics
+    const updateSessionStats = () => {
+        statTotalData.textContent = formatSize(sessionTotalBytes);
+        const elapsed = (Date.now() - sessionStart) / 1000;
+        const avg = sessionTotalBytes / (elapsed || 1);
+        statAvgSpeed.textContent = formatRate(avg);
+    };
+
     // --- Helpers ---
+
 
 
     const formatSize = (bytes) => {
@@ -959,8 +1105,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     tdProgress.textContent = '-';
                 }
 
-                const tdRate = document.createElement('td');
-                tdRate.className = 'col-rate';
+                // Rate tracking
                 if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
                     const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
                     if (elapsed > 0) {
@@ -971,9 +1116,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (eta > 0) tdRate.textContent += ` (${formatETA(eta)})`;
                         globalTotalRate += rate;
                     }
+                } else if (task.status === 'Completed') {
+                    // Update session total for analytics
+                    sessionTotalBytes += task.total_bytes || 0;
+                    tdRate.textContent = '-';
                 } else {
                     tdRate.textContent = '-';
                 }
+
                 
                 const tdCreated = document.createElement('td');
                 tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
@@ -1266,7 +1416,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         setInterval(fetchQueue, 1000);
         setInterval(fetchStats, 1000);
+        setInterval(updateSessionStats, 1000);
+        await initTheme();
     };
+
 
     logoutBtn.addEventListener('click', async () => {
         await fetch('/api/logout', { method: 'POST' });

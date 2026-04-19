@@ -569,6 +569,123 @@ button {
 }
 
 /* --- Phase 4: Toast system & Sparklines --- */
+/* (Keeping previous Phase 4 styles) */
+
+/* --- Phase 5: Command Center --- */
+
+.header-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.session-stats {
+    background: rgba(15, 23, 42, 0.4);
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    font-family: 'Fira Code', monospace;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
+.session-stats span {
+    color: var(--accent-primary);
+    font-weight: bold;
+}
+
+.theme-picker {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.theme-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid white;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.theme-swatch:hover {
+    transform: scale(1.2);
+}
+
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 10px);
+    background: rgba(30, 41, 59, 0.9);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    min-width: 160px;
+    padding: 0.75rem;
+    z-index: 1000;
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.dropdown-content label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.813rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.dropdown-content label:hover {
+    color: var(--accent-primary);
+}
+
+/* Bulk Rename Styles */
+.rename-preview {
+    margin-top: 1.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+    background: rgba(15, 23, 42, 0.4);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.75rem;
+}
+
+.rename-preview-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rename-from { color: var(--text-muted); }
+.rename-arrow { color: var(--accent-secondary); margin: 0 0.5rem; }
+.rename-to { color: var(--accent-primary); }
+
+.modal-content.glass-panel h3 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 
 .toast-container {
     position: fixed;

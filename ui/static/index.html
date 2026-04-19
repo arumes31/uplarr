@@ -15,7 +15,8 @@
         <div class="blob blob-2"></div>
         <div class="blob blob-3"></div>
     </div>
-    <div id="metrics-overlay" class="metrics-overlay"></div>
+    <main class="app-container">
+        <div id="metrics-overlay" class="metrics-overlay section-metrics"></div>
     
     <!-- SVG Icon Library -->
     <svg style="display: none;">
@@ -34,16 +35,38 @@
             <svg class="icon-inline" width="18" height="18"><use href="#icon-alert"></use></svg>
             <span><strong>Insecure Context Detected:</strong> Local storage encryption is disabled. Use <code>https://</code> or <code>localhost</code> for enhanced security.</span>
         </div>
-        <header>
-            <nav class="header-nav">
-                <h1>Uplarr</h1>
-                <div class="header-controls">
-                    <button id="logout-btn" class="secondary-btn" aria-label="Log out of the application">
-                        <svg class="icon-inline" width="14" height="14"><use href="#icon-logout"></use></svg> Logout
-                    </button>
+        <div class="header-main">
+            <div class="logo-group">
+                <svg class="logo-icon" width="32" height="32"><use href="#icon-logo"></use></svg>
+                <h1>Uplarr <span class="badge">V2</span></h1>
+            </div>
+            <div id="session-stats" class="session-stats">
+                <span id="stat-total-data">0 B</span> sent | <span id="stat-avg-speed">0 B/s</span> avg
+            </div>
+        </div>
+        <div class="header-actions">
+            <div class="theme-picker">
+                <button class="theme-swatch" data-color="#38bdf8" style="background: #38bdf8" title="Sky Blue"></button>
+                <button class="theme-swatch" data-color="#10b981" style="background: #10b981" title="Emerald"></button>
+                <button class="theme-swatch" data-color="#f43f5e" style="background: #f43f5e" title="Rose"></button>
+                <button class="theme-swatch" data-color="#818cf8" style="background: #818cf8" title="Indigo"></button>
+            </div>
+            <div class="dropdown">
+                <button id="view-toggle-btn" class="glass-btn secondary-btn">
+                    <svg class="icon-inline" width="16" height="16"><use href="#icon-eye"></use></svg>
+                    View
+                </button>
+                <div id="view-menu" class="dropdown-content hidden">
+                    <label><input type="checkbox" id="toggle-metrics" checked> System Metrics</label>
+                    <label><input type="checkbox" id="toggle-queue" checked> Transfer Queue</label>
+                    <label><input type="checkbox" id="toggle-logs" checked> Process Logs</label>
                 </div>
-            </nav>
-        </header>
+            </div>
+            <button id="logout-btn" class="glass-btn danger-btn" aria-label="Sign out of Uplarr">
+                <svg class="icon-inline" width="16" height="16"><use href="#icon-logout"></use></svg>
+                Logout
+            </button>
+        </div>
 
         <main class="dashboard-content">
         <section class="file-browser-section">
@@ -247,7 +270,7 @@
             <div id="status-message" class="status-msg hidden"></div>
         </section>
 
-        <section class="logs-section glass-panel" aria-labelledby="logs-title">
+        <section class="logs-section glass-panel section-logs" aria-labelledby="logs-title">
             <div class="section-header">
                 <h3 id="logs-title" style="color: var(--accent-secondary); margin-bottom: 0;">Process Logs</h3>
                 <input type="text" id="log-search" placeholder="Search activity..." class="search-input-sm" aria-label="Search process logs">
@@ -261,6 +284,9 @@
             <span id="selection-count">0</span> items selected
         </div>
         <div class="selection-actions">
+            <button id="selection-rename-btn" class="btn-secondary" aria-label="Bulk rename selected files">
+                Rename
+            </button>
             <button id="selection-queue-btn" class="btn-primary" aria-label="Queue selected files">
                 <svg class="icon-inline"><use href="#icon-upload"></use></svg>
                 Queue Selected
@@ -279,6 +305,30 @@
             <svg class="icon-large" width="48" height="48"><use href="#icon-upload"></use></svg>
             <h3>Drop to Upload</h3>
             <p>Release to add files to queue</p>
+        </div>
+    </div>
+
+    <!-- Bulk Rename Modal -->
+    <div id="rename-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>Bulk Rename <span id="rename-count-badge" class="badge">0</span></h3>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="rename-search">Search Pattern</label>
+                    <input type="text" id="rename-search" placeholder="e.g. image_(\d+)">
+                </div>
+                <div class="form-group">
+                    <label for="rename-replace">Replace With</label>
+                    <input type="text" id="rename-replace" placeholder="e.g. photo_$1">
+                </div>
+                <div class="rename-preview" id="rename-preview">
+                    <!-- Preview lines will appear here -->
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="rename-cancel-btn" class="secondary-btn">Cancel</button>
+                <button id="rename-confirm-btn" class="primary-btn">Rename All</button>
+            </div>
         </div>
     </div>
 
