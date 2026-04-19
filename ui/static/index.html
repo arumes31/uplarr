@@ -37,14 +37,17 @@
             <span><strong>Insecure Context Detected:</strong> Local storage encryption is disabled. Use <code>https://</code> or <code>localhost</code> for enhanced security.</span>
         </div>
         <header>
-            <h1>Uplarr</h1>
-            <div class="header-controls">
-                <button id="logout-btn" class="secondary-btn">
-                    <svg class="icon-inline" width="14" height="14"><use href="#icon-logout"></use></svg> Logout
-                </button>
-            </div>
+            <nav class="header-nav">
+                <h1>Uplarr</h1>
+                <div class="header-controls">
+                    <button id="logout-btn" class="secondary-btn" aria-label="Log out of the application">
+                        <svg class="icon-inline" width="14" height="14"><use href="#icon-logout"></use></svg> Logout
+                    </button>
+                </div>
+            </nav>
         </header>
 
+        <main class="dashboard-content">
         <section class="file-browser-section">
             <div class="dual-pane">
                 <div class="pane local-pane">
@@ -53,12 +56,17 @@
                         <div class="breadcrumb" id="local-breadcrumb">/</div>
                     </div>
                     <div class="pane-toolbar">
-                        <button id="refresh-btn" title="Refresh"><svg class="icon-inline" width="14" height="14"><use href="#icon-refresh"></use></svg> Refresh</button>
-                        <button id="up-btn" title="Go Up"><svg class="icon-inline" width="14" height="14"><use href="#icon-up"></use></svg> Up</button>
-                        <button id="mkdir-btn" title="New Folder"><svg class="icon-inline" width="14" height="14"><use href="#icon-folder"></use></svg> New Folder</button>
-                        <button id="delete-btn" title="Delete"><svg class="icon-inline" width="14" height="14"><use href="#icon-delete"></use></svg> Delete</button>
+                        <div class="toolbar-actions">
+                            <button id="refresh-btn" title="Refresh" aria-label="Refresh local file list"><svg class="icon-inline" width="14" height="14"><use href="#icon-refresh"></use></svg> Refresh</button>
+                            <button id="up-btn" title="Go Up" aria-label="Go to parent directory"><svg class="icon-inline" width="14" height="14"><use href="#icon-up"></use></svg> Up</button>
+                            <button id="mkdir-btn" title="New Folder" aria-label="Create new folder"><svg class="icon-inline" width="14" height="14"><use href="#icon-folder"></use></svg> New Folder</button>
+                            <button id="delete-btn" title="Delete" aria-label="Delete selected files"><svg class="icon-inline" width="14" height="14"><use href="#icon-delete"></use></svg> Delete</button>
+                        </div>
+                        <div class="toolbar-search">
+                            <input type="search" id="local-search" placeholder="Search files..." aria-label="Search local files">
+                        </div>
                         <span class="toolbar-separator"></span>
-                        <button id="compact-toggle" class="compact-toggle" title="Toggle compact view">Compact</button>
+                        <button id="compact-toggle" class="compact-toggle" title="Toggle compact view" aria-label="Toggle compact view mode">Compact</button>
                     </div>
                     <div class="file-list-container">
                         <table id="file-table" class="file-table">
@@ -83,12 +91,17 @@
                         <div class="breadcrumb" id="remote-breadcrumb">/</div>
                     </div>
                     <div class="pane-toolbar">
-                        <button id="remote-refresh-btn" title="Refresh"><svg class="icon-inline" width="14" height="14"><use href="#icon-refresh"></use></svg> Refresh</button>
-                        <button id="remote-up-btn" title="Go Up"><svg class="icon-inline" width="14" height="14"><use href="#icon-up"></use></svg> Up</button>
-                        <button id="remote-mkdir-btn" title="New Folder"><svg class="icon-inline" width="14" height="14"><use href="#icon-folder"></use></svg> New Folder</button>
-                        <button id="remote-delete-btn" title="Delete"><svg class="icon-inline" width="14" height="14"><use href="#icon-delete"></use></svg> Delete</button>
+                        <div class="toolbar-actions">
+                            <button id="remote-refresh-btn" title="Refresh" aria-label="Refresh remote file list"><svg class="icon-inline" width="14" height="14"><use href="#icon-refresh"></use></svg> Refresh</button>
+                            <button id="remote-up-btn" title="Go Up" aria-label="Go to remote parent directory"><svg class="icon-inline" width="14" height="14"><use href="#icon-up"></use></svg> Up</button>
+                            <button id="remote-mkdir-btn" title="New Folder" aria-label="Create new remote folder"><svg class="icon-inline" width="14" height="14"><use href="#icon-folder"></use></svg> New Folder</button>
+                            <button id="remote-delete-btn" title="Delete" aria-label="Delete selected remote files"><svg class="icon-inline" width="14" height="14"><use href="#icon-delete"></use></svg> Delete</button>
+                        </div>
+                        <div class="toolbar-search">
+                            <input type="search" id="remote-search" placeholder="Search files..." aria-label="Search remote files">
+                        </div>
                         <span class="toolbar-separator"></span>
-                        <button id="remote-compact-toggle" class="compact-toggle" title="Toggle compact view">Compact</button>
+                        <button id="remote-compact-toggle" class="compact-toggle" title="Toggle compact view" aria-label="Toggle remote compact view mode">Compact</button>
                     </div>
                     <div class="file-list-container">
                         <table id="remote-file-table" class="file-table">
@@ -141,6 +154,7 @@
                 </table>
             </div>
         </section>
+        </main>
 
         <!-- Drop Confirmation Modal -->
         <div id="drop-modal" class="modal hidden">

@@ -30,6 +30,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
     
+    // Search Elements
+    const localSearchInput = document.getElementById('local-search');
+    const remoteSearchInput = document.getElementById('remote-search');
+    
+    // UI state
+    let localFilter = '';
+    let remoteFilter = '';
+    
     // Modal Elements
     const dropModal = document.getElementById('drop-modal');
     const modalFileInfo = document.getElementById('modal-file-info');
@@ -135,6 +143,68 @@ document.addEventListener('DOMContentLoaded', () => {
     applyCompact();
 
     // --- Sort Logic ---
+    // --- Navigation & Search Logic ---
+
+    // Instant Search Functionalify
+    localSearchInput.addEventListener('input', (e) => {
+        localFilter = e.target.value.toLowerCase();
+        renderLocalFiles();
+    });
+
+    remoteSearchInput.addEventListener('input', (e) => {
+        remoteFilter = e.target.value.toLowerCase();
+        renderRemoteFiles();
+    });
+
+    // Interactive Breadcrumb Generator
+    const renderPath = (container, path, isRemote = false) => {
+        container.innerHTML = '';
+        const rootIcon = document.createElement('span');
+        rootIcon.className = 'breadcrumb-segment root';
+        rootIcon.textContent = '/';
+        rootIcon.title = 'Go to root';
+        rootIcon.addEventListener('click', () => isRemote ? fetchRemoteFiles('/') : fetchFiles(''));
+        container.appendChild(rootIcon);
+
+        const cleanPath = path.replace(/^[\\/]+|[\\/]+$/g, '');
+        if (!cleanPath) return;
+
+        const parts = cleanPath.split(/[\\/]/);
+        let accumulated = '';
+        parts.forEach((part, idx) => {
+            const separator = document.createElement('span');
+            separator.className = 'breadcrumb-separator';
+            separator.textContent = '/';
+            container.appendChild(separator);
+
+            accumulated += (idx === 0 ? part : '/' + part);
+            const currentAcc = accumulated; // closure for the click handler
+            const segment = document.createElement('span');
+            segment.className = 'breadcrumb-segment';
+            segment.textContent = part;
+            segment.title = `Jump to ${part}`;
+            segment.addEventListener('click', () => isRemote ? fetchRemoteFiles(currentAcc) : fetchFiles(currentAcc));
+            container.appendChild(segment);
+        });
+    };
+
+    // Skeleton Loader for smooth transitions
+    const showSkeleton = (container, count = 5) => {
+        container.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const row = document.createElement('tr');
+            row.className = 'skeleton-row';
+            row.innerHTML = `
+                <td class="col-check"></td>
+                <td class="col-name"></td>
+                <td class="col-size"></td>
+                <td class="col-type"></td>
+            `;
+            container.appendChild(row);
+        }
+    };
+
+    // --- Sort Logic ---
 
     const sortFiles = (files, sortKey, sortDir) => {
         const sorted = [...files];
@@ -161,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         return sorted;
     };
+
 
     const updateSortHeaders = (tableId, sortState) => {
         const table = document.getElementById(tableId);
@@ -381,13 +452,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const fetchFiles = async (path = '') => {
+        showSkeleton(fileListBody);
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
             if (response.status === 401) return window.location.href = '/';
             const data = await response.json();
             currentPath = data.current_path;
             await setSecureItem('uplarr_local_path', currentPath);
-            localBreadcrumb.textContent = '/' + currentPath;
+            renderPath(localBreadcrumb, currentPath, false);
             localFilesList = data.files || [];
             renderLocalFiles();
         } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
@@ -457,7 +529,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const sorted = sortFiles(remoteFilesList, remoteSort.key, remoteSort.dir);
+        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
 
@@ -466,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const td = document.createElement('td');
             td.colSpan = 3;
             td.className = 'empty-msg';
-            td.textContent = 'Empty directory';
+            td.textContent = remoteFilter ? `No files matching "${remoteFilter}"` : 'Empty directory';
             row.appendChild(td);
             remoteFileListBody.appendChild(row);
             return;
@@ -509,6 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!sftpForm.checkValidity()) return sftpForm.reportValidity();
         const config = getFormData();
         const targetPath = path !== null ? path : (remoteCurrentPath || config.remote_dir);
+        showSkeleton(remoteFileListBody, 3);
         try {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
@@ -526,7 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             await setSecureItem('uplarr_remote_path', remoteCurrentPath);
-            remoteBreadcrumb.textContent = remoteCurrentPath;
+            renderPath(remoteBreadcrumb, remoteCurrentPath, true);
             remoteFilesList = data.files || [];
             renderRemoteFiles();
         } catch (err) {
