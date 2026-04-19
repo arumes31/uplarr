@@ -16,8 +16,9 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: .
+    main: ./cmd/uplarr
     binary: uplarr
+
 
 archives:
   - format: tar.gz
