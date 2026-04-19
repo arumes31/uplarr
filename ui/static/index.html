@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Uplarr Dashboard - High Performance SFTP Management</title>
     <meta name="description" content="Efficiently manage local files and high-performance SFTP uploads with real-time tracking and dynamic throttling.">
+    <link rel="icon" type="image/png" href="/static/uplarr_logo_pwa_1776558824937.png">
+    <link rel="manifest" href="/static/manifest.json">
     <link rel="stylesheet" href="/static/fonts.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="icon" type="image/png" href="/static/favicon.png">
@@ -69,7 +71,20 @@
         </div>
 
         <main class="dashboard-content">
-        <section class="file-browser-section">
+        <div class="dashboard-main">
+            <!-- Phase 6 Sidebar -->
+            <aside id="sidebar-tree" class="sidebar-tree glass-panel">
+                <div class="tree-section">
+                    <h4>Local History</h4>
+                    <div id="local-tree-container" class="tree-container"></div>
+                </div>
+                <div class="tree-section">
+                    <h4>Remote History</h4>
+                    <div id="remote-tree-container" class="tree-container"></div>
+                </div>
+            </aside>
+
+            <section class="file-browser-section">
             <div class="dual-pane">
                 <div class="pane local-pane">
                     <div class="pane-header">
@@ -269,6 +284,7 @@
             </form>
             <div id="status-message" class="status-msg hidden"></div>
         </section>
+        </div> <!-- End dashboard-main -->
 
         <section class="logs-section glass-panel section-logs" aria-labelledby="logs-title">
             <div class="section-header">
@@ -334,6 +350,23 @@
 
     <!-- Notification System -->
     <div id="toast-container" class="toast-container"></div>
+
+    <!-- Custom Context Menu -->
+    <div id="context-menu" class="context-menu glass-panel hidden">
+        <button class="ctx-item" data-action="rename">
+            <svg class="icon-inline"><use href="#icon-edit"></use></svg>
+            Rename
+        </button>
+        <button class="ctx-item" data-action="delete">
+            <svg class="icon-inline"><use href="#icon-trash"></use></svg>
+            Delete
+        </button>
+        <div class="ctx-separator"></div>
+        <button class="ctx-item" data-action="download">
+            <svg class="icon-inline"><use href="#icon-download"></use></svg>
+            Download (Local Only)
+        </button>
+    </div>
 
     <script src="/static/crypto.js"></script>
     <script src="/static/app.js"></script>

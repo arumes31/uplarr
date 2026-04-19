@@ -788,4 +788,94 @@ button {
     background: rgba(15, 23, 42, 0.8);
 }
 
+/* --- Phase 6: Pro Polish --- */
+
+.context-menu {
+    position: fixed;
+    z-index: 3000;
+    width: 200px;
+    padding: 0.5rem;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ctx-item {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-main);
+    font-size: 0.813rem;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ctx-item:hover {
+    background: var(--accent-primary-alpha);
+    color: var(--accent-primary);
+}
+
+.ctx-separator {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.05);
+    margin: 4px 0;
+}
+
+/* Sidebar Tree */
+.dashboard-main {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.sidebar-tree {
+    flex: 0 0 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.tree-container {
+    max-height: 500px;
+    overflow-y: auto;
+    font-size: 0.813rem;
+}
+
+.tree-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-muted);
+}
+
+.tree-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+}
+
+.tree-item.active {
+    background: var(--accent-primary-alpha);
+    color: var(--accent-primary);
+}
+
+.tree-item .icon-inline {
+    width: 14px;
+    height: 14px;
+}
+
+
 

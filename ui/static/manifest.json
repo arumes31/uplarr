@@ -1,0 +1,18 @@
+{
+  "name": "Uplarr SFTP Management",
+  "short_name": "Uplarr",
+  "description": "High-performance, premium SFTP management and file transfer dashboard.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#38bdf8",
+  "icons": [
+    {
+      "src": "/static/uplarr_logo_pwa_1776558824937.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "orientation": "any"
+}

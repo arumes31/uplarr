@@ -73,12 +73,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectionRenameBtn = document.getElementById('selection-rename-btn');
     const renameCountBadge = document.getElementById('rename-count-badge');
 
+    const contextMenu = document.getElementById('context-menu');
+    const sidebarTree = document.getElementById('sidebar-tree');
+
     // Rate tracking
     let globalTotalRate = 0;
     let lastTotalRate = 0;
     let sessionTotalBytes = 0;
     let sessionStart = Date.now();
     const speedHistory = new Map(); // host -> [rates...] for sparklines
+    const folderTreeHistory = { local: new Set(), remote: new Set() };
 
     // --- Secure Storage Wrappers ---
     let masterKey = null;
@@ -609,6 +613,97 @@ document.addEventListener('DOMContentLoaded', () => {
         statAvgSpeed.textContent = formatRate(avg);
     };
 
+    // --- Phase 6: Pro Polish Logic ---
+
+    // Custom Context Menu
+    const showContextMenu = (e, file, isRemote) => {
+        e.preventDefault();
+        const { clientX: x, clientY: y } = e;
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+        contextMenu.classList.remove('hidden');
+
+        // Store target file data on the menu
+        contextMenu.dataset.path = file.path;
+        contextMenu.dataset.isRemote = isRemote;
+        contextMenu.dataset.name = file.name;
+    };
+
+    document.addEventListener('click', () => contextMenu.classList.add('hidden'));
+    document.addEventListener('contextmenu', (e) => {
+        if (!e.target.closest('.file-row')) contextMenu.classList.add('hidden');
+    });
+
+    contextMenu.querySelectorAll('.ctx-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const action = item.dataset.action;
+            const path = contextMenu.dataset.path;
+            const name = contextMenu.dataset.name;
+            const isRemote = contextMenu.dataset.isRemote === 'true';
+
+            if (action === 'rename') {
+                // Reuse existing rename modal logic
+                renameSearch.value = name;
+                renameReplace.value = name;
+                queuedFiles.clear();
+                queuedFiles.set(path, { name });
+                updateRenamePreview();
+                renameModal.classList.remove('hidden');
+            } else if (action === 'delete') {
+                if (confirm(`Delete ${name}?`)) {
+                    const endpoint = isRemote ? '/api/remote/files/action' : '/api/files/action';
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete', path })
+                    });
+                    if (res.ok) {
+                        showToast(`Deleted ${name}`, 'success');
+                        isRemote ? fetchRemoteFiles(remotePath) : fetchFiles(currentPath);
+                    } else {
+                        showToast(`Delete failed`, 'error');
+                    }
+                }
+            } else if (action === 'download') {
+                if (isRemote) return showToast("Direct remote download not yet implemented", "info");
+                window.open(`/api/files/download?path=${encodeURIComponent(path)}`, '_blank');
+            }
+        });
+    });
+
+    // Folder Tree Logic
+    const updateFolderTree = (path, isRemote) => {
+        const type = isRemote ? 'remote' : 'local';
+        folderTreeHistory[type].add(path || '/');
+        renderFolderTree(isRemote);
+    };
+
+    const renderFolderTree = (isRemote) => {
+        const type = isRemote ? 'remote' : 'local';
+        const container = document.getElementById(`${type}-tree-container`);
+        if (!container) return;
+
+        container.innerHTML = '';
+        Array.from(folderTreeHistory[type]).sort().forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'tree-item' + ((isRemote ? remotePath : currentPath) === p ? ' active' : '');
+            item.innerHTML = `
+                <svg class="icon-inline"><use href="#icon-folder"></use></svg>
+                <span>${p === '/' ? 'Root' : p.split('/').pop() || p}</span>
+            `;
+            item.title = p;
+            item.onclick = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
+            container.appendChild(item);
+        });
+    };
+
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        });
+    }
+
     // --- Helpers ---
 
 
@@ -720,6 +815,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.addEventListener('dragend', () => row.classList.remove('dragging'));
             }
 
+            row.addEventListener('contextmenu', (e) => showContextMenu(e, { path: fullRelPath, name: file.name }, false));
+
+
             // Checkbox Cell
             const tdCheck = document.createElement('td');
             tdCheck.className = 'col-check';
@@ -798,7 +896,9 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPath(localBreadcrumb, currentPath, false);
             localFilesList = data.files || [];
             renderLocalFiles();
+            updateFolderTree(currentPath, false);
         } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
+
     };
 
     refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
@@ -892,6 +992,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     fetchRemoteFiles(newPath);
                 });
             }
+
+            const rFullRelPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
+            row.addEventListener('contextmenu', (e) => showContextMenu(e, { path: rFullRelPath, name: file.name }, true));
+
 
             const tdName = document.createElement('td');
             tdName.className = 'col-name';
