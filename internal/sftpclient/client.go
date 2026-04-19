@@ -214,18 +214,18 @@ type SFTPClient struct {
 	sftpClient              SFTPClientInterface
 }
 
-type progressWriter struct {
-	w        io.Writer
+type progressReader struct {
+	r        io.Reader
 	callback func(bytesWritten int64)
 	total    int64
 }
 
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n, err := pw.w.Write(p)
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
 	if n > 0 {
-		pw.total += int64(n)
-		if pw.callback != nil {
-			pw.callback(pw.total)
+		pr.total += int64(n)
+		if pr.callback != nil {
+			pr.callback(pr.total)
 		}
 	}
 	return n, err
@@ -259,45 +259,17 @@ func (tr *throttledReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-type throttledWriter struct {
-	ctx        context.Context
-	w          io.Writer
-	limiter    *Limiter
-	maxLatency time.Duration
-}
-
-func (tw *throttledWriter) Write(p []byte) (n int, err error) {
-	// Check context first to satisfy cancellation tests
-	select {
-	case <-tw.ctx.Done():
-		return 0, tw.ctx.Err()
-	default:
-	}
-
-	// We no longer measure latency here because Write latency includes synchronous RTT
-	// which causes false-positive throttling on high-latency links.
-	// Latency is now measured in the background via TCP Ping.
-	return tw.w.Write(p)
-}
-
-func (tw *throttledWriter) ReadFrom(r io.Reader) (int64, error) {
-	if rf, ok := tw.w.(io.ReaderFrom); ok {
-		return rf.ReadFrom(r)
-	}
-	return io.Copy(tw.w, r)
-}
-
-type contextWriter struct {
+type contextReader struct {
 	ctx context.Context
-	w   io.Writer
+	r   io.Reader
 }
 
-func (cw *contextWriter) Write(p []byte) (int, error) {
+func (cr *contextReader) Read(p []byte) (int, error) {
 	select {
-	case <-cw.ctx.Done():
-		return 0, cw.ctx.Err()
+	case <-cr.ctx.Done():
+		return 0, cr.ctx.Err()
 	default:
-		return cw.w.Write(p)
+		return cr.r.Read(p)
 	}
 }
 
@@ -652,7 +624,6 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		}
 		s.Limiter = NewLimiter(limit, rate.Limit(burst), minLimit, time.Duration(s.MaxLatencyMs)*time.Millisecond)
 	}
-
 	var targetWriter io.Writer = remoteFile
 	var targetReader io.Reader = localFile
 
@@ -665,29 +636,20 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		}
 	}
 
-	// Latency measurement happens on the Writer side
-	if s.Limiter != nil && s.MaxLatencyMs > 0 {
-		targetWriter = &throttledWriter{
-			ctx:        ctx,
-			w:          remoteFile,
-			limiter:    s.Limiter,
-			maxLatency: time.Duration(s.MaxLatencyMs) * time.Millisecond,
-		}
-	}
+	// Always wrap reader with context cancellation to abort fast on timeouts
+	targetReader = &contextReader{ctx: ctx, r: targetReader}
 
 	// Report total file size before upload begins
 	if s.FileSizeCallback != nil {
 		s.FileSizeCallback(localStat.Size())
 	}
 
-	// Wrap in progress tracker
-	targetWriter = &progressWriter{w: targetWriter, callback: s.ProgressCallback, total: startOffset}
+	// Always wrap reader with progress tracker. This correctly updates progress
+	// sequentially as pkg/sftp chunks payload to its connection pool
+	targetReader = &progressReader{r: targetReader, callback: s.ProgressCallback, total: startOffset}
 	if s.ProgressCallback != nil && startOffset > 0 {
 		s.ProgressCallback(startOffset)
 	}
-
-	// Wrap in context checker
-	targetWriter = &contextWriter{ctx: ctx, w: targetWriter}
 
 	startTime := time.Now()
 
