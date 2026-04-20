@@ -36,12 +36,11 @@ jobs:
       - name: Run tests with coverage
         run: go test -v -coverprofile=coverage.out ./...
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.out
           fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   build-check:
     name: Cross-Build Verification

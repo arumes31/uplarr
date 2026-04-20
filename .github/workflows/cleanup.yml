@@ -41,7 +41,7 @@ jobs:
       actions: write
     steps:
       - name: Delete old workflow runs
-        uses: Mattraiano/delete-old-workflow-runs@v2
+        uses: Mattraks/delete-workflow-runs@v2
         with:
           repository: ${{ github.repository }}
           retain_days: 30
