@@ -95,16 +95,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = localStorage.getItem(key);
         if (!raw || !masterKey) return raw;
         try {
-            const password = sessionStorage.getItem('uplarr_temp_pass');
-            // If v2 is missing or decryption fails, decrypt will try legacy if password is provided
-            const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
-            
-            // Auto-migrate to V2 if it was V1
-            if (!raw.startsWith('v2:') && password) {
-                console.log(`Auto-migrating ${key} to V2...`);
-                await setSecureItem(key, decrypted);
-            }
-            return decrypted;
+            // Decrypt using masterKey (V2). Plaintext password is no longer stored in sessionStorage.
+            return await SecureStorage.decrypt(raw, masterKey);
         } catch (e) {
             console.error(`Failed to decrypt ${key}`, e);
             return null;
@@ -472,6 +464,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const addLog = (msg, level = 'info') => {
+        const isNearBottom = logContainer.scrollHeight - logContainer.clientHeight <= logContainer.scrollTop + 30;
+        
         const entry = document.createElement('div');
         entry.className = `log-entry log-${level}`;
         const time = new Date().toLocaleTimeString();
@@ -482,10 +476,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         logContainer.appendChild(entry);
-        logContainer.scrollTop = logContainer.scrollHeight;
         
-        // Limit logs
-        while (logContainer.children.length > 200) {
+        if (isNearBottom) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Limit logs to 100 as requested
+        while (logContainer.children.length > 100) {
             logContainer.removeChild(logContainer.firstChild);
         }
     };
@@ -505,12 +502,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Phase 5: Command Center Logic ---
 
     // Theme Customizer
+    const hexToRgba = (hex, alpha) => {
+        let r = 0, g = 0, b = 0;
+        if (hex.length === 4) {
+            r = parseInt(hex[1] + hex[1], 16);
+            g = parseInt(hex[2] + hex[2], 16);
+            b = parseInt(hex[3] + hex[3], 16);
+        } else if (hex.length === 7) {
+            r = parseInt(hex.substring(1, 3), 16);
+            g = parseInt(hex.substring(3, 5), 16);
+            b = parseInt(hex.substring(5, 7), 16);
+        }
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
     document.querySelectorAll('.theme-swatch').forEach(swatch => {
         swatch.addEventListener('click', () => {
             const color = swatch.dataset.color;
-            document.documentElement.style.setProperty('--accent-primary', color);
-            // Derive a secondary/glow color (lighter)
-            document.documentElement.style.setProperty('--accent-secondary', color + 'CC');
+            const root = document.documentElement;
+            root.style.setProperty('--accent-primary', color);
+            root.style.setProperty('--accent-secondary', hexToRgba(color, 0.8));
+            root.style.setProperty('--accent-primary-alpha', hexToRgba(color, 0.15));
+            root.style.setProperty('--accent-subtle', hexToRgba(color, 0.05));
             setSecureItem('uplarr_theme_accent', color);
             showToast(`Theme updated`, 'success', 2000);
         });
@@ -519,8 +532,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const initTheme = async () => {
         const saved = await getSecureItem('uplarr_theme_accent');
         if (saved) {
-            document.documentElement.style.setProperty('--accent-primary', saved);
-            document.documentElement.style.setProperty('--accent-secondary', saved + 'CC');
+            const root = document.documentElement;
+            root.style.setProperty('--accent-primary', saved);
+            root.style.setProperty('--accent-secondary', hexToRgba(saved, 0.8));
+            root.style.setProperty('--accent-primary-alpha', hexToRgba(saved, 0.15));
+            root.style.setProperty('--accent-subtle', hexToRgba(saved, 0.05));
         }
     };
 
