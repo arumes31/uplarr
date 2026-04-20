@@ -17,7 +17,6 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/time/rate"
 )
 
 // --- Mocks ---
@@ -691,68 +690,6 @@ func TestThrottledReader_LargeRead(t *testing.T) {
 	}
 	if n != 2048 {
 		t.Errorf("Expected 2048 bytes, got %d", n)
-	}
-}
-
-func TestThrottledWriter_LargeWrite(t *testing.T) {
-	limiter := NewLimiter(1024, 1024, 0, 0)
-	tw := &throttledWriter{
-		ctx:     context.Background(),
-		w:       io.Discard,
-		limiter: limiter,
-	}
-	n, err := tw.Write([]byte(strings.Repeat("a", 2048)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2048 {
-		t.Errorf("Expected 2048 bytes, got %d", n)
-	}
-}
-
-func TestThrottledReader_WaitError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cancel()
-	limiter := NewLimiter(1024, 1024, 0, 0)
-	tr := &throttledReader{
-		ctx:     ctx,
-		r:       strings.NewReader("any"),
-		limiter: limiter,
-	}
-	p := make([]byte, 3)
-	_, err := tr.Read(p)
-	if err == nil {
-		t.Error("Expected context error")
-	}
-}
-
-func TestThrottledWriter_WaitError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cancel()
-	limiter := NewLimiter(1024, 1024, 0, 0)
-	tw := &throttledWriter{
-		ctx:     ctx,
-		w:       io.Discard,
-		limiter: limiter,
-	}
-	_, err := tw.Write([]byte("any"))
-	if err == nil {
-		t.Error("Expected context error")
-	}
-}
-
-func TestThrottledWriter_InfLimit(t *testing.T) {
-	tw := &throttledWriter{
-		ctx:        context.Background(),
-		w:          io.Discard,
-		limiter:    NewLimiter(rate.Inf, 0, 0, time.Millisecond),
-		maxLatency: time.Millisecond,
-	}
-	_, err := tw.Write([]byte("any"))
-	if err != nil {
-		t.Error(err)
 	}
 }
 

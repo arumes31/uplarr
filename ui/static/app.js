@@ -26,9 +26,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateThrottleBtn = document.getElementById('update-throttle-btn');
     const uploadBtn = document.getElementById('upload-btn');
     const logoutBtn = document.getElementById('logout-btn');
+    const toastContainer = document.getElementById('toast-container');
+    const logSearchInput = document.getElementById('log-search');
+    const dropOverlay = document.getElementById('drop-overlay');
     const statusMsg = document.getElementById('status-message');
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
+    
+    // Search Elements
+    const localSearchInput = document.getElementById('local-search');
+    const remoteSearchInput = document.getElementById('remote-search');
+    
+    // UI state
+    let localFilter = '';
+    let remoteFilter = '';
     
     // Modal Elements
     const dropModal = document.getElementById('drop-modal');
@@ -43,10 +54,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const remoteCompactToggle = document.getElementById('remote-compact-toggle');
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
+    
+    // Phase 3 Elements
+    const selectionBar = document.getElementById('selection-bar');
+    const selectionCount = document.getElementById('selection-count');
+    const selectionQueueBtn = document.getElementById('selection-queue-btn');
+    const selectionDeleteBtn = document.getElementById('selection-delete-btn');
+    const selectionClearBtn = document.getElementById('selection-clear-btn');
+    // Phase 5 Elements
+    const sessionStats = document.getElementById('session-stats');
+    const statTotalData = document.getElementById('stat-total-data');
+    const statAvgSpeed = document.getElementById('stat-avg-speed');
+    const viewToggleBtn = document.getElementById('view-toggle-btn');
+    const viewMenu = document.getElementById('view-menu');
+    const renameModal = document.getElementById('rename-modal');
+    const renameSearch = document.getElementById('rename-search');
+    const renameReplace = document.getElementById('rename-replace');
+    const renamePreview = document.getElementById('rename-preview');
+    const renameCancelBtn = document.getElementById('rename-cancel-btn');
+    const renameConfirmBtn = document.getElementById('rename-confirm-btn');
+    const selectionRenameBtn = document.getElementById('selection-rename-btn');
+    const renameCountBadge = document.getElementById('rename-count-badge');
 
-    // Rate tracking (module-scoped instead of window globals)
+    const contextMenu = document.getElementById('context-menu');
+    const sidebarTree = document.getElementById('sidebar-tree');
+
+    // Rate tracking
     let globalTotalRate = 0;
     let lastTotalRate = 0;
+    let sessionTotalBytes = 0;
+    let sessionStart = Date.now();
+    const speedHistory = new Map(); // host -> [rates...] for sparklines
+    const folderTreeHistory = { local: new Set(), remote: new Set() };
+    const countedTaskIds = new Set(); // To prevent double-counting analytics
 
     // --- Secure Storage Wrappers ---
     let masterKey = null;
@@ -56,7 +96,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = localStorage.getItem(key);
         if (!raw || !masterKey) return raw;
         try {
-            return await SecureStorage.decrypt(raw, masterKey);
+            const password = sessionStorage.getItem('uplarr_temp_pass');
+            // If v2 is missing or decryption fails, decrypt will try legacy if password is provided
+            const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
+            
+            // Auto-migrate to V2 if it was V1
+            if (!raw.startsWith('v2:') && password) {
+                console.log(`Auto-migrating ${key} to V2...`);
+                await setSecureItem(key, decrypted);
+            }
+            return decrypted;
         } catch (e) {
             console.error(`Failed to decrypt ${key}`, e);
             return null;
@@ -135,6 +184,68 @@ document.addEventListener('DOMContentLoaded', () => {
     applyCompact();
 
     // --- Sort Logic ---
+    // --- Navigation & Search Logic ---
+
+    // Instant Search Functionalify
+    localSearchInput.addEventListener('input', (e) => {
+        localFilter = e.target.value.toLowerCase();
+        renderLocalFiles();
+    });
+
+    remoteSearchInput.addEventListener('input', (e) => {
+        remoteFilter = e.target.value.toLowerCase();
+        renderRemoteFiles();
+    });
+
+    // Interactive Breadcrumb Generator
+    const renderPath = (container, path, isRemote = false) => {
+        container.innerHTML = '';
+        const rootIcon = document.createElement('span');
+        rootIcon.className = 'breadcrumb-segment root';
+        rootIcon.textContent = '/';
+        rootIcon.title = 'Go to root';
+        rootIcon.addEventListener('click', () => isRemote ? fetchRemoteFiles('/') : fetchFiles(''));
+        container.appendChild(rootIcon);
+
+        const cleanPath = path.replace(/^[\\/]+|[\\/]+$/g, '');
+        if (!cleanPath) return;
+
+        const parts = cleanPath.split(/[\\/]/);
+        let accumulated = '';
+        parts.forEach((part, idx) => {
+            const separator = document.createElement('span');
+            separator.className = 'breadcrumb-separator';
+            separator.textContent = '/';
+            container.appendChild(separator);
+
+            accumulated += (idx === 0 ? part : '/' + part);
+            const currentAcc = accumulated; // closure for the click handler
+            const segment = document.createElement('span');
+            segment.className = 'breadcrumb-segment';
+            segment.textContent = part;
+            segment.title = `Jump to ${part}`;
+            segment.addEventListener('click', () => isRemote ? fetchRemoteFiles(currentAcc) : fetchFiles(currentAcc));
+            container.appendChild(segment);
+        });
+    };
+
+    // Skeleton Loader for smooth transitions
+    const showSkeleton = (container, count = 5, isLocal = true) => {
+        container.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const row = document.createElement('tr');
+            row.className = 'skeleton-row';
+            row.innerHTML = `
+                ${isLocal ? `<td class="col-check"></td>` : ''}
+                <td class="col-name">...</td>
+                <td class="col-size">-</td>
+                <td class="col-type">-</td>
+            `;
+            container.appendChild(row);
+        }
+    };
+
+    // --- Sort Logic ---
 
     const sortFiles = (files, sortKey, sortDir) => {
         const sorted = [...files];
@@ -162,6 +273,104 @@ document.addEventListener('DOMContentLoaded', () => {
         return sorted;
     };
 
+
+    // --- Selection Bar & Shortcut Logic ---
+
+    const updateSelectionBar = () => {
+        const count = queuedFiles.size;
+        selectionCount.textContent = count;
+        if (count > 0) {
+            selectionBar.classList.remove('hidden');
+        } else {
+            selectionBar.classList.add('hidden');
+        }
+    };
+
+    selectionClearBtn.addEventListener('click', () => {
+        queuedFiles.clear();
+        renderLocalFiles();
+        updateUploadButtonText();
+        updateSelectionBar();
+    });
+
+    selectionQueueBtn.addEventListener('click', () => {
+        uploadBtn.click();
+    });
+
+    selectionDeleteBtn.addEventListener('click', () => {
+        deleteBtn.click();
+    });
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Prevent shortcuts when typing in inputs
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            if (e.key === 'Escape') document.activeElement.blur();
+            return;
+        }
+
+        switch (e.key) {
+            case '/':
+                e.preventDefault();
+                localSearchInput.focus();
+                break;
+            case 'Backspace':
+                e.preventDefault();
+                upBtn.click();
+                break;
+            case 'Delete':
+                deleteBtn.click();
+                break;
+            case 'Enter':
+                if (e.ctrlKey) uploadBtn.click();
+                break;
+            case 'Escape':
+                selectionClearBtn.click();
+                break;
+        }
+    });
+
+    // Progress Ring Helper
+    const createProgressRing = (id, radius = 8) => {
+        const circumference = 2 * Math.PI * radius;
+        return `
+            <svg class="progress-ring" height="${radius * 2.5}" width="${radius * 2.5}">
+                <circle class="progress-bg" stroke="currentColor" stroke-width="2" fill="transparent" r="${radius}" cx="${radius * 1.25}" cy="${radius * 1.25}" />
+                <circle id="ring-${id}" class="progress-ring__circle" stroke-width="2" stroke-dasharray="${circumference} ${circumference}" stroke-dashoffset="${circumference}" fill="transparent" r="${radius}" cx="${radius * 1.25}" cy="${radius * 1.25}" />
+            </svg>
+        `;
+    };
+
+    const setProgress = (id, percent) => {
+        const ring = document.getElementById(`ring-${id}`);
+        if (!ring) return;
+        const radius = ring.r.baseVal.value;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (percent / 100 * circumference);
+        ring.style.strokeDashoffset = offset;
+    };
+
+    // Global Drag & Drop Feedback
+    let dragCounter = 0;
+    window.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        dragCounter++;
+        dropOverlay.classList.remove('hidden');
+    });
+
+    window.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter === 0) dropOverlay.classList.add('hidden');
+    });
+
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropOverlay.classList.add('hidden');
+    });
+
     const updateSortHeaders = (tableId, sortState) => {
         const table = document.getElementById(tableId);
         table.querySelectorAll('th.sortable').forEach(th => {
@@ -174,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     };
+
 
     // Bind sort clicks for local file table
     document.querySelectorAll('#file-table th.sortable').forEach(th => {
@@ -205,7 +415,310 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Phase 4: Toast System ---
+    const showToast = (message, type = 'info', duration = 4000) => {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        let iconName = 'icon-info';
+        if (type === 'success') iconName = 'icon-check';
+        if (type === 'error') iconName = 'icon-alert';
+        if (type === 'warn') iconName = 'icon-alert';
+
+        toast.innerHTML = `
+            <div class="toast-icon">
+                <svg width="20" height="20"><use href="#${iconName}"></use></svg>
+            </div>
+            <div class="toast-content">${message}</div>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        const remove = () => {
+            toast.classList.add('removing');
+            setTimeout(() => toast.remove(), 300);
+        };
+
+        if (duration > 0) {
+            setTimeout(remove, duration);
+        }
+
+        toast.addEventListener('click', remove);
+    };
+
+    // Replace showStatus with showToast
+    const showStatus = (msg, type) => {
+        showToast(msg, type);
+    };
+
+    // Log Filtering
+    let currentLogFilter = '';
+    logSearchInput.addEventListener('input', (e) => {
+        currentLogFilter = e.target.value.toLowerCase();
+        const logs = logContainer.querySelectorAll('.log-entry');
+        logs.forEach(log => {
+            const visible = !currentLogFilter || log.textContent.toLowerCase().includes(currentLogFilter);
+            log.style.display = visible ? 'block' : 'none';
+        });
+    });
+
+    const addLog = (msg, level = 'info') => {
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${level}`;
+        const time = new Date().toLocaleTimeString();
+        entry.textContent = `[${time}] ${msg}`;
+        
+        if (currentLogFilter && !msg.toLowerCase().includes(currentLogFilter)) {
+            entry.style.display = 'none';
+        }
+        
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+        
+        // Limit logs
+        while (logContainer.children.length > 200) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+    };
+
+    // Sparkline Generator
+    const generateSparklinePath = (data, width, height) => {
+        if (data.length < 2) return '';
+        const max = Math.max(...data, 1024); // min scale to 1KB/s
+        const points = data.map((val, i) => {
+            const x = (i / (data.length - 1)) * width;
+            const y = height - (val / max) * height;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        });
+        return `M ${points.join(' L ')}`;
+    };
+
+    // --- Phase 5: Command Center Logic ---
+
+    // Theme Customizer
+    document.querySelectorAll('.theme-swatch').forEach(swatch => {
+        swatch.addEventListener('click', () => {
+            const color = swatch.dataset.color;
+            document.documentElement.style.setProperty('--accent-primary', color);
+            // Derive a secondary/glow color (lighter)
+            document.documentElement.style.setProperty('--accent-secondary', color + 'CC');
+            setSecureItem('uplarr_theme_accent', color);
+            showToast(`Theme updated`, 'success', 2000);
+        });
+    });
+
+    const initTheme = async () => {
+        const saved = await getSecureItem('uplarr_theme_accent');
+        if (saved) {
+            document.documentElement.style.setProperty('--accent-primary', saved);
+            document.documentElement.style.setProperty('--accent-secondary', saved + 'CC');
+        }
+    };
+
+    // Layout Toggles
+    viewToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!viewMenu.contains(e.target)) viewMenu.classList.add('hidden');
+    });
+
+    ['metrics', 'queue', 'logs'].forEach(id => {
+        const cb = document.getElementById(`toggle-${id}`);
+        const section = document.querySelector(`.section-${id}`);
+        
+        cb.addEventListener('change', async () => {
+            if (section) section.style.display = cb.checked ? '' : 'none';
+            await setSecureItem(`uplarr_view_${id}`, cb.checked);
+        });
+
+        // Restore state
+        getSecureItem(`uplarr_view_${id}`).then(val => {
+            if (val === 'false') {
+                cb.checked = false;
+                if (section) section.style.display = 'none';
+            }
+        });
+    });
+
+    // Bulk Renaming
+    const updateRenamePreview = () => {
+        const search = renameSearch.value;
+        const replace = renameReplace.value;
+        const files = Array.from(queuedFiles.keys());
+        renamePreview.innerHTML = '';
+        
+        files.forEach((oldPath, idx) => {
+            const oldName = oldPath.split('/').pop();
+            let newName = oldName;
+            
+            try {
+                if (search) {
+                    const re = new RegExp(search, 'g');
+                    newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+                }
+            } catch (e) {}
+
+            const item = document.createElement('div');
+            item.className = 'rename-preview-item';
+            item.innerHTML = `
+                <span class="rename-from">${oldName}</span>
+                <span class="rename-arrow">&rarr;</span>
+                <span class="rename-to">${newName}</span>
+            `;
+            renamePreview.appendChild(item);
+        });
+    };
+
+    selectionRenameBtn.addEventListener('click', () => {
+        if (queuedFiles.size === 0) return showToast("Select files to rename", "warn");
+        renameCountBadge.textContent = queuedFiles.size;
+        renameSearch.value = '';
+        renameReplace.value = '';
+        updateRenamePreview();
+        renameModal.classList.remove('hidden');
+    });
+
+    renameSearch.addEventListener('input', updateRenamePreview);
+    renameReplace.addEventListener('input', updateRenamePreview);
+    renameCancelBtn.addEventListener('click', () => renameModal.classList.add('hidden'));
+
+    renameConfirmBtn.addEventListener('click', async () => {
+        const search = renameSearch.value;
+        const replace = renameReplace.value;
+        if (!search) return;
+
+        const files = Array.from(queuedFiles.keys());
+        let successCount = 0;
+
+        for (const [idx, oldPath] of files.entries()) {
+            const oldName = oldPath.split('/').pop();
+            const re = new RegExp(search, 'g');
+            const newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+            
+            if (newName === oldName) continue;
+
+            const res = await fetch('/api/files/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'rename', path: oldPath, new_name: newName })
+            });
+
+            if (res.ok) successCount++;
+            else addLog(`Rename failed: ${oldName} -> ${newName}`, 'error');
+        }
+
+        showToast(`Renamed ${successCount} files`, 'success');
+        renameModal.classList.add('hidden');
+        queuedFiles.clear();
+        updateSelectionBar();
+        fetchFiles(currentPath);
+    });
+
+    // Session Analytics
+    const updateSessionStats = () => {
+        statTotalData.textContent = formatSize(sessionTotalBytes);
+        const elapsed = (Date.now() - sessionStart) / 1000;
+        const avg = sessionTotalBytes / (elapsed || 1);
+        statAvgSpeed.textContent = formatRate(avg);
+    };
+
+    // --- Phase 6: Pro Polish Logic ---
+
+    // Custom Context Menu
+    const showContextMenu = (e, file, isRemote) => {
+        e.preventDefault();
+        const { clientX: x, clientY: y } = e;
+        contextMenu.style.left = `${x}px`;
+        contextMenu.style.top = `${y}px`;
+        contextMenu.classList.remove('hidden');
+
+        // Store target file data on the menu
+        contextMenu.dataset.path = file.path;
+        contextMenu.dataset.isRemote = isRemote;
+        contextMenu.dataset.name = file.name;
+    };
+
+    document.addEventListener('click', () => contextMenu.classList.add('hidden'));
+    document.addEventListener('contextmenu', (e) => {
+        if (!e.target.closest('.file-row')) contextMenu.classList.add('hidden');
+    });
+
+    contextMenu.querySelectorAll('.ctx-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const action = item.dataset.action;
+            const path = contextMenu.dataset.path;
+            const name = contextMenu.dataset.name;
+            const isRemote = contextMenu.dataset.isRemote === 'true';
+
+            if (action === 'rename') {
+                // Reuse existing rename modal logic
+                renameSearch.value = name;
+                renameReplace.value = name;
+                queuedFiles.clear();
+                queuedFiles.set(path, { name });
+                updateRenamePreview();
+                renameModal.classList.remove('hidden');
+            } else if (action === 'delete') {
+                if (confirm(`Delete ${name}?`)) {
+                    const endpoint = isRemote ? '/api/remote/files/action' : '/api/files/action';
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete', path })
+                    });
+                    if (res.ok) {
+                        showToast(`Deleted ${name}`, 'success');
+                        isRemote ? fetchRemoteFiles(remoteCurrentPath) : fetchFiles(currentPath);
+                    } else {
+                        showToast(`Delete failed`, 'error');
+                    }
+                }
+            } else if (action === 'download') {
+                if (isRemote) return showToast("Direct remote download not yet implemented", "info");
+                window.open(`/api/files/download?path=${encodeURIComponent(path)}`, '_blank');
+            }
+        });
+    });
+
+    // Folder Tree Logic
+    const updateFolderTree = (path, isRemote) => {
+        const type = isRemote ? 'remote' : 'local';
+        folderTreeHistory[type].add(path || '/');
+        renderFolderTree(isRemote);
+    };
+
+    const renderFolderTree = (isRemote) => {
+        const type = isRemote ? 'remote' : 'local';
+        const container = document.getElementById(`${type}-tree-container`);
+        if (!container) return;
+
+        container.innerHTML = '';
+        Array.from(folderTreeHistory[type]).sort().forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'tree-item' + ((isRemote ? remoteCurrentPath : currentPath) === p ? ' active' : '');
+            item.innerHTML = `
+                <svg class="icon-inline"><use href="#icon-folder"></use></svg>
+                <span>${p === '/' ? 'Root' : p.split('/').pop() || p}</span>
+            `;
+            item.title = p;
+            item.onclick = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
+            container.appendChild(item);
+        });
+    };
+
+    // PWA Service Worker Registration
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        });
+    }
+
     // --- Helpers ---
+
+
 
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';
@@ -215,19 +728,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    const addLog = (message, type = 'info') => {
-        const entry = document.createElement('div');
-        entry.className = `log-entry log-${type}`;
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'log-time';
-        timeSpan.textContent = `[${new Date().toLocaleTimeString()}] `;
-        const msgSpan = document.createElement('span');
-        msgSpan.textContent = message;
-        entry.appendChild(timeSpan);
-        entry.appendChild(msgSpan);
-        logContainer.appendChild(entry);
-        logContainer.scrollTop = logContainer.scrollHeight;
-    };
 
     const getFormData = () => {
         const formData = new FormData(sftpForm);
@@ -279,11 +779,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sftpForm.addEventListener('input', saveFormData);
 
-    const showStatus = (msg, type) => {
-        statusMsg.textContent = msg;
-        statusMsg.className = `status-msg ${type}`;
-        statusMsg.classList.remove('hidden');
-    };
 
     const updateUploadButtonText = () => {
         uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
@@ -313,6 +808,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 row.addEventListener('dragend', () => row.classList.remove('dragging'));
             }
+
+            row.addEventListener('contextmenu', (e) => showContextMenu(e, { path: fullRelPath, name: file.name }, false));
+
 
             // Checkbox Cell
             const tdCheck = document.createElement('td');
@@ -347,6 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 lastCheckedIndex = currentIndex;
                 updateUploadButtonText();
+                updateSelectionBar();
             });
             tdCheck.appendChild(cb);
 
@@ -354,7 +853,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const tdName = document.createElement('td');
             tdName.className = 'col-name';
             const icon = document.createElement('span');
-            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            icon.innerHTML = `<svg class="icon-inline" width="16" height="16"><use href="#${file.is_dir ? 'icon-folder' : 'icon-file'}"></use></svg> `;
             tdName.appendChild(icon);
             tdName.appendChild(document.createTextNode(file.name));
             tdName.title = file.name;
@@ -381,16 +880,19 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const fetchFiles = async (path = '') => {
+        showSkeleton(fileListBody);
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
             if (response.status === 401) return window.location.href = '/';
             const data = await response.json();
             currentPath = data.current_path;
             await setSecureItem('uplarr_local_path', currentPath);
-            localBreadcrumb.textContent = '/' + currentPath;
+            renderPath(localBreadcrumb, currentPath, false);
             localFilesList = data.files || [];
             renderLocalFiles();
+            updateFolderTree(currentPath, false);
         } catch (err) { addLog(`Local fetch error: ${err.message}`, 'error'); }
+
     };
 
     refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
@@ -439,6 +941,7 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog(`${failedPaths.length} file(s) could not be deleted`, 'warn');
         }
         updateUploadButtonText();
+        updateSelectionBar();
         fetchFiles(currentPath);
     });
 
@@ -452,12 +955,14 @@ document.addEventListener('DOMContentLoaded', () => {
             else queuedFiles.delete(path);
         });
         updateUploadButtonText();
+        updateSelectionBar();
     });
 
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const sorted = sortFiles(remoteFilesList, remoteSort.key, remoteSort.dir);
+        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
 
@@ -466,7 +971,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const td = document.createElement('td');
             td.colSpan = 3;
             td.className = 'empty-msg';
-            td.textContent = 'Empty directory';
+            td.textContent = remoteFilter ? `No files matching "${remoteFilter}"` : 'Empty directory';
             row.appendChild(td);
             remoteFileListBody.appendChild(row);
             return;
@@ -482,10 +987,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
+            const rFullRelPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
+            row.addEventListener('contextmenu', (e) => showContextMenu(e, { path: rFullRelPath, name: file.name }, true));
+
+
             const tdName = document.createElement('td');
             tdName.className = 'col-name';
             const icon = document.createElement('span');
-            icon.className = file.is_dir ? 'icon-folder' : 'icon-file';
+            icon.innerHTML = `<svg class="icon-inline" width="16" height="16"><use href="#${file.is_dir ? 'icon-folder' : 'icon-file'}"></use></svg> `;
             tdName.appendChild(icon);
             tdName.appendChild(document.createTextNode(file.name));
             tdName.title = file.name;
@@ -509,6 +1018,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!sftpForm.checkValidity()) return sftpForm.reportValidity();
         const config = getFormData();
         const targetPath = path !== null ? path : (remoteCurrentPath || config.remote_dir);
+        showSkeleton(remoteFileListBody, 3);
         try {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
@@ -526,7 +1036,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             await setSecureItem('uplarr_remote_path', remoteCurrentPath);
-            remoteBreadcrumb.textContent = remoteCurrentPath;
+            renderPath(remoteBreadcrumb, remoteCurrentPath, true);
             remoteFilesList = data.files || [];
             renderRemoteFiles();
         } catch (err) {
@@ -649,60 +1159,53 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/queue');
             const tasks = await res.json();
             
-            // Calculate aggregate speed for active hosts
-            const activeSpeeds = new Map(); // host -> totalRate
-            
             queueBody.innerHTML = '';
             tasks.reverse().forEach(task => {
+                const id = task.id;
                 const row = document.createElement('tr');
+                row.id = `queue-row-${id}`;
                 
                 const tdFile = document.createElement('td');
                 tdFile.textContent = task.file_name;
                 tdFile.title = task.file_name;
-                tdFile.style.maxWidth = '200px';
-                tdFile.style.overflow = 'hidden';
-                tdFile.style.textOverflow = 'ellipsis';
-                tdFile.style.whiteSpace = 'nowrap';
+                tdFile.className = 'col-file';
                 
                 const tdDest = document.createElement('td');
                 tdDest.textContent = task.remote_dir || '';
                 tdDest.title = task.remote_dir || '';
-                tdDest.style.maxWidth = '200px';
-                tdDest.style.overflow = 'hidden';
-                tdDest.style.textOverflow = 'ellipsis';
-                tdDest.style.whiteSpace = 'nowrap';
+                tdDest.className = 'col-dest';
                 
                 const tdStatus = document.createElement('td');
-                tdStatus.className = `status-${task.status}`;
-                tdStatus.textContent = task.status + (task.error ? ` (${task.error})` : '');
-
-                // Progress column
-                const tdProgress = document.createElement('td');
-                tdProgress.style.minWidth = '120px';
-                if (task.status === 'Running' && task.total_bytes > 0) {
-                    const pct = Math.min(100, task.progress || 0);
-                    const barContainer = document.createElement('div');
-                    barContainer.className = 'progress-bar-container';
-                    const barFill = document.createElement('div');
-                    barFill.className = 'progress-bar-fill';
-                    barFill.style.width = pct + '%';
-                    barContainer.appendChild(barFill);
-                    const label = document.createElement('span');
-                    label.className = 'progress-label';
-                    label.textContent = `${pct}% (${formatSize(task.bytes_uploaded)} / ${formatSize(task.total_bytes)})`;
-                    tdProgress.appendChild(barContainer);
-                    tdProgress.appendChild(label);
+                tdStatus.className = `col-status status-${task.status.toLowerCase()}`;
+                
+                if (task.status === 'Running') {
+                    tdStatus.innerHTML = createProgressRing(id);
+                    // Defer setting progress until after row is in DOM
+                    setTimeout(() => {
+                        const pct = Math.round((task.bytes_uploaded / (task.total_bytes || 1)) * 100);
+                        setProgress(id, pct);
+                    }, 0);
                 } else if (task.status === 'Completed') {
-                    tdProgress.textContent = task.total_bytes > 0 ? formatSize(task.total_bytes) : '100%';
+                    tdStatus.innerHTML = `<svg class="icon-success" width="16" height="16"><use href="#icon-check"></use></svg>`;
                 } else if (task.status === 'Failed') {
-                    tdProgress.textContent = task.bytes_uploaded > 0 ? formatSize(task.bytes_uploaded) : '-';
+                    tdStatus.innerHTML = `<span class="status-badge status-failed">Failed</span>`;
+                    tdStatus.title = task.error || 'Unknown error';
+                } else {
+                    tdStatus.textContent = task.status;
+                }
+
+                const tdProgress = document.createElement('td');
+                tdProgress.className = 'col-progress';
+                if (task.status === 'Running' || task.status === 'Completed' || task.status === 'Failed') {
+                    const pct = Math.round((task.bytes_uploaded / (task.total_bytes || 1)) * 100);
+                    tdProgress.textContent = `${pct}% (${formatSize(task.bytes_uploaded)} / ${formatSize(task.total_bytes)})`;
                 } else {
                     tdProgress.textContent = '-';
                 }
 
-                // Rate column
+                // Rate tracking
                 const tdRate = document.createElement('td');
-                tdRate.style.whiteSpace = 'nowrap';
+                tdRate.className = 'col-rate';
                 if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
                     const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
                     if (elapsed > 0) {
@@ -710,82 +1213,63 @@ document.addEventListener('DOMContentLoaded', () => {
                         const remaining = task.total_bytes - task.bytes_uploaded;
                         const eta = remaining > 0 && rate > 0 ? remaining / rate : 0;
                         tdRate.textContent = formatRate(rate);
-                        if (eta > 0) {
-                            tdRate.textContent += ` (${formatETA(eta)})`;
-                        }
-                    } else {
-                        tdRate.textContent = '-';
+                        if (eta > 0) tdRate.textContent += ` (${formatETA(eta)})`;
+                        globalTotalRate += rate;
                     }
+                } else if (task.status === 'Completed') {
+                    // Update session total for analytics (once per task)
+                    if (!countedTaskIds.has(id)) {
+                        sessionTotalBytes += task.total_bytes || 0;
+                        countedTaskIds.add(id);
+                    }
+                    tdRate.textContent = '-';
                 } else {
                     tdRate.textContent = '-';
                 }
+
                 
                 const tdCreated = document.createElement('td');
                 tdCreated.textContent = new Date(task.created_at).toLocaleTimeString();
                 
                 const tdActions = document.createElement('td');
-                if (task.status === 'Pending') {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Pause';
-                    btn.addEventListener('click', () => controlTask(task.id, 'pause'));
-                    tdActions.appendChild(btn);
-                } else if (task.status === 'Paused') {
-                    const btn = document.createElement('button');
-                    btn.textContent = 'Resume';
-                    btn.addEventListener('click', () => controlTask(task.id, 'resume'));
-                    tdActions.appendChild(btn);
+                tdActions.className = 'col-actions';
+                if (task.status === 'Pending' || task.status === 'Paused') {
+                    const controlBtn = document.createElement('button');
+                    controlBtn.className = 'action-btn';
+                    controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
+                    controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
+                    tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
                     if (task.local_file_exists) {
-                        const btn = document.createElement('button');
-                        btn.textContent = 'Retry';
-                        btn.title = 'Retry this upload';
-                        btn.addEventListener('click', () => controlTask(task.id, 'retry'));
-                        tdActions.appendChild(btn);
-                    } else {
-                        const span = document.createElement('span');
-                        span.className = 'status-msg warn';
-                        span.textContent = 'File Missing';
-                        span.title = 'Local file no longer exists. Cannot retry.';
-                        tdActions.appendChild(span);
+                        const retryBtn = document.createElement('button');
+                        retryBtn.className = 'action-btn';
+                        retryBtn.textContent = 'Retry';
+                        retryBtn.addEventListener('click', () => controlTask(task.id, 'retry'));
+                        tdActions.appendChild(retryBtn);
                     }
                 }
                 const remBtn = document.createElement('button');
+                remBtn.className = 'action-btn btn-danger-text';
                 remBtn.textContent = 'Remove';
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 
+                row.appendChild(tdStatus);
                 row.appendChild(tdFile);
                 row.appendChild(tdDest);
-                row.appendChild(tdStatus);
                 row.appendChild(tdProgress);
                 row.appendChild(tdRate);
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
                 queueBody.appendChild(row);
-
-                // Aggregate calculation (we use the rate we displayed)
-                if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
-                    const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
-                    if (elapsed > 0) {
-                        const rate = task.bytes_uploaded / elapsed;
-                        globalTotalRate += rate;
-                    }
-                }
             });
             lastTotalRate = globalTotalRate;
             globalTotalRate = 0;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
-            queueBody.innerHTML = '';
-            const errRow = document.createElement('tr');
-            const errTd = document.createElement('td');
-            errTd.colSpan = 7;
-            errTd.className = 'log-error';
-            errTd.textContent = 'Failed to load queue';
-            errRow.appendChild(errTd);
-            queueBody.appendChild(errRow);
         }
     };
+
 
     const fetchStats = async () => {
         try {
@@ -814,7 +1298,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Build DOM safely to prevent XSS from user-controlled host values
         metricsOverlay.innerHTML = '';
         stats.forEach(s => {
             const card = document.createElement('div');
@@ -851,7 +1334,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rlRow.appendChild(rlValue);
             card.appendChild(rlRow);
 
-            // Current Speed row — uses per-host speed from backend
+            // Current Speed row with Sparkline
             const spRow = document.createElement('div');
             spRow.className = 'metric-row';
             const spLabel = document.createElement('span');
@@ -859,16 +1342,29 @@ document.addEventListener('DOMContentLoaded', () => {
             spLabel.textContent = 'Current Speed';
             const spValue = document.createElement('span');
             spValue.className = 'metric-value speed';
-            // total_speed_kbps is KB/s from backend; formatRate expects bytes/s
+            
             const hostSpeed = (s.total_speed_kbps || 0) * 1024;
             spValue.textContent = formatRate(hostSpeed);
+            
+            // Phase 4 Sparkline logic
+            if (!speedHistory.has(s.host)) speedHistory.set(s.host, []);
+            const history = speedHistory.get(s.host);
+            history.push(hostSpeed);
+            if (history.length > 20) history.shift();
+
+            const sparkSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            sparkSvg.setAttribute("class", "sparkline-container");
+            sparkSvg.innerHTML = `<path class="sparkline" d="${generateSparklinePath(history, 60, 16)}" />`;
+            
             spRow.appendChild(spLabel);
             spRow.appendChild(spValue);
+            spRow.appendChild(sparkSvg);
             card.appendChild(spRow);
 
             metricsOverlay.appendChild(card);
         });
     };
+
 
     const controlTask = async (id, action) => {
         const res = await fetch('/api/queue', { 
@@ -877,9 +1373,10 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({ id, action }) 
         });
         if (!res.ok) {
-            const data = await res.json();
-            alert(`Action failed: ${data.error || res.statusText}`);
+            const data = await res.json().catch(() => ({}));
+            showToast(`Action failed: ${data.error || res.statusText}`, 'error');
         }
+
         fetchQueue();
     };
 
@@ -971,6 +1468,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showStatus("Tasks added to background queue", "success");
                 queuedFiles.clear();
                 updateUploadButtonText();
+                updateSelectionBar();
                 fetchQueue();
             } else {
                 const data = await res.json().catch(() => ({}));
@@ -1021,7 +1519,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         setInterval(fetchQueue, 1000);
         setInterval(fetchStats, 1000);
+        setInterval(updateSessionStats, 1000);
+        await initTheme();
     };
+
 
     logoutBtn.addEventListener('click', async () => {
         await fetch('/api/logout', { method: 'POST' });

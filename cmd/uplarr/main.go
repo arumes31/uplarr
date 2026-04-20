@@ -42,6 +42,7 @@ func Run() error {
 		ConfigDir:    getEnv("CONFIG_DIR", "./config"),
 		WebPort:      getEnv("WEB_PORT", "8080"),
 		AuthPassword: getEnv("AUTH_PASSWORD", ""),
+		TrustProxy:   os.Getenv("TRUST_PROXY") == "true",
 	}
 
 	qm := queue.NewQueueManager(config.LocalDir, config.ConfigDir)

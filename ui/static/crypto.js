@@ -13,10 +13,12 @@ const SecureStorage = (() => {
     }
 
     const ALGO = 'AES-GCM';
-    const SALT = new TextEncoder().encode('uplarr-salt-v1'); // Static salt for key derivation
-    const PBKDF2_ITERATIONS = 100000;
+    const LEGACY_SALT = new TextEncoder().encode('uplarr-salt-v1');
+    const LEGACY_ITERATIONS = 100000;
+    const PBKDF2_ITERATIONS = 600000; 
 
-    const deriveKey = async (password) => {
+    const deriveKey = async (password, salt = null, iterations = PBKDF2_ITERATIONS) => {
+        const useSalt = salt || crypto.getRandomValues(new Uint8Array(16));
         const passwordKey = await crypto.subtle.importKey(
             'raw',
             new TextEncoder().encode(password),
@@ -28,8 +30,8 @@ const SecureStorage = (() => {
         const key = await crypto.subtle.deriveKey(
             {
                 name: 'PBKDF2',
-                salt: SALT,
-                iterations: PBKDF2_ITERATIONS,
+                salt: useSalt,
+                iterations: iterations,
                 hash: 'SHA-256'
             },
             passwordKey,
@@ -38,9 +40,12 @@ const SecureStorage = (() => {
             ['encrypt', 'decrypt']
         );
 
-        // Export to store in sessionStorage (as raw bytes)
         const raw = await crypto.subtle.exportKey('raw', key);
-        return Array.from(new Uint8Array(raw));
+        return {
+            key: Array.from(new Uint8Array(raw)),
+            salt: Array.from(useSalt),
+            iterations: iterations
+        };
     };
 
     const getKey = async () => {
@@ -49,14 +54,10 @@ const SecureStorage = (() => {
         try {
             const raw = new Uint8Array(JSON.parse(saved));
             return crypto.subtle.importKey(
-                'raw',
-                raw,
-                ALGO,
-                false,
-                ['encrypt', 'decrypt']
+                'raw', raw, ALGO, false, ['encrypt', 'decrypt']
             );
         } catch (e) {
-            console.error("Failed to import key from session storage", e);
+            console.error("Failed to import key", e);
             return null;
         }
     };
@@ -71,27 +72,49 @@ const SecureStorage = (() => {
             encoded
         );
 
-        // Combine IV + Ciphertext
         const combined = new Uint8Array(iv.length + ciphertext.byteLength);
         combined.set(iv);
         combined.set(new Uint8Array(ciphertext), iv.length);
 
-        return btoa(String.fromCharCode(...combined));
+        return 'v2:' + btoa(String.fromCharCode(...combined));
     };
 
-    const decrypt = async (base64, key) => {
-        if (!key) return base64;
-        const combined = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
-        const iv = combined.slice(0, 12);
-        const ciphertext = combined.slice(12);
+    const decrypt = async (encoded, key, password = null) => {
+        if (!key || !encoded) return encoded;
+        
+        let data = encoded;
+        let isV2 = false;
+        if (encoded.startsWith('v2:')) {
+            data = encoded.substring(3);
+            isV2 = true;
+        }
 
-        const decrypted = await crypto.subtle.decrypt(
-            { name: ALGO, iv },
-            key,
-            ciphertext
-        );
+        try {
+            const combined = new Uint8Array(atob(data).split('').map(c => c.charCodeAt(0)));
+            const iv = combined.slice(0, 12);
+            const ciphertext = combined.slice(12);
 
-        return new TextDecoder().decode(decrypted);
+            const decrypted = await crypto.subtle.decrypt(
+                { name: ALGO, iv },
+                key,
+                ciphertext
+            );
+            return new TextDecoder().decode(decrypted);
+        } catch (e) {
+            // If V2 failed or it was V1 and we have a password, try legacy fallback
+            if (!isV2 && password) {
+                try {
+                    const legacyKeyObj = await deriveKey(password, LEGACY_SALT, LEGACY_ITERATIONS);
+                    const legacyKey = await crypto.subtle.importKey(
+                        'raw', new Uint8Array(legacyKeyObj.key), ALGO, false, ['decrypt']
+                    );
+                    return await decrypt(encoded, legacyKey); // Recursion with legacy key
+                } catch (err) {
+                    console.error("Legacy decryption failed", err);
+                }
+            }
+            throw e;
+        }
     };
 
     return { isAvailable: true, deriveKey, getKey, encrypt, decrypt };

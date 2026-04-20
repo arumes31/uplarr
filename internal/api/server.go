@@ -139,6 +139,16 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 	mux.Handle("/static/", http.FileServer(http.FS(ui.StaticAssets)))
 
+	isSecureRequest := func(r *http.Request) bool {
+		if r.TLS != nil {
+			return true
+		}
+		if config.TrustProxy && strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" {
+			return true
+		}
+		return false
+	}
+
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
 		if config.AuthPassword == "" {
 			w.WriteHeader(http.StatusOK)
@@ -171,8 +181,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   false, // Set to true if using HTTPS
-			SameSite: http.SameSiteStrictMode,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   3600 * 24 * 7, // 1 week
 		})
 		w.WriteHeader(http.StatusOK)
 	})
@@ -196,7 +207,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			Path:     "/",
 			HttpOnly: true,
 			MaxAge:   -1,
-			SameSite: http.SameSiteStrictMode,
+			Secure:   isSecureRequest(r),
+			SameSite: http.SameSiteLaxMode,
 		})
 		w.WriteHeader(http.StatusOK)
 	})

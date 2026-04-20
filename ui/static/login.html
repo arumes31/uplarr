@@ -4,9 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Uplarr - Login</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/fonts.css">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
     <style>
         :root {
             --bg-dark: #0f172a;
@@ -54,8 +53,8 @@
         .logo h1 {
             font-size: 2.5rem;
             font-weight: 600;
-            background: linear-gradient(to right, #38bdf8, #818cf8);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             letter-spacing: -0.02em;
         }
@@ -174,10 +173,23 @@
 
                 if (res.ok) {
                     // Initialize crypto master key
-                    const key = await SecureStorage.deriveKey(password);
-                    sessionStorage.setItem('uplarr_master_key', JSON.stringify(key));
+                    let saltStr = localStorage.getItem('uplarr_installation_salt');
+                    let salt = null;
+                    if (saltStr) {
+                        salt = new Uint8Array(JSON.parse(saltStr));
+                    }
                     
-                    // Redirect to dashboard
+                    const keyObj = await SecureStorage.deriveKey(password, salt);
+                    
+                    // Store only the raw key array in master_key for app.js compatibility
+                    sessionStorage.setItem('uplarr_master_key', JSON.stringify(keyObj.key));
+                    // Store the password temporarily for potential legacy migration in app.js
+                    sessionStorage.setItem('uplarr_temp_pass', password);
+                    
+                    if (!saltStr) {
+                        localStorage.setItem('uplarr_installation_salt', JSON.stringify(keyObj.salt));
+                    }
+                    
                     window.location.href = '/';
                 } else {
                     const data = await res.json().catch(() => ({}));
