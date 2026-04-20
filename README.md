@@ -74,17 +74,22 @@ graph TD
 
 ### Using Docker (Recommended)
 
+Uplarr now provides automated multi-arch builds (`amd64`, `arm64`) via the GitHub Container Registry.
+
 ```bash
+docker pull ghcr.io/arumes31/uplarr:latest
+
 docker run -d \
   -p 8080:8080 \
   -v /your/local/data:/root/test_data \
   --name uplarr \
-  ghcr.io/arumes31/uplarr:main
+  ghcr.io/arumes31/uplarr:latest
 ```
 
 ### Using Docker Compose
 
 For a complete production-ready setup using the GitHub Container Registry image, see the [docker-compose.ghcr.yml](docker-compose.ghcr.yml) example.
+The project is configured to automatically increment versions and push images to GHCR on every push to `main`.
 
 Quick setup: `docker compose -f docker-compose.ghcr.yml up -d`
 
