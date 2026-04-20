@@ -340,7 +340,71 @@ section { padding: 8px 12px; }
 /* Config & Logs */
 .config-section h2 { font-size: 0.7rem; text-transform: uppercase; margin-bottom: 6px; color: var(--accent-primary); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
-.form-grid input { width: 100%; background: rgba(15,23,42,0.4); border: 1px solid var(--glass-border); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; }
+.form-grid input { width: 100%; background: rgba(15,23,42,0.4); border: 1px solid var(--glass-border); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; }
+
+.advanced-config {
+    margin-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 4px;
+}
+
+.advanced-config summary {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+    padding: 4px 0;
+    transition: color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.advanced-config summary::-webkit-details-marker { display: none; }
+.advanced-config summary::before {
+    content: '▶';
+    font-size: 0.5rem;
+    transition: transform 0.2s;
+}
+
+.advanced-config[open] summary::before { transform: rotate(90deg); }
+.advanced-config summary:hover { color: var(--accent-primary); }
+
+.form-grid-sm {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 6px;
+    padding: 8px 4px;
+    background: rgba(0,0,0,0.15);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.form-grid-sm input {
+    background: rgba(15,23,42,0.6);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    border-radius: 4px;
+}
+
+.checkbox-group-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    grid-column: 1 / -1;
+    padding: 4px;
+}
+
+.checkbox-group-stack label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
 
 .log-window {
     background: rgba(5,10,20,0.6);

@@ -46,16 +46,14 @@ graph TD
 - 📦 **Background Queue**: Persistent task manager that survives container restarts, with full queue management and pause/resume support.
 - 📁 **File Management**: Create folders, rename, and delete files on both local and remote filesystems.
 - 📂 **WinSCP-Style Browser**: Advanced dual-pane interface for browsing local and remote files with full directory navigation.
+- 🔄 **Mass Rename Utility**: Powerful regex-based bulk renaming with real-time preview and sequence formatting (`$idx`).
 - 🖱️ **Drag & Drop**: Seamlessly upload files by dragging them from the local pane to the remote directory of your choice.
-- 🛠 **Dynamic Configuration**: Configure and test SFTP connections, including host key verification toggles, directly in the browser.
+- 🛠 **Dynamic Configuration**: Configure and test SFTP connections, including host key verification toggles and advanced latency floor tuning.
+- 📉 **Compact View Mode**: Toggleable high-density interface for managing large file structures with horizontal layout optimization.
 - 📡 **Real-time SSE Logs**: Integrated Server-Sent Events (SSE) provide live terminal-style feedback for all operations.
-- 📦 **File Queueing**: Select specific files from any local subdirectory for targeted batch uploads.
-- ✅ **Integrity Verification**: Post-upload verification ensures remote files match local sources exactly.
-- 🎛 **Advanced Rate Limiting**: Fixed upload speed caps and dynamic throttling based on network latency.
-- 🧹 **Smart Cleanup**: Automatically remove local files only after successful remote verification.
-- 🔐 **Enhanced Security**: Protect the application with a master password (`AUTH_PASSWORD`).
-- 🔒 **Encrypted Storage**: All persistent settings (including credentials) are AES-GCM encrypted in the browser.
-- 🐳 **Enterprise Ready**: Multi-arch Docker images (`amd64`, `arm64`) and automated security scanning.
+- 🔐 **Encrypted Storage**: All persistent settings (including credentials) are AES-GCM encrypted in the browser with secure master-key management.
+- 🤖 **Automated CI/CD**: Pushes to `main` trigger automated semantic versioning and cross-platform builds.
+- 🐳 **Enterprise Ready**: Multi-arch Docker images (`amd64`, `arm64`) and automated security scanning via GitHub Container Registry.
 
 ---
 
