@@ -3,205 +3,278 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Uplarr - Login</title>
-    <link rel="stylesheet" href="/static/fonts.css">
+    <title>Uplarr — Strategic Access Control</title>
+    <meta name="description" content="Secure login for Uplarr SFTP Management.">
     <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/fonts.css">
     <style>
         :root {
-            --bg-dark: #0f172a;
+            --bg-dark: #0a0f1e;
             --accent-primary: #38bdf8;
             --accent-secondary: #818cf8;
-            --text-main: #f8fafc;
-            --glass-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #e8edf5;
+            --text-muted: #7a8ba8;
+            --glass-bg: rgba(18, 26, 46, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --success: #4ade80;
+            --error: #f87171;
+            --warning: #fbbf24;
+            --font-main: 'Outfit', -apple-system, sans-serif;
+            --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            --radius: 20px;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: 'Outfit', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            font-family: var(--font-main);
+            background: var(--bg-dark);
             height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             color: var(--text-main);
             overflow: hidden;
+            position: relative;
+        }
+
+        /* Background Blobs */
+        .bg-blobs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            filter: blur(100px);
+            opacity: 0.4;
+        }
+        .blob { position: absolute; border-radius: 50%; }
+        .blob-1 { width: 500px; height: 500px; top: -100px; left: -100px; background: var(--accent-primary); animation: drift 20s infinite alternate; }
+        .blob-2 { width: 600px; height: 600px; bottom: -150px; right: -150px; background: var(--accent-secondary); animation: drift 25s infinite alternate-reverse; }
+        
+        @keyframes drift {
+            from { transform: translate(0, 0) scale(1); }
+            to { transform: translate(100px, 50px) scale(1.1); }
         }
 
         .login-card {
             background: var(--glass-bg);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 3rem;
-            border-radius: 1.5rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 3.5rem 3rem;
+            border-radius: var(--radius);
             width: 100%;
-            max-width: 400px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            animation: fadeIn 0.6s ease-out;
+            max-width: 420px;
+            box-shadow: var(--shadow-premium);
+            z-index: 10;
+            animation: cardEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes cardEntrance {
+            from { opacity: 0; transform: scale(0.95) translateY(30px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
         }
 
-        .logo {
+        .logo-container {
             text-align: center;
-            margin-bottom: 2rem;
+            margin-bottom: 2.5rem;
         }
 
-        .logo h1 {
-            font-size: 2.5rem;
-            font-weight: 600;
+        .logo-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1.5rem;
+            filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.5));
+            mix-blend-mode: screen;
+        }
+
+        .logo-container h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            letter-spacing: -0.02em;
         }
 
-        .logo p {
-            color: #94a3b8;
-            margin-top: 0.5rem;
+        .logo-container p {
+            color: var(--text-muted);
             font-size: 0.9rem;
+            margin-top: 0.25rem;
+            font-weight: 400;
         }
 
         .form-group {
             margin-bottom: 1.5rem;
+            position: relative;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
         }
 
         input {
             width: 100%;
-            padding: 1rem;
+            padding: 1.1rem 1.25rem;
             background: rgba(15, 23, 42, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 0.75rem;
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
             color: white;
             font-size: 1rem;
-            transition: all 0.3s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-family: inherit;
         }
 
         input:focus {
             outline: none;
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+            background: rgba(15, 23, 42, 0.8);
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+            transform: translateY(-1px);
+        }
+
+        input::placeholder {
+            color: rgba(148, 163, 184, 0.5);
         }
 
         button {
             width: 100%;
-            padding: 1rem;
-            background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
+            padding: 1.1rem;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
             border: none;
-            border-radius: 0.75rem;
+            border-radius: 12px;
             color: white;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            transition: transform 0.2s, opacity 0.2s;
-            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 10px 20px -5px rgba(56, 189, 248, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
 
         button:hover {
-            transform: translateY(-2px);
-            opacity: 0.9;
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px -8px rgba(56, 189, 248, 0.5);
+            filter: brightness(1.1);
         }
 
         button:active {
-            transform: translateY(0);
+            transform: translateY(-1px) scale(0.98);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .error-msg {
-            color: #f87171;
+            color: var(--error);
             font-size: 0.85rem;
             margin-top: 1rem;
             text-align: center;
-            min-height: 1.2rem;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .error-msg.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .notice {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 0.75rem 1rem;
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+            border-radius: 10px;
+            color: var(--warning);
+            font-size: 0.8rem;
+            margin-bottom: 1.5rem;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .spinner {
+            animation: rotate 2s linear infinite;
+        }
+
+        @keyframes rotate {
+            100% { transform: rotate(360deg); }
+        }
+
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
         }
 
         .footer {
-            margin-top: 2rem;
+            margin-top: 2.5rem;
             text-align: center;
-            font-size: 0.8rem;
-            color: #64748b;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
         }
     </style>
 </head>
 <body>
+    <div class="bg-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
     <div class="login-card">
-        <div class="logo">
+        <div class="logo-container">
+            <img src="/static/favicon.png" alt="Uplarr Logo" class="logo-icon">
             <h1>Uplarr</h1>
-            <p>Secure Background Uploader</p>
+            <p>High Performance Background Uploads</p>
         </div>
+
+        <div id="insecure-notice" class="notice">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Insecure context: Encryption limited.
+        </div>
+
         <form id="login-form">
-            <div id="insecure-notice" class="error-msg" style="color: #fbbf24; margin-bottom: 1rem; display: none;">
-                <i class="fas fa-exclamation-triangle"></i>
-                Insecure context: Local encryption disabled.
-            </div>
             <div class="form-group">
-                <input type="password" id="password" placeholder="Master Password" required autofocus>
+                <input type="password" id="password" placeholder="Enter Master Password" required autofocus>
             </div>
-            <button type="submit" id="login-btn">Sign In</button>
+            <button type="submit" id="login-btn">
+                Access Dashboard
+            </button>
             <div id="error-msg" class="error-msg"></div>
         </form>
+
         <div class="footer">
-            &copy; 2026 Uplarr Security Module
+            &copy; 2026 Uplarr Security Core
         </div>
     </div>
 
     <script src="/static/crypto.js"></script>
-    <script>
-        // Check for secure context on load
-        if (!SecureStorage.isAvailable) {
-            document.getElementById('insecure-notice').style.display = 'block';
-        }
-
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const password = document.getElementById('password').value;
-            const btn = document.getElementById('login-btn');
-            const errorEl = document.getElementById('error-msg');
-            
-            btn.disabled = true;
-            btn.textContent = 'Verifying...';
-            errorEl.textContent = '';
-
-            try {
-                const res = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
-                });
-
-                if (res.ok) {
-                    // Initialize crypto master key
-                    let saltStr = localStorage.getItem('uplarr_installation_salt');
-                    let salt = null;
-                    if (saltStr) {
-                        salt = new Uint8Array(JSON.parse(saltStr));
-                    }
-                    
-                    const keyObj = await SecureStorage.deriveKey(password, salt);
-                    
-                    // Store only the raw key array in master_key for app.js compatibility
-                    sessionStorage.setItem('uplarr_master_key', JSON.stringify(keyObj.key));
-                    // Store the password temporarily for potential legacy migration in app.js
-                    sessionStorage.setItem('uplarr_temp_pass', password);
-                    
-                    if (!saltStr) {
-                        localStorage.setItem('uplarr_installation_salt', JSON.stringify(keyObj.salt));
-                    }
-                    
-                    window.location.href = '/';
-                } else {
-                    const data = await res.json().catch(() => ({}));
-                    errorEl.textContent = data.error || 'Invalid master password';
-                }
-            } catch (err) {
-                errorEl.textContent = 'Connection failed. Please try again.';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Sign In';
-            }
-        });
-    </script>
+    <script src="/static/login.js"></script>
 </body>
 </html>

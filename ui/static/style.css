@@ -136,6 +136,14 @@ body {
     font-family: 'Fira Code', monospace;
     border: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--text-muted);
+}.logo-icon-img {
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+    mix-blend-mode: screen;
+    transition: transform 0.3s ease;
+}
+
+.logo-group:hover .logo-icon-img {
+    transform: scale(1.1) rotate(5deg);
 }
 
 /* Dashboard Layout */
@@ -675,11 +683,22 @@ section { padding: 8px 12px; }
     background: rgba(5,10,20,0.6);
     border: 1px solid var(--glass-border);
     border-radius: 4px;
-    height: 100px;
+    height: 180px;
     overflow-y: auto;
     font-family: 'Fira Code', monospace;
-    font-size: 0.7rem;
-    padding: 4px 8px;
+    font-size: 0.72rem;
+    padding: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent-primary) transparent;
+}
+
+.log-window::-webkit-scrollbar {
+    width: 6px;
+}
+
+.log-window::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 3px;
 }
 
 /* Buttons */

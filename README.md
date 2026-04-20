@@ -1,3 +1,4 @@
+# <p align="center"><img src="ui/static/logo.png" alt="Uplarr Logo" width="200"></p>
 # 🚀 Uplarr
 
 <p align="center">

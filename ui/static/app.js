@@ -472,6 +472,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const addLog = (msg, level = 'info') => {
+        const isNearBottom = logContainer.scrollHeight - logContainer.clientHeight <= logContainer.scrollTop + 30;
+        
         const entry = document.createElement('div');
         entry.className = `log-entry log-${level}`;
         const time = new Date().toLocaleTimeString();
@@ -482,10 +484,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         logContainer.appendChild(entry);
-        logContainer.scrollTop = logContainer.scrollHeight;
         
-        // Limit logs
-        while (logContainer.children.length > 200) {
+        if (isNearBottom) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Limit logs to 100 as requested
+        while (logContainer.children.length > 100) {
             logContainer.removeChild(logContainer.firstChild);
         }
     };

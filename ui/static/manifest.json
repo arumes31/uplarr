@@ -10,11 +10,11 @@
     {
       "src": "/static/favicon.png",
       "sizes": "1024x1024",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/static/icon-maskable-1024.png",
+      "src": "/static/icon-platform-1024.png",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "maskable"
