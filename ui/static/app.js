@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let localSort = { key: 'name', dir: 'asc' };
     let remoteSort = { key: 'name', dir: 'asc' };
     let lastCheckedIndex = -1; // for shift-click bulk select
+    let compactState = { local: false, remote: false, global: false };
 
     const applyCompact = () => {
         localPane.classList.toggle('compact', compactState.local);
@@ -1558,7 +1559,7 @@ document.addEventListener('DOMContentLoaded', () => {
         remoteCurrentPath = await getSecureItem('uplarr_remote_path') || '';
         localSort = await loadSortState('local');
         remoteSort = await loadSortState('remote');
-        compactState = await loadCompactState();
+        await loadCompactState();
         
         await restoreFormData();
         applyCompact();
