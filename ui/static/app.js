@@ -510,12 +510,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Phase 5: Command Center Logic ---
 
     // Theme Customizer
+    const hexToRgba = (hex, alpha) => {
+        let r = 0, g = 0, b = 0;
+        if (hex.length === 4) {
+            r = parseInt(hex[1] + hex[1], 16);
+            g = parseInt(hex[2] + hex[2], 16);
+            b = parseInt(hex[3] + hex[3], 16);
+        } else if (hex.length === 7) {
+            r = parseInt(hex.substring(1, 3), 16);
+            g = parseInt(hex.substring(3, 5), 16);
+            b = parseInt(hex.substring(5, 7), 16);
+        }
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
     document.querySelectorAll('.theme-swatch').forEach(swatch => {
         swatch.addEventListener('click', () => {
             const color = swatch.dataset.color;
-            document.documentElement.style.setProperty('--accent-primary', color);
-            // Derive a secondary/glow color (lighter)
-            document.documentElement.style.setProperty('--accent-secondary', color + 'CC');
+            const root = document.documentElement;
+            root.style.setProperty('--accent-primary', color);
+            root.style.setProperty('--accent-secondary', hexToRgba(color, 0.8));
+            root.style.setProperty('--accent-primary-alpha', hexToRgba(color, 0.15));
+            root.style.setProperty('--accent-subtle', hexToRgba(color, 0.05));
             setSecureItem('uplarr_theme_accent', color);
             showToast(`Theme updated`, 'success', 2000);
         });
@@ -524,8 +540,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const initTheme = async () => {
         const saved = await getSecureItem('uplarr_theme_accent');
         if (saved) {
-            document.documentElement.style.setProperty('--accent-primary', saved);
-            document.documentElement.style.setProperty('--accent-secondary', saved + 'CC');
+            const root = document.documentElement;
+            root.style.setProperty('--accent-primary', saved);
+            root.style.setProperty('--accent-secondary', hexToRgba(saved, 0.8));
+            root.style.setProperty('--accent-primary-alpha', hexToRgba(saved, 0.15));
+            root.style.setProperty('--accent-subtle', hexToRgba(saved, 0.05));
         }
     };
 

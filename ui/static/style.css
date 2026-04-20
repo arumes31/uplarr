@@ -16,6 +16,7 @@
     --font-main: 'Outfit', -apple-system, sans-serif;
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     --accent-primary-alpha: rgba(56, 189, 248, 0.15);
+    --accent-subtle: rgba(56, 189, 248, 0.05);
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
@@ -137,7 +138,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.05);
     color: var(--text-muted);
 }.logo-icon-img {
-    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+    filter: drop-shadow(0 0 8px var(--accent-primary-alpha));
     mix-blend-mode: screen;
     transition: transform 0.3s ease;
 }
@@ -313,7 +314,7 @@ body {
     transition: height 0.2s ease;
 }
 
-.file-table tr:hover { background: rgba(56, 189, 248, 0.05); }
+.file-table tr:hover { background: var(--accent-subtle); }
 
 /* Dashboard Footer */
 .dashboard-footer {
@@ -484,7 +485,7 @@ section { padding: 8px 12px; }
 }
 
 .advanced-config[open] summary::after { transform: rotate(90deg); }
-.advanced-config summary:hover { color: var(--accent-primary); background: rgba(56, 189, 248, 0.03); }
+.advanced-config summary:hover { color: var(--accent-primary); background: var(--accent-subtle); }
 
 .advanced-content {
     padding: 0 14px 12px;
@@ -625,17 +626,17 @@ section { padding: 8px 12px; }
     font-weight: 600;
     font-family: var(--font-main);
     color: var(--accent-primary);
-    background: rgba(56, 189, 248, 0.08);
-    border: 1px solid rgba(56, 189, 248, 0.25);
+    background: var(--accent-subtle);
+    border: 1px solid var(--accent-primary-alpha);
     border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.25s ease;
 }
 
 .connect-btn:hover {
-    background: rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.4);
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+    background: var(--accent-primary-alpha);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 12px var(--accent-primary-alpha);
 }
 
 .config-actions .primary-btn {
