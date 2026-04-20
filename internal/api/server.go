@@ -143,7 +143,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		if r.TLS != nil {
 			return true
 		}
-		if strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" {
+		if config.TrustProxy && strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" {
 			return true
 		}
 		return false

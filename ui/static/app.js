@@ -26,6 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateThrottleBtn = document.getElementById('update-throttle-btn');
     const uploadBtn = document.getElementById('upload-btn');
     const logoutBtn = document.getElementById('logout-btn');
+    const toastContainer = document.getElementById('toast-container');
+    const logSearchInput = document.getElementById('log-search');
+    const dropOverlay = document.getElementById('drop-overlay');
     const statusMsg = document.getElementById('status-message');
     const logContainer = document.getElementById('log-container');
     const sftpForm = document.getElementById('sftp-form');
@@ -83,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let sessionStart = Date.now();
     const speedHistory = new Map(); // host -> [rates...] for sparklines
     const folderTreeHistory = { local: new Set(), remote: new Set() };
+    const countedTaskIds = new Set(); // To prevent double-counting analytics
 
     // --- Secure Storage Wrappers ---
     let masterKey = null;
@@ -92,7 +96,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = localStorage.getItem(key);
         if (!raw || !masterKey) return raw;
         try {
-            return await SecureStorage.decrypt(raw, masterKey);
+            const password = sessionStorage.getItem('uplarr_temp_pass');
+            // If v2 is missing or decryption fails, decrypt will try legacy if password is provided
+            const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
+            
+            // Auto-migrate to V2 if it was V1
+            if (!raw.startsWith('v2:') && password) {
+                console.log(`Auto-migrating ${key} to V2...`);
+                await setSecureItem(key, decrypted);
+            }
+            return decrypted;
         } catch (e) {
             console.error(`Failed to decrypt ${key}`, e);
             return null;
@@ -217,17 +230,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Skeleton Loader for smooth transitions
-    const showSkeleton = (container, count = 5) => {
+    const showSkeleton = (container, count = 5, isLocal = true) => {
         container.innerHTML = '';
         for (let i = 0; i < count; i++) {
             const row = document.createElement('tr');
-            row.id = `queue-row-${id}`;
+            row.className = 'skeleton-row';
             row.innerHTML = `
-                <td class="col-status">
-                    ${createProgressRing(id)}
-                </td>
-                <td class="col-file">${info.name}</td>
-                <td class="col-type"></td>
+                ${isLocal ? `<td class="col-check"></td>` : ''}
+                <td class="col-name">...</td>
+                <td class="col-size">-</td>
+                <td class="col-type">-</td>
             `;
             container.appendChild(row);
         }
@@ -659,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     if (res.ok) {
                         showToast(`Deleted ${name}`, 'success');
-                        isRemote ? fetchRemoteFiles(remotePath) : fetchFiles(currentPath);
+                        isRemote ? fetchRemoteFiles(remoteCurrentPath) : fetchFiles(currentPath);
                     } else {
                         showToast(`Delete failed`, 'error');
                     }
@@ -686,7 +698,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = '';
         Array.from(folderTreeHistory[type]).sort().forEach(p => {
             const item = document.createElement('div');
-            item.className = 'tree-item' + ((isRemote ? remotePath : currentPath) === p ? ' active' : '');
+            item.className = 'tree-item' + ((isRemote ? remoteCurrentPath : currentPath) === p ? ' active' : '');
             item.innerHTML = `
                 <svg class="icon-inline"><use href="#icon-folder"></use></svg>
                 <span>${p === '/' ? 'Root' : p.split('/').pop() || p}</span>
@@ -716,19 +728,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    const addLog = (message, type = 'info') => {
-        const entry = document.createElement('div');
-        entry.className = `log-entry log-${type}`;
-        const timeSpan = document.createElement('span');
-        timeSpan.className = 'log-time';
-        timeSpan.textContent = `[${new Date().toLocaleTimeString()}] `;
-        const msgSpan = document.createElement('span');
-        msgSpan.textContent = message;
-        entry.appendChild(timeSpan);
-        entry.appendChild(msgSpan);
-        logContainer.appendChild(entry);
-        logContainer.scrollTop = logContainer.scrollHeight;
-    };
 
     const getFormData = () => {
         const formData = new FormData(sftpForm);
@@ -780,11 +779,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     sftpForm.addEventListener('input', saveFormData);
 
-    const showStatus = (msg, type) => {
-        statusMsg.textContent = msg;
-        statusMsg.className = `status-msg ${type}`;
-        statusMsg.classList.remove('hidden');
-    };
 
     const updateUploadButtonText = () => {
         uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
@@ -1210,6 +1204,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // Rate tracking
+                const tdRate = document.createElement('td');
+                tdRate.className = 'col-rate';
                 if (task.status === 'Running' && task.started_at && task.bytes_uploaded > 0) {
                     const elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
                     if (elapsed > 0) {
@@ -1221,8 +1217,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         globalTotalRate += rate;
                     }
                 } else if (task.status === 'Completed') {
-                    // Update session total for analytics
-                    sessionTotalBytes += task.total_bytes || 0;
+                    // Update session total for analytics (once per task)
+                    if (!countedTaskIds.has(id)) {
+                        sessionTotalBytes += task.total_bytes || 0;
+                        countedTaskIds.add(id);
+                    }
                     tdRate.textContent = '-';
                 } else {
                     tdRate.textContent = '-';

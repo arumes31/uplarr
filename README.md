@@ -1,11 +1,12 @@
 # 🚀 Uplarr
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
+  <img src="https://img.shields.io/badge/Go-stable-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
   <img src="https://img.shields.io/badge/Docker-Multi--Arch-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/github/actions/workflow/status/arumes31/uplarr/ci.yml?branch=main&style=for-the-badge&logo=github-actions&label=CI" alt="CI Status">
   <img src="https://img.shields.io/github/v/release/arumes31/uplarr?style=for-the-badge&logo=github&color=blue" alt="Latest Release">
   <img src="https://img.shields.io/badge/go%20report-A+-brightgreen.svg?style=for-the-badge" alt="Go Report Card">
+  <img src="https://goreportcard.com/badge/github.com/arumes31/uplarr" alt="Go Report Card (Real)">
   <img src="https://img.shields.io/badge/Security-Gosec-brightgreen?style=for-the-badge&logo=shippable" alt="Security Scan">
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License">
 </p>

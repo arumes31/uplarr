@@ -7,6 +7,7 @@ type Config struct {
 	ConfigDir    string
 	WebPort      string
 	AuthPassword string
+	TrustProxy   bool
 }
 
 type UploadRequest struct {

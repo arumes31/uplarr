@@ -1,6 +1,5 @@
 const CACHE_NAME = 'uplarr-cache-v2';
 const ASSETS = [
-    '/',
     '/static/style.css',
     '/static/app.js',
     '/static/crypto.js',
@@ -18,6 +17,17 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+    // Network-First for navigation requests (HTML)
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request).catch(() => {
+                return caches.match(event.request);
+            })
+        );
+        return;
+    }
+
+    // Cache-First for static assets
     event.respondWith(
         caches.match(event.request).then((response) => {
             return response || fetch(event.request);

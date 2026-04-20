@@ -12,6 +12,8 @@
     --error: #f87171;
     --warning: #fbbf24;
     --font-main: 'Outfit', -apple-system, sans-serif;
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --accent-primary-alpha: rgba(56, 189, 248, 0.4);
 }
 
 * {
@@ -66,6 +68,7 @@ header h1 {
     font-weight: 700;
     background: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.02em;
 }
@@ -190,7 +193,7 @@ header h1 {
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--glass-border);
-    color: var(--text-primary);
+    color: var(--text-main);
     font-size: 0.9rem;
     transition: all 0.3s ease;
 }
@@ -358,6 +361,15 @@ button {
     border-radius: 0.5rem;
     font-weight: 600;
     transition: all 0.2s;
+    cursor: pointer;
+    border: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .primary-btn {
