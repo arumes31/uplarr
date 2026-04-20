@@ -1,11 +1,12 @@
-const CACHE_NAME = 'uplarr-cache-v3';
+const CACHE_NAME = 'uplarr-cache-v4';
 const ASSETS = [
     '/static/style.css',
     '/static/app.js',
     '/static/crypto.js',
     '/static/fonts.css',
     '/static/manifest.json',
-    '/static/favicon.png'
+    '/static/favicon.png',
+    '/static/icon-maskable-1024.png'
 ];
 
 self.addEventListener('install', (event) => {
