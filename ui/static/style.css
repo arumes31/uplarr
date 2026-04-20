@@ -155,11 +155,14 @@ body {
 }
 
 .sidebar-tree {
-    flex: 0 0 180px;
+    flex: 0 0 160px;
     background: rgba(10, 15, 30, 0.3);
     border-right: 1px solid var(--glass-border);
-    padding: 8px;
+    padding: 6px;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .tree-section h4 {
@@ -174,13 +177,25 @@ body {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
     transition: all 0.2s;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-item svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.tree-item span {
     overflow: hidden;
     text-overflow: ellipsis;
 }

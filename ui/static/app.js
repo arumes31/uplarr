@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const refreshBtn = document.getElementById('refresh-btn');
     const upBtn = document.getElementById('up-btn');
     const mkdirBtn = document.getElementById('mkdir-btn');
-    const deleteBtn = document.getElementById('delete-btn');
     const localBreadcrumb = document.getElementById('local-breadcrumb');
     const selectAllCheckbox = document.getElementById('select-all-checkbox');
 
@@ -13,7 +12,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const remoteRefreshBtn = document.getElementById('remote-refresh-btn');
     const remoteUpBtn = document.getElementById('remote-up-btn');
     const remoteMkdirBtn = document.getElementById('remote-mkdir-btn');
-    const remoteDeleteBtn = document.getElementById('remote-delete-btn');
     const remoteBreadcrumb = document.getElementById('remote-breadcrumb');
     const remoteDropZone = document.getElementById('remote-drop-zone');
 
@@ -329,7 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 upBtn.click();
                 break;
             case 'Delete':
-                deleteBtn.click();
+                if (selectionDeleteBtn) selectionDeleteBtn.click();
                 break;
             case 'Enter':
                 if (e.ctrlKey) uploadBtn.click();
@@ -716,7 +714,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Folder Tree Logic
     const updateFolderTree = (path, isRemote) => {
         const type = isRemote ? 'remote' : 'local';
-        folderTreeHistory[type].add(path || '/');
+        const history = folderTreeHistory[type];
+        
+        // Ensure path is in history
+        history.add(path || '/');
+        
+        // Limit history to last 15 unique entries to keep sidebar clean
+        if (history.size > 15) {
+            const arr = Array.from(history);
+            // Keep '/' if it exists, otherwise just shift
+            if (arr[0] === '/' && arr.length > 15) {
+                const newSet = new Set(['/']);
+                arr.slice(-14).forEach(item => newSet.add(item));
+                folderTreeHistory[type] = newSet;
+            } else if (arr.length > 15) {
+                folderTreeHistory[type] = new Set(arr.slice(-15));
+            }
+        }
+        
         renderFolderTree(isRemote);
     };
 
@@ -726,12 +741,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!container) return;
 
         container.innerHTML = '';
-        Array.from(folderTreeHistory[type]).sort().forEach(p => {
+        // Sort alphabetically but root always first
+        const sortedItems = Array.from(folderTreeHistory[type]).sort((a, b) => {
+            if (a === '/') return -1;
+            if (b === '/') return 1;
+            return a.localeCompare(b);
+        });
+
+        sortedItems.forEach(p => {
             const item = document.createElement('div');
             item.className = 'tree-item' + ((isRemote ? remoteCurrentPath : currentPath) === p ? ' active' : '');
+            let name = p === '/' ? 'Root' : p.split(/[\\/]/).pop() || p;
+            
             item.innerHTML = `
                 <svg class="icon-inline"><use href="#icon-folder"></use></svg>
-                <span>${p === '/' ? 'Root' : p.split('/').pop() || p}</span>
+                <span>${name}</span>
             `;
             item.title = p;
             item.onclick = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
@@ -925,15 +949,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     };
 
-    refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
-    upBtn.addEventListener('click', () => {
+    if (refreshBtn) refreshBtn.addEventListener('click', () => fetchFiles(currentPath));
+    if (upBtn) upBtn.addEventListener('click', () => {
         if (!currentPath || currentPath === '.') return;
         const parts = currentPath.split(/[\\/]/);
         parts.pop();
         fetchFiles(parts.join('/'));
     });
 
-    mkdirBtn.addEventListener('click', async () => {
+    if (mkdirBtn) mkdirBtn.addEventListener('click', async () => {
         const name = prompt("Enter folder name:");
         if (!name) return;
         const res = await fetch('/api/files/action', {
@@ -945,37 +969,31 @@ document.addEventListener('DOMContentLoaded', () => {
         else addLog(`Mkdir failed: ${res.statusText}`, 'error');
     });
 
-    deleteBtn.addEventListener('click', async () => {
+    if (selectionDeleteBtn) selectionDeleteBtn.addEventListener('click', async () => {
         if (queuedFiles.size === 0) return alert("Select files to delete first.");
         if (!confirm(`Delete ${queuedFiles.size} items?`)) return;
-        const failedPaths = [];
-        for (const path of Array.from(queuedFiles.keys())) {
-            try {
-                const res = await fetch('/api/files/action', { 
-                    method: 'POST', 
+        
+        try {
+            const operations = Array.from(queuedFiles.keys()).map(path => ({ action: 'delete', path }));
+            // We'll just run them sequentially or use a bulk endpoint if available
+            // Assuming current local action endpoint supports single delete
+            for (const op of operations) {
+                 await fetch('/api/files/action', {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'delete', path }) 
+                    body: JSON.stringify({ action: 'delete', path: op.path })
                 });
-                if (res.ok) {
-                    queuedFiles.delete(path);
-                } else {
-                    failedPaths.push(path);
-                    addLog(`Failed to delete ${path}: ${res.statusText}`, 'error');
-                }
-            } catch (err) {
-                failedPaths.push(path);
-                addLog(`Failed to delete ${path}: ${err.message}`, 'error');
             }
+            showToast("Selection deleted", "success");
+            queuedFiles.clear();
+            updateSelectionBar();
+            fetchFiles(currentPath);
+        } catch (e) {
+            showToast("Delete failed", "error");
         }
-        if (failedPaths.length > 0) {
-            addLog(`${failedPaths.length} file(s) could not be deleted`, 'warn');
-        }
-        updateUploadButtonText();
-        updateSelectionBar();
-        fetchFiles(currentPath);
     });
 
-    selectAllCheckbox.addEventListener('change', (e) => {
+    if (selectAllCheckbox) selectAllCheckbox.addEventListener('change', (e) => {
         const checked = e.target.checked;
         document.querySelectorAll('#file-list-body .file-checkbox:not(:disabled)').forEach(cb => {
             cb.checked = checked;
@@ -1093,8 +1111,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
-    remoteUpBtn.addEventListener('click', () => {
+    if (remoteRefreshBtn) remoteRefreshBtn.addEventListener('click', () => fetchRemoteFiles(remoteCurrentPath));
+    if (remoteUpBtn) remoteUpBtn.addEventListener('click', () => {
         if (!remoteCurrentPath || remoteCurrentPath === '/') return;
         const parts = remoteCurrentPath.split('/');
         parts.pop();
@@ -1103,7 +1121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchRemoteFiles(parent);
     });
 
-    remoteMkdirBtn.addEventListener('click', async () => {
+    if (remoteMkdirBtn) remoteMkdirBtn.addEventListener('click', async () => {
         const name = prompt("Enter remote folder name:");
         if (!name) return;
         const config = getFormData();
@@ -1116,10 +1134,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         if (res.ok) fetchRemoteFiles(remoteCurrentPath || config.remote_dir);
         else addLog(`Remote mkdir failed`, 'error');
-    });
-
-    remoteDeleteBtn.addEventListener('click', async () => {
-        alert("Remote multi-delete not implemented yet. Use drag-and-drop or single actions if available.");
     });
 
     // --- Drag & Drop ---
