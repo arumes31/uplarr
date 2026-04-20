@@ -158,6 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
         remoteCompactToggle.classList.toggle('active', compactState.remote);
         if (toggleGlobalCompact) toggleGlobalCompact.checked = !!compactState.global;
     };
+    
+    const saveCompactState = async (state) => {
+        await setSecureItem('uplarr_compact', JSON.stringify(state));
+    };
 
     const loadCompactState = async () => {
         const saved = await getSecureItem('uplarr_compact');
@@ -578,50 +582,70 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    selectionRenameBtn.addEventListener('click', () => {
-        if (queuedFiles.size === 0) return showToast("Select files to rename", "warn");
-        renameCountBadge.textContent = queuedFiles.size;
-        renameSearch.value = '';
-        renameReplace.value = '';
-        updateRenamePreview();
-        renameModal.classList.remove('hidden');
-    });
+    if (selectionRenameBtn) {
+        selectionRenameBtn.addEventListener('click', () => {
+            if (queuedFiles.size === 0) return showToast("Select files to rename", "warn");
+            if (renameCountBadge) renameCountBadge.textContent = queuedFiles.size;
+            if (renameSearch) renameSearch.value = '';
+            if (renameReplace) renameReplace.value = '';
+            updateRenamePreview();
+            if (renameModal) renameModal.classList.remove('hidden');
+        });
+    }
 
-    renameSearch.addEventListener('input', updateRenamePreview);
-    renameReplace.addEventListener('input', updateRenamePreview);
-    renameCancelBtn.addEventListener('click', () => renameModal.classList.add('hidden'));
+    if (renameSearch) renameSearch.addEventListener('input', updateRenamePreview);
+    if (renameReplace) renameReplace.addEventListener('input', updateRenamePreview);
+    if (renameCancelBtn) renameCancelBtn.addEventListener('click', () => renameModal.classList.add('hidden'));
 
-    renameConfirmBtn.addEventListener('click', async () => {
-        const search = renameSearch.value;
-        const replace = renameReplace.value;
-        if (!search) return;
+    if (renameConfirmBtn) {
+        renameConfirmBtn.addEventListener('click', async () => {
+            if (!renameSearch || !renameReplace) return;
+            const search = renameSearch.value;
+            const replace = renameReplace.value;
+            if (!search) return showToast("Enter a search pattern", "warn");
 
-        const files = Array.from(queuedFiles.keys());
-        let successCount = 0;
+            const items = Array.from(queuedFiles.entries());
+            if (items.length === 0) return;
 
-        for (const [idx, oldPath] of files.entries()) {
-            const oldName = oldPath.split('/').pop();
-            const re = new RegExp(search, 'g');
-            const newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+            renameConfirmBtn.disabled = true;
+            renameConfirmBtn.textContent = 'Renaming...';
             
-            if (newName === oldName) continue;
+            try {
+                const operations = items.map(([path, info], idx) => {
+                    const lastSlash = path.lastIndexOf('/');
+                    const dir = path.substring(0, lastSlash + 1);
+                    const oldName = path.substring(lastSlash + 1);
+                    const re = new RegExp(search, 'g');
+                    const newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+                    return { old: path, new: dir + newName };
+                });
 
-            const res = await fetch('/api/files/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'rename', path: oldPath, new_name: newName })
-            });
+                const res = await fetch('/api/local/rename-bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ operations })
+                });
 
-            if (res.ok) successCount++;
-            else addLog(`Rename failed: ${oldName} -> ${newName}`, 'error');
-        }
-
-        showToast(`Renamed ${successCount} files`, 'success');
-        renameModal.classList.add('hidden');
-        queuedFiles.clear();
-        updateSelectionBar();
-        fetchFiles(currentPath);
-    });
+                if (res.ok) {
+                    showToast("Rename successful", "success");
+                    queuedFiles.clear();
+                    updateSelectionBar();
+                    if (renameModal) renameModal.classList.add('hidden');
+                    refreshLocal();
+                } else {
+                    const data = await res.json();
+                    showToast(`Rename failed: ${data.error}`, "error");
+                }
+            } catch (e) {
+                showToast("Request failed", "error");
+            } finally {
+                if (renameConfirmBtn) {
+                    renameConfirmBtn.disabled = false;
+                    renameConfirmBtn.textContent = 'Apply Rename';
+                }
+            }
+        });
+    }
 
     // Session Analytics
     const updateSessionStats = () => {
@@ -1397,47 +1421,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Actions ---
+    if (testBtn) {
+        testBtn.addEventListener('click', async () => {
+            const config = getFormData();
+            testBtn.disabled = true;
+            showStatus("Connecting...", "info");
+            try {
+                const res = await fetch('/api/test-connection', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(config) 
+                });
+                const data = await res.json();
+                if (res.ok) { showStatus("Connected", "success"); fetchRemoteFiles(); }
+                else showStatus(`Failed: ${data.error || "Unknown error"}`, "error");
+            } catch (e) { showStatus("Request failed", "error"); }
+            testBtn.disabled = false;
+        });
+    }
 
-    testBtn.addEventListener('click', async () => {
-        const config = getFormData();
-        testBtn.disabled = true;
-        try {
-            const res = await fetch('/api/test-connection', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(config) 
-            });
-            const data = await res.json();
-            if (res.ok) { showStatus("Connected", "success"); fetchRemoteFiles(); }
-            else showStatus(`Failed: ${data.error || "Unknown error"}`, "error");
-        } catch (e) { showStatus("Request failed", "error"); }
-        testBtn.disabled = false;
-    });
+    if (updateThrottleBtn) {
+        updateThrottleBtn.addEventListener('click', async () => {
+            const config = getFormData();
+            updateThrottleBtn.disabled = true;
+            try {
+                const res = await fetch('/api/throttle/update', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(config) 
+                });
+                const data = await res.json();
+                if (res.ok) { 
+                    showStatus(`Throttling updated for ${config.host}`, "success"); 
+                    addLog(`Updated throttling for ${config.host}: ${config.rate_limit_kbps} KB/s`, 'info');
+                } else {
+                    showStatus(`Update failed: ${data.error || "Unknown error"}`, "error");
+                }
+            } catch (e) { showStatus("Request failed", "error"); }
+            updateThrottleBtn.disabled = false;
+        });
+    }
 
-    updateThrottleBtn.addEventListener('click', async () => {
-        const config = getFormData();
-        updateThrottleBtn.disabled = true;
-        try {
-            const res = await fetch('/api/throttle/update', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(config) 
-            });
-            const data = await res.json();
-            if (res.ok) { 
-                showStatus(`Throttling updated for ${config.host}`, "success"); 
-                addLog(`Updated throttling for ${config.host}: ${config.rate_limit_kbps} KB/s`, 'info');
-            } else {
-                showStatus(`Update failed: ${data.error || "Unknown error"}`, "error");
-            }
-        } catch (e) { showStatus("Request failed", "error"); }
-        updateThrottleBtn.disabled = false;
-    });
-
-    uploadBtn.addEventListener('click', async () => {
-        // Build the file list without mutating global queuedFiles until success
-        let filesToUpload;
-        const wasImplicit = queuedFiles.size === 0;
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', async () => {
+            // Build the file list without mutating global queuedFiles until success
+            let filesToUpload;
+            const wasImplicit = queuedFiles.size === 0;
         if (wasImplicit) {
             // Implicitly queue all files in current local directory
             filesToUpload = [];

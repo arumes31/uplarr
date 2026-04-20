@@ -188,9 +188,28 @@
                                     <div class="form-group"><input type="text" id="host" name="host" placeholder="Host" required></div>
                                     <div class="form-group"><input type="number" id="port" name="port" value="22" placeholder="Port" required></div>
                                     <div class="form-group"><input type="text" id="user" name="user" placeholder="User" required></div>
-                                    <div class="form-group"><input type="password" id="password" name="password" placeholder="Pass/Key"></div>
-                                    <div class="form-group"><input type="text" id="remote_dir" name="remote_dir" value="/upload" placeholder="Dir"></div>
+                                    <div class="form-group"><input type="password" id="password" name="password" placeholder="Password / Private Key"></div>
+                                    <div class="form-group"><input type="text" id="remote_dir" name="remote_dir" value="/upload" placeholder="Remote Directory"></div>
                                 </div>
+                                <details class="advanced-config">
+                                    <summary>Advanced Options</summary>
+                                    <div class="form-grid-sm">
+                                        <div class="form-group"><input type="text" id="key_path" name="key_path" placeholder="Private Key Path (optional)"></div>
+                                        <div class="form-group"><input type="text" id="known_hosts_path" name="known_hosts_path" placeholder="Known Hosts Path"></div>
+                                        <div class="form-group"><input type="number" id="max_retries" name="max_retries" value="3" placeholder="Max Retries"></div>
+                                        <div class="form-group"><input type="number" id="rate_limit_kbps" name="rate_limit_kbps" value="0" placeholder="Global Limit (KB/s)"></div>
+                                        <div class="form-group"><input type="number" id="min_limit_kbps" name="min_limit_kbps" value="50" placeholder="Throt. Floor (KB/s)"></div>
+                                        <div class="form-group"><input type="number" id="max_latency_ms" name="max_latency_ms" value="150" placeholder="Max Latency (ms)"></div>
+                                        <div class="checkbox-group-stack">
+                                            <label><input type="checkbox" id="skip_host_key_verification" name="skip_host_key_verification" checked> Skip Key Verify</label>
+                                            <label><input type="checkbox" id="delete_after_verify" name="delete_after_verify"> Delete After Upload</label>
+                                            <label><input type="checkbox" id="overwrite" name="overwrite" checked> Overwrite Existing</label>
+                                        </div>
+                                    </div>
+                                    <div class="button-group-sm">
+                                        <button type="button" id="update-throttle-btn" class="glass-btn-sm">Apply Throttling</button>
+                                    </div>
+                                </details>
                                 <div class="button-group">
                                     <button type="button" id="test-btn" class="secondary-btn">Connect</button>
                                     <button type="button" id="upload-btn" class="primary-btn">Upload Selected</button>
@@ -215,7 +234,9 @@
     <div id="selection-bar" class="selection-bar hidden">
         <div class="selection-info"><span id="selection-count">0</span> items</div>
         <div class="selection-actions">
-            <button id="selection-rename-btn" class="glass-btn">Rename</button>
+            <button id="selection-rename-btn" class="glass-btn">
+                Rename <span id="rename-count-badge" class="badge">0</span>
+            </button>
             <button id="selection-queue-btn" class="primary-btn">Queue</button>
             <button id="selection-delete-btn" class="btn-danger-text">Delete</button>
             <button id="selection-clear-btn" class="glass-btn">Clear</button>
@@ -234,6 +255,36 @@
             <div class="modal-actions">
                 <button id="modal-cancel-btn" class="secondary-btn">Cancel</button>
                 <button id="modal-confirm-btn" class="primary-btn">Upload</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="rename-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>Mass Rename</h3>
+            <div class="rename-inputs">
+                <input type="text" id="rename-search" placeholder="Search (Regex supported)">
+                <input type="text" id="rename-replace" placeholder="Replace (use $idx for sequence)">
+            </div>
+            <div id="rename-preview" class="rename-preview"></div>
+            <div class="modal-actions">
+                <button id="rename-cancel-btn" class="secondary-btn">Cancel</button>
+                <button id="rename-confirm-btn" class="primary-btn">Apply Rename</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="rename-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3>Mass Rename</h3>
+            <div class="rename-inputs">
+                <input type="text" id="rename-search" placeholder="Search (Regex supported)">
+                <input type="text" id="rename-replace" placeholder="Replace (use $idx for sequence)">
+            </div>
+            <div id="rename-preview" class="rename-preview"></div>
+            <div class="modal-actions">
+                <button id="rename-cancel-btn" class="secondary-btn">Cancel</button>
+                <button id="rename-confirm-btn" class="primary-btn">Apply Rename</button>
             </div>
         </div>
     </div>
