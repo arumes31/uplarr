@@ -182,40 +182,115 @@
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--glass-border);">
                         <section class="config-section">
-                            <h2>SFTP Config</h2>
-                            <form id="sftp-form">
-                                <div class="form-grid">
-                                    <div class="form-group"><input type="text" id="host" name="host" placeholder="Host" required></div>
-                                    <div class="form-group"><input type="number" id="port" name="port" value="22" placeholder="Port" required></div>
-                                    <div class="form-group"><input type="text" id="user" name="user" placeholder="User" required></div>
-                                    <div class="form-group"><input type="password" id="password" name="password" placeholder="Password / Private Key"></div>
-                                    <div class="form-group"><input type="text" id="remote_dir" name="remote_dir" value="/upload" placeholder="Remote Directory"></div>
+                            <div class="config-card">
+                                <div class="config-card-header">
+                                    <h2>
+                                        <svg class="icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                        SFTP Connection
+                                    </h2>
+                                    <div id="status-message" class="status-msg hidden"></div>
                                 </div>
-                                <details class="advanced-config">
-                                    <summary>Advanced Options</summary>
-                                    <div class="form-grid-sm">
-                                        <div class="form-group"><input type="text" id="key_path" name="key_path" placeholder="Private Key Path (optional)"></div>
-                                        <div class="form-group"><input type="text" id="known_hosts_path" name="known_hosts_path" placeholder="Known Hosts Path"></div>
-                                        <div class="form-group"><input type="number" id="max_retries" name="max_retries" value="3" placeholder="Max Retries"></div>
-                                        <div class="form-group"><input type="number" id="rate_limit_kbps" name="rate_limit_kbps" value="0" placeholder="Global Limit (KB/s)"></div>
-                                        <div class="form-group"><input type="number" id="min_limit_kbps" name="min_limit_kbps" value="50" placeholder="Throt. Floor (KB/s)"></div>
-                                        <div class="form-group"><input type="number" id="max_latency_ms" name="max_latency_ms" value="150" placeholder="Max Latency (ms)"></div>
-                                        <div class="checkbox-group-stack">
-                                            <label><input type="checkbox" id="skip_host_key_verification" name="skip_host_key_verification" checked> Skip Key Verify</label>
-                                            <label><input type="checkbox" id="delete_after_verify" name="delete_after_verify"> Delete After Upload</label>
-                                            <label><input type="checkbox" id="overwrite" name="overwrite" checked> Overwrite Existing</label>
+                                <form id="sftp-form">
+                                    <div class="config-grid-main">
+                                        <div class="form-field span-2">
+                                            <label for="host">Host / IP Address</label>
+                                            <input type="text" id="host" name="host" placeholder="192.168.1.100" required>
+                                        </div>
+                                        <div class="form-field">
+                                            <label for="port">Port</label>
+                                            <input type="number" id="port" name="port" value="22" placeholder="22" required>
+                                        </div>
+                                        <div class="form-field">
+                                            <label for="user">Username</label>
+                                            <input type="text" id="user" name="user" placeholder="root" required>
+                                        </div>
+                                        <div class="form-field">
+                                            <label for="password">Password / Passphrase</label>
+                                            <input type="password" id="password" name="password" placeholder="••••••••">
+                                        </div>
+                                        <div class="form-field">
+                                            <label for="remote_dir">Remote Directory</label>
+                                            <input type="text" id="remote_dir" name="remote_dir" value="/upload" placeholder="/upload">
                                         </div>
                                     </div>
-                                    <div class="button-group-sm">
-                                        <button type="button" id="update-throttle-btn" class="glass-btn-sm">Apply Throttling</button>
+
+                                    <details class="advanced-config">
+                                        <summary>
+                                            <svg class="icon-inline" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                                            Advanced Options
+                                        </summary>
+                                        <div class="advanced-content">
+                                            <div class="advanced-grid">
+                                                <div class="adv-group">
+                                                    <span class="adv-group-label">Authentication</span>
+                                                    <div class="form-field">
+                                                        <label for="key_path">Private Key Path</label>
+                                                        <input type="text" id="key_path" name="key_path" placeholder="~/.ssh/id_rsa">
+                                                    </div>
+                                                    <div class="form-field">
+                                                        <label for="known_hosts_path">Known Hosts</label>
+                                                        <input type="text" id="known_hosts_path" name="known_hosts_path" placeholder="~/.ssh/known_hosts">
+                                                    </div>
+                                                </div>
+                                                <div class="adv-group">
+                                                    <span class="adv-group-label">Performance</span>
+                                                    <div class="adv-row">
+                                                        <div class="form-field">
+                                                            <label for="max_retries">Retries</label>
+                                                            <input type="number" id="max_retries" name="max_retries" value="3" placeholder="3">
+                                                        </div>
+                                                        <div class="form-field">
+                                                            <label for="rate_limit_kbps">Limit (KB/s)</label>
+                                                            <input type="number" id="rate_limit_kbps" name="rate_limit_kbps" value="0" placeholder="0 = unlimited">
+                                                        </div>
+                                                    </div>
+                                                    <div class="adv-row">
+                                                        <div class="form-field">
+                                                            <label for="min_limit_kbps">Floor (KB/s)</label>
+                                                            <input type="number" id="min_limit_kbps" name="min_limit_kbps" value="50" placeholder="50">
+                                                        </div>
+                                                        <div class="form-field">
+                                                            <label for="max_latency_ms">Max Latency (ms)</label>
+                                                            <input type="number" id="max_latency_ms" name="max_latency_ms" value="150" placeholder="150">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="adv-toggles">
+                                                <label class="toggle-label">
+                                                    <input type="checkbox" id="skip_host_key_verification" name="skip_host_key_verification" checked>
+                                                    <span class="toggle-text">Skip Host Key Verification</span>
+                                                </label>
+                                                <label class="toggle-label">
+                                                    <input type="checkbox" id="delete_after_verify" name="delete_after_verify">
+                                                    <span class="toggle-text">Delete Local After Upload</span>
+                                                </label>
+                                                <label class="toggle-label">
+                                                    <input type="checkbox" id="overwrite" name="overwrite" checked>
+                                                    <span class="toggle-text">Overwrite Existing Files</span>
+                                                </label>
+                                            </div>
+                                            <div class="adv-actions">
+                                                <button type="button" id="update-throttle-btn" class="glass-btn-sm">
+                                                    <svg class="icon-inline" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                                                    Apply Throttling
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </details>
+
+                                    <div class="config-actions">
+                                        <button type="button" id="test-btn" class="connect-btn">
+                                            <svg class="icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                            Connect
+                                        </button>
+                                        <button type="button" id="upload-btn" class="primary-btn">
+                                            <svg class="icon-inline" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                                            Upload Selected
+                                        </button>
                                     </div>
-                                </details>
-                                <div class="button-group">
-                                    <button type="button" id="test-btn" class="secondary-btn">Connect</button>
-                                    <button type="button" id="upload-btn" class="primary-btn">Upload Selected</button>
-                                </div>
-                            </form>
-                            <div id="status-message" class="status-msg hidden"></div>
+                                </form>
+                            </div>
                         </section>
 
                         <section class="logs-section section-logs">

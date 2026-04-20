@@ -353,39 +353,289 @@ section { padding: 8px 12px; }
 #queue-table td { padding: 2px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
 
 /* Config & Logs */
-.config-section h2 { font-size: 0.7rem; text-transform: uppercase; margin-bottom: 6px; color: var(--accent-primary); }
+.config-section { padding: 8px 12px; }
+
+.config-card {
+    background: rgba(12, 18, 36, 0.5);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.config-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    background: rgba(10, 15, 30, 0.6);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.config-card-header h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+}
+
+.config-card-header .status-msg {
+    font-size: 0.7rem;
+    padding: 2px 10px;
+    border-radius: 20px;
+}
+
+/* Form Fields */
+.config-grid-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    padding: 12px 14px;
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.form-field.span-2 {
+    grid-column: span 2;
+}
+
+.form-field label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.form-field input {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-family: var(--font-main);
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.form-field input:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.form-field input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-primary-alpha);
+    background: rgba(15, 23, 42, 0.7);
+}
+
+.form-field input::placeholder {
+    color: rgba(122, 139, 168, 0.5);
+}
+
+/* Legacy form-grid support */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
 .form-grid input { width: 100%; background: rgba(15,23,42,0.4); border: 1px solid var(--glass-border); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; }
 
+/* Advanced Config Accordion */
 .advanced-config {
-    margin-top: 8px;
+    margin: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
-    padding-top: 4px;
 }
 
 .advanced-config summary {
     font-size: 0.65rem;
     text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--text-muted);
     cursor: pointer;
     list-style: none;
-    padding: 4px 0;
-    transition: color 0.2s;
+    padding: 8px 14px;
+    transition: all 0.2s;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    user-select: none;
 }
 
 .advanced-config summary::-webkit-details-marker { display: none; }
-.advanced-config summary::before {
+.advanced-config summary::after {
     content: '▶';
     font-size: 0.5rem;
-    transition: transform 0.2s;
+    margin-left: auto;
+    transition: transform 0.25s ease;
+    opacity: 0.5;
 }
 
-.advanced-config[open] summary::before { transform: rotate(90deg); }
-.advanced-config summary:hover { color: var(--accent-primary); }
+.advanced-config[open] summary::after { transform: rotate(90deg); }
+.advanced-config summary:hover { color: var(--accent-primary); background: rgba(56, 189, 248, 0.03); }
 
+.advanced-content {
+    padding: 0 14px 12px;
+}
+
+.advanced-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.adv-group {
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.adv-group-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-secondary);
+    font-weight: 700;
+    opacity: 0.8;
+}
+
+.adv-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+/* Toggle Checkboxes */
+.adv-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: var(--radius-sm);
+    margin-bottom: 10px;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.toggle-label:hover { color: var(--text-main); }
+
+.toggle-label input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    background: rgba(15, 23, 42, 0.6);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.toggle-label input[type="checkbox"]:checked {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+}
+
+.toggle-label input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    color: white;
+    font-weight: 700;
+}
+
+.toggle-text {
+    line-height: 1;
+}
+
+/* Advanced Actions */
+.adv-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.glass-btn-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: 0.65rem;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-main);
+    font-weight: 600;
+}
+
+.glass-btn-sm:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Config Action Buttons */
+.config-actions {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(10, 15, 30, 0.3);
+}
+
+.connect-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: var(--font-main);
+    color: var(--accent-primary);
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.connect-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
+.config-actions .primary-btn {
+    flex: 1;
+    justify-content: center;
+}
+
+/* Legacy support */
 .form-grid-sm {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
