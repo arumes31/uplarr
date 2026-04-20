@@ -1512,6 +1512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { showStatus("Upload request failed", "error"); }
         uploadBtn.disabled = false;
     });
+}
 
     // --- Init ---
     const init = async () => {
