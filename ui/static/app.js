@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const remoteCompactToggle = document.getElementById('remote-compact-toggle');
     const localPane = document.querySelector('.local-pane');
     const remotePane = document.querySelector('.remote-pane');
+    const toggleGlobalCompact = document.getElementById('toggle-global-compact');
     
     // Phase 3 Elements
     const selectionBar = document.getElementById('selection-bar');
@@ -149,24 +150,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let remoteSort = { key: 'name', dir: 'asc' };
     let lastCheckedIndex = -1; // for shift-click bulk select
 
-    // --- Compact View State (persisted) ---
-    const loadCompactState = async () => {
-        const saved = await getSecureItem('uplarr_compact');
-        if (saved !== null) return JSON.parse(saved);
-        return { local: false, remote: false };
-    };
-
-    const saveCompactState = async (state) => {
-        await setSecureItem('uplarr_compact', JSON.stringify(state));
-    };
-
-    let compactState = { local: false, remote: false };
-
     const applyCompact = () => {
         localPane.classList.toggle('compact', compactState.local);
         remotePane.classList.toggle('compact', compactState.remote);
+        document.body.classList.toggle('global-compact', compactState.global);
         compactToggle.classList.toggle('active', compactState.local);
         remoteCompactToggle.classList.toggle('active', compactState.remote);
+        if (toggleGlobalCompact) toggleGlobalCompact.checked = !!compactState.global;
+    };
+
+    const loadCompactState = async () => {
+        const saved = await getSecureItem('uplarr_compact');
+        if (saved !== null) {
+            compactState = JSON.parse(saved);
+            applyCompact();
+        }
     };
 
     compactToggle.addEventListener('click', async () => {
@@ -181,7 +179,15 @@ document.addEventListener('DOMContentLoaded', () => {
         await saveCompactState(compactState);
     });
 
-    applyCompact();
+    if (toggleGlobalCompact) {
+        toggleGlobalCompact.addEventListener('change', async (e) => {
+            compactState.global = e.target.checked;
+            applyCompact();
+            await saveCompactState(compactState);
+        });
+    }
+
+    loadCompactState();
 
     // --- Sort Logic ---
     // --- Navigation & Search Logic ---
