@@ -49,3 +49,44 @@ release:
   github:
     owner: arumes31
     name: uplarr
+
+dockers:
+  - image_templates:
+      - "ghcr.io/arumes31/uplarr:{{ .Tag }}"
+      - "ghcr.io/arumes31/uplarr:{{ .Major }}.{{ .Minor }}"
+      - "ghcr.io/arumes31/uplarr:{{ .Major }}"
+      - "ghcr.io/arumes31/uplarr:latest"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+    goos: linux
+    goarch: amd64
+
+  - image_templates:
+      - "ghcr.io/arumes31/uplarr:{{ .Tag }}-arm64"
+      - "ghcr.io/arumes31/uplarr:{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/arumes31/uplarr:{{ .Major }}-arm64"
+      - "ghcr.io/arumes31/uplarr:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+    goos: linux
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/arumes31/uplarr:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/arumes31/uplarr:{{ .Tag }}"
+      - "ghcr.io/arumes31/uplarr:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/arumes31/uplarr:latest"
+    image_templates:
+      - "ghcr.io/arumes31/uplarr:latest"
+      - "ghcr.io/arumes31/uplarr:latest-arm64"
