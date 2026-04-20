@@ -10,18 +10,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorEl = document.getElementById('error-msg');
     const insecureNotice = document.getElementById('insecure-notice');
 
+    let loginSucceeded = false;
+
     // Check for Secure Context
     if (typeof SecureStorage !== 'undefined' && !SecureStorage.isAvailable) {
         if (insecureNotice) insecureNotice.style.display = 'flex';
     }
 
-    if (!loginForm) return;
+    if (!loginForm || !passwordInput || !loginBtn || !errorEl) return;
 
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
         const password = passwordInput.value;
         if (!password) return;
+
+        // Verify SecureStorage Availability
+        if (typeof SecureStorage === 'undefined' || !SecureStorage.isAvailable) {
+            errorEl.textContent = 'Hardware encryption unavailable. Check HTTPS/Localhost.';
+            errorEl.classList.add('visible');
+            return;
+        }
 
         // Set Loading State
         loginBtn.disabled = true;
@@ -44,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (res.ok) {
+                loginSucceeded = true;
+
                 // Initialize crypto master key
                 let saltStr = localStorage.getItem('uplarr_installation_salt');
                 let salt = null;
@@ -59,9 +70,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Store raw key array for compatibility with app.js
                 sessionStorage.setItem('uplarr_master_key', JSON.stringify(keyObj.key));
-                // Store password temporarily for legacy migration in app.js
-                sessionStorage.setItem('uplarr_temp_pass', password);
                 
+                // Perform legacy migration immediately using in-memory password
+                const masterKey = await SecureStorage.getKey();
+                if (masterKey) {
+                    const keys = Object.keys(localStorage);
+                    for (const key of keys) {
+                        if (key.startsWith('uplarr_') && !key.endsWith('_salt')) {
+                            const raw = localStorage.getItem(key);
+                            if (raw && !raw.startsWith('v2:')) {
+                                try {
+                                    // Try to decrypt legacy V1 using the plaintext password
+                                    const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
+                                    if (decrypted) {
+                                        // Re-encrypt to V2
+                                        const encrypted = await SecureStorage.encrypt(decrypted, masterKey);
+                                        localStorage.setItem(key, encrypted);
+                                    }
+                                } catch (e) {
+                                    // Silent failure for non-encrypted or incompatible items
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (!saltStr) {
                     localStorage.setItem('uplarr_installation_salt', JSON.stringify(keyObj.salt));
                 }
@@ -90,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
             errorEl.textContent = 'Connection failed. Please try again.';
             errorEl.classList.add('visible');
         } finally {
-            if (window.location.pathname !== '/') {
+            if (!loginSucceeded && window.location.pathname !== '/') {
                 loginBtn.disabled = false;
                 loginBtn.classList.remove('loading');
                 loginBtn.innerHTML = originalBtnText;
@@ -102,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleBtn = document.getElementById('toggle-password');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', () => {
+            if (!passwordInput) return;
             const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
             passwordInput.setAttribute('type', type);
             toggleBtn.classList.toggle('fa-eye');

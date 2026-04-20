@@ -95,16 +95,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = localStorage.getItem(key);
         if (!raw || !masterKey) return raw;
         try {
-            const password = sessionStorage.getItem('uplarr_temp_pass');
-            // If v2 is missing or decryption fails, decrypt will try legacy if password is provided
-            const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
-            
-            // Auto-migrate to V2 if it was V1
-            if (!raw.startsWith('v2:') && password) {
-                console.log(`Auto-migrating ${key} to V2...`);
-                await setSecureItem(key, decrypted);
-            }
-            return decrypted;
+            // Decrypt using masterKey (V2). Plaintext password is no longer stored in sessionStorage.
+            return await SecureStorage.decrypt(raw, masterKey);
         } catch (e) {
             console.error(`Failed to decrypt ${key}`, e);
             return null;

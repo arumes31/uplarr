@@ -1,5 +1,7 @@
-# <p align="center"><img src="ui/static/logo.png" alt="Uplarr Logo" width="200"></p>
+<p align="center"><img src="ui/static/logo.png" alt="Uplarr Logo" width="200"></p>
+
 # 🚀 Uplarr
+
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-stable-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version">
