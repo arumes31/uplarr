@@ -87,6 +87,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const folderTreeHistory = { local: new Set(), remote: new Set() };
     const countedTaskIds = new Set(); // To prevent double-counting analytics
 
+    // --- Centralized Auth Failure Handler ---
+    // Prevents multiple simultaneous 401 redirects from creating a reload loop.
+    let authRedirectPending = false;
+    const handleAuthFailure = () => {
+        if (authRedirectPending) return;
+        authRedirectPending = true;
+        console.warn('Session expired, redirecting to login...');
+        window.location.href = '/';
+    };
+
     // --- Secure Storage Wrappers ---
     let masterKey = null;
 
@@ -954,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showSkeleton(fileListBody);
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
-            if (response.status === 401) return window.location.href = '/';
+            if (response.status === 401) return handleAuthFailure();
             const data = await response.json();
             currentPath = data.current_path;
             await setSecureItem('uplarr_local_path', currentPath);
@@ -1088,7 +1098,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
             });
-            if (response.status === 401) return window.location.href = '/';
+            if (response.status === 401) return handleAuthFailure();
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
@@ -1218,6 +1228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchQueue = async () => {
         try {
             const res = await fetch('/api/queue');
+            if (res.status === 401) return handleAuthFailure();
             const tasks = await res.json();
             
             queueBody.innerHTML = '';
@@ -1335,10 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchStats = async () => {
         try {
             const res = await fetch('/api/stats');
-            if (res.status === 401) {
-                window.location.href = '/';
-                return;
-            }
+            if (res.status === 401) return handleAuthFailure();
             if (res.ok) {
                 const stats = await res.json();
                 renderStats(stats);
@@ -1559,10 +1567,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const authRes = await fetch('/api/auth/status');
                 const authData = await authRes.json();
                 if (authData.auth_required) {
-                    // Backend requires auth but we have no masterKey (e.g. opened in a new tab)
-                    // We must force log out to prompt for password to derive the key
+                    // Backend requires auth but we have no masterKey (e.g. opened in a new tab).
+                    // Force log out to prompt for password to derive the key.
+                    // Use the centralized handler to avoid reload loops.
                     await fetch('/api/logout', { method: 'POST' });
-                    window.location.href = '/';
+                    handleAuthFailure();
                     return;
                 }
             } catch (e) {
@@ -1597,11 +1606,13 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/';
     });
 
-    init();
-    
-    // SSE
+    // SSE with exponential backoff
+    let sseRetryDelay = 2000;
+    const MAX_SSE_RETRY = 30000;
     const connectSSE = () => {
+        if (authRedirectPending) return; // Don't reconnect if auth failed
         const es = new EventSource('/api/logs');
+        es.onopen = () => { sseRetryDelay = 2000; }; // Reset backoff on success
         es.onmessage = (e) => { 
             try { 
                 const d = JSON.parse(e.data); 
@@ -1610,7 +1621,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 addLog(e.data, 'info');
             } 
         };
-        es.onerror = () => { es.close(); setTimeout(connectSSE, 5000); };
+        es.onerror = () => {
+            es.close();
+            if (authRedirectPending) return;
+            setTimeout(connectSSE, sseRetryDelay);
+            sseRetryDelay = Math.min(sseRetryDelay * 1.5, MAX_SSE_RETRY);
+        };
     };
-    connectSSE();
+
+    // Start init, connect SSE only after successful auth check
+    init().then(() => {
+        if (!authRedirectPending) connectSSE();
+    });
 });

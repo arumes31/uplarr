@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uplarr — Connection Suspended</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/fonts.css">
+    <style>
+        :root {
+            --bg-dark: #0a0f1e;
+            --accent-primary: #38bdf8;
+            --accent-secondary: #818cf8;
+            --text-main: #e8edf5;
+            --text-muted: #7a8ba8;
+            --glass-bg: rgba(18, 26, 46, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --font-main: 'Outfit', -apple-system, sans-serif;
+            --shadow-premium: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            --radius: 20px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background: var(--bg-dark);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-main);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bg-blobs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            filter: blur(100px);
+            opacity: 0.2;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+        }
+
+        .blob-1 {
+            width: 500px;
+            height: 500px;
+            top: -100px;
+            left: -100px;
+            background: var(--accent-primary);
+        }
+
+        .blob-2 {
+            width: 600px;
+            height: 600px;
+            bottom: -150px;
+            right: -150px;
+            background: var(--accent-secondary);
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 3.5rem 3rem;
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 420px;
+            box-shadow: var(--shadow-premium);
+            z-index: 10;
+            text-align: center;
+        }
+
+        .icon {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 2rem;
+            color: var(--accent-primary);
+            opacity: 0.8;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p {
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 2.5rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 1.1rem;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 20px -5px rgba(56, 189, 248, 0.4);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px -8px rgba(56, 189, 248, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="card">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
+        </svg>
+        <h1>You're Offline</h1>
+        <p>Strategic communication interrupted. Please verify your network connection and try again.</p>
+        <button onclick="window.location.reload()">Retry Connection</button>
+    </div>
+</body>
+
+</html>
