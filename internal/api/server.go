@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"crypto/rand"
 	"encoding/base64"
@@ -254,6 +255,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 
+		// Send an initial SSE comment so proxies forward the response immediately.
+		_, _ = fmt.Fprint(w, ": connected\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -261,12 +264,21 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		c := logger.Subscribe()
 		defer logger.Unsubscribe(c)
 
+		// Heartbeat ticker prevents reverse proxies from killing idle connections.
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-r.Context().Done():
 				return
 			case msg := <-c:
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+			case <-ticker.C:
+				_, _ = fmt.Fprint(w, ": keepalive\n\n")
 				if f, ok := w.(http.Flusher); ok {
 					f.Flush()
 				}
