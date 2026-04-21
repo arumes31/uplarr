@@ -30,7 +30,7 @@ import (
 // ProFTPD mod_sftp or FileZilla Server configurations) may need a lower value.
 // If you experience transfer failures or server disconnects, try reducing
 // this to 64.
-const DefaultMaxConcurrentRequestsPerFile = 128
+const DefaultMaxConcurrentRequestsPerFile = 256
 
 type Limiter struct {
 	rateLimiter    *rate.Limiter
@@ -119,8 +119,13 @@ func (l *Limiter) RecordLatency(latency time.Duration) {
 		logger.Info(fmt.Sprintf("Latency high (%v > %v), throttling down to %v KB/s", latency, maxLatency, int(newLimit/1024)))
 	} else if currentLimit < l.MaxLimit {
 		l.consecutiveLow++
-		if l.consecutiveLow >= 10 { // Faster recovery (10 instead of 20)
-			newLimit := currentLimit * 1.2 // Faster pickup (20% instead of 10%)
+		if l.consecutiveLow >= 5 { // Faster recovery (5 instead of 10)
+			multiplier := 1.2
+			// If we are deeply throttled (< 10% of max), ramp up faster
+			if currentLimit < l.MaxLimit*0.1 {
+				multiplier = 1.5
+			}
+			newLimit := currentLimit * rate.Limit(multiplier)
 			if newLimit > l.MaxLimit {
 				newLimit = l.MaxLimit
 			}
@@ -238,6 +243,25 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+func (pr *progressReader) Stat() (os.FileInfo, error) {
+	if s, ok := pr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		return s.Stat()
+	}
+	return nil, fmt.Errorf("underlying reader does not support Stat")
+}
+
+func (pr *progressReader) Size() int64 {
+	if s, ok := pr.r.(interface{ Size() int64 }); ok {
+		return s.Size()
+	}
+	if s, ok := pr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		if info, err := s.Stat(); err == nil {
+			return info.Size()
+		}
+	}
+	return 0
+}
+
 type throttledReader struct {
 	ctx     context.Context
 	r       io.Reader
@@ -266,6 +290,25 @@ func (tr *throttledReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+func (tr *throttledReader) Stat() (os.FileInfo, error) {
+	if s, ok := tr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		return s.Stat()
+	}
+	return nil, fmt.Errorf("underlying reader does not support Stat")
+}
+
+func (tr *throttledReader) Size() int64 {
+	if s, ok := tr.r.(interface{ Size() int64 }); ok {
+		return s.Size()
+	}
+	if s, ok := tr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		if info, err := s.Stat(); err == nil {
+			return info.Size()
+		}
+	}
+	return 0
+}
+
 type contextReader struct {
 	ctx context.Context
 	r   io.Reader
@@ -278,6 +321,25 @@ func (cr *contextReader) Read(p []byte) (int, error) {
 	default:
 		return cr.r.Read(p)
 	}
+}
+
+func (cr *contextReader) Stat() (os.FileInfo, error) {
+	if s, ok := cr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		return s.Stat()
+	}
+	return nil, fmt.Errorf("underlying reader does not support Stat")
+}
+
+func (cr *contextReader) Size() int64 {
+	if s, ok := cr.r.(interface{ Size() int64 }); ok {
+		return s.Size()
+	}
+	if s, ok := cr.r.(interface{ Stat() (os.FileInfo, error) }); ok {
+		if info, err := s.Stat(); err == nil {
+			return info.Size()
+		}
+	}
+	return 0
 }
 
 var osReadFile = os.ReadFile
