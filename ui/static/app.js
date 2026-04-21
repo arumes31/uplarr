@@ -441,7 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="toast-icon">
                 <svg width="20" height="20"><use href="#${iconName}"></use></svg>
             </div>
-            <div class="toast-content">${message}</div>
+            <div class="toast-content">${escapeHTML(message)}</div>
         `;
 
         toastContainer.appendChild(toast);
@@ -600,9 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const item = document.createElement('div');
             item.className = 'rename-preview-item';
             item.innerHTML = `
-                <span class="rename-from">${oldName}</span>
+                <span class="rename-from">${escapeHTML(oldName)}</span>
                 <span class="rename-arrow">&rarr;</span>
-                <span class="rename-to">${newName}</span>
+                <span class="rename-to">${escapeHTML(newName)}</span>
             `;
             renamePreview.appendChild(item);
         });
@@ -783,7 +783,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             item.innerHTML = `
                 <svg class="icon-inline"><use href="#icon-folder"></use></svg>
-                <span>${name}</span>
+                <span>${escapeHTML(name)}</span>
             `;
             item.title = p;
             item.onclick = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
@@ -801,6 +801,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Helpers ---
 
 
+
+
+    const escapeHTML = (str) => {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
 
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';

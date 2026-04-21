@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"sync"
 	"uplarr/internal/logger"
@@ -165,7 +166,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		if loginReq.Password != config.AuthPassword {
+		if subtle.ConstantTimeCompare([]byte(loginReq.Password), []byte(config.AuthPassword)) != 1 {
 			http.Error(w, "Invalid password", http.StatusUnauthorized)
 			return
 		}
@@ -264,7 +265,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		// Send an initial SSE comment so proxies forward the response immediately.
 		_, _ = fmt.Fprint(w, ": connected\n\n")
 		// Send some padding to ensure small buffers are flushed by proxies
-		_, _ = fmt.Fprint(w, ": " + strings.Repeat(" ", 512) + "\n\n")
+		_, _ = fmt.Fprint(w, ": "+strings.Repeat(" ", 512)+"\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
