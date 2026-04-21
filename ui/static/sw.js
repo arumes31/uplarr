@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uplarr-cache-v7';
+const CACHE_NAME = 'uplarr-cache-v8';
 const OFFLINE_URL = '/static/offline.html';
 const ASSETS = [
     '/static/style.css',
@@ -12,11 +12,11 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-    // Force this new service worker to activate immediately, even if
-    // an older version is still controlling other tabs.
+    console.log('SW: Install event');
     self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
+            console.log('SW: Pre-caching assets');
             return cache.addAll(ASSETS);
         })
     );
@@ -28,13 +28,18 @@ self.addEventListener('fetch', (event) => {
     // Never intercept API requests — let SSE, auth, and data endpoints go
     // straight to the network without any service worker interference.
     if (url.pathname.startsWith('/api/')) {
+        // console.log('SW: Bypassing API request:', url.pathname);
         return;
     }
 
     // Network-First for navigation requests (HTML)
     if (event.request.mode === 'navigate') {
         event.respondWith(
-            fetch(event.request).catch(async () => {
+            fetch(event.request).then(response => {
+                // console.log('SW: Navigation - Network success:', url.pathname);
+                return response;
+            }).catch(async (err) => {
+                console.warn('SW: Navigation - Network failed, falling back to cache/offline:', url.pathname, err);
                 const cache = await caches.open(CACHE_NAME);
                 const cachedResponse = await cache.match(event.request);
                 if (cachedResponse) return cachedResponse;
@@ -49,10 +54,14 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname.endsWith('.js')) {
         event.respondWith(
             fetch(event.request).then((response) => {
+                // console.log('SW: JS - Network success, updating cache:', url.pathname);
                 const clone = response.clone();
                 caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
                 return response;
-            }).catch(() => caches.match(event.request))
+            }).catch((err) => {
+                console.warn('SW: JS - Network failed, falling back to cache:', url.pathname, err);
+                return caches.match(event.request);
+            })
         );
         return;
     }
@@ -60,18 +69,26 @@ self.addEventListener('fetch', (event) => {
     // Cache-First for other static assets (CSS, fonts, images)
     event.respondWith(
         caches.match(event.request).then((response) => {
-            return response || fetch(event.request);
+            if (response) {
+                // console.log('SW: Asset - Cache hit:', url.pathname);
+                return response;
+            }
+            // console.log('SW: Asset - Cache miss, fetching:', url.pathname);
+            return fetch(event.request);
         })
     );
 });
 
 self.addEventListener('activate', (event) => {
-    // Take control of all open pages immediately.
+    console.log('SW: Activate event - Taking control of clients');
     event.waitUntil(
         caches.keys().then((keys) => {
             return Promise.all(
                 keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
             );
-        }).then(() => self.clients.claim())
+        }).then(() => {
+            console.log('SW: Old caches cleared');
+            return self.clients.claim();
+        })
     );
 });

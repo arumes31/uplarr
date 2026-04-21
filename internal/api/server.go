@@ -124,6 +124,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			}
 			cookie, err := r.Cookie("uplarr_session")
 			if err != nil {
+				logger.Warn(fmt.Sprintf("Auth failure: missing uplarr_session cookie for %s", r.URL.Path))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -131,6 +132,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			valid := sessions[cookie.Value]
 			sessionsMu.RUnlock()
 			if !valid {
+				logger.Warn(fmt.Sprintf("Auth failure: invalid or expired session token for %s", r.URL.Path))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -186,6 +188,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   3600 * 24 * 7, // 1 week
 		})
+
+		logger.Info(fmt.Sprintf("Login successful. Secure cookie: %v, X-Forwarded-Proto: %s", isSecureRequest(r), r.Header.Get("X-Forwarded-Proto")))
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -255,14 +259,21 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 
+		logger.Info(fmt.Sprintf("SSE Client connected to /api/logs from %s", r.RemoteAddr))
+
 		// Send an initial SSE comment so proxies forward the response immediately.
 		_, _ = fmt.Fprint(w, ": connected\n\n")
+		// Send some padding to ensure small buffers are flushed by proxies
+		_, _ = fmt.Fprint(w, ": " + strings.Repeat(" ", 512) + "\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
 
 		c := logger.Subscribe()
-		defer logger.Unsubscribe(c)
+		defer func() {
+			logger.Unsubscribe(c)
+			logger.Info(fmt.Sprintf("SSE Client disconnected from /api/logs: %s", r.RemoteAddr))
+		}()
 
 		// Heartbeat ticker prevents reverse proxies from killing idle connections.
 		ticker := time.NewTicker(15 * time.Second)

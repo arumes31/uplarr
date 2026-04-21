@@ -90,10 +90,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Centralized Auth Failure Handler ---
     // Prevents multiple simultaneous 401 redirects from creating a reload loop.
     let authRedirectPending = false;
-    const handleAuthFailure = () => {
+    const handleAuthFailure = (source = 'unknown', status = 0) => {
         if (authRedirectPending) return;
         authRedirectPending = true;
-        console.warn('Session expired, redirecting to login...');
+        console.warn(`Session expired/invalid (Source: ${source}, Status: ${status}). Redirecting to login...`);
         window.location.href = '/';
     };
 
@@ -964,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showSkeleton(fileListBody);
         try {
             const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
-            if (response.status === 401) return handleAuthFailure();
+            if (response.status === 401) return handleAuthFailure('fetchFiles', 401);
             const data = await response.json();
             currentPath = data.current_path;
             await setSecureItem('uplarr_local_path', currentPath);
@@ -1098,7 +1098,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/remote/files?path=${encodeURIComponent(targetPath)}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
             });
-            if (response.status === 401) return handleAuthFailure();
+            if (response.status === 401) return handleAuthFailure('fetchRemoteFiles', 401);
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to fetch remote files');
             
@@ -1228,7 +1228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchQueue = async () => {
         try {
             const res = await fetch('/api/queue');
-            if (res.status === 401) return handleAuthFailure();
+            if (res.status === 401) return handleAuthFailure('fetchQueue', 401);
             const tasks = await res.json();
             
             queueBody.innerHTML = '';
@@ -1346,7 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchStats = async () => {
         try {
             const res = await fetch('/api/stats');
-            if (res.status === 401) return handleAuthFailure();
+            if (res.status === 401) return handleAuthFailure('fetchStats', 401);
             if (res.ok) {
                 const stats = await res.json();
                 renderStats(stats);
@@ -1575,7 +1575,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // to derive the encryption key.
                     // Invalidate the session so '/' serves the login page, then redirect.
                     await fetch('/api/logout', { method: 'POST' });
-                    handleAuthFailure();
+                    handleAuthFailure('init-masterKey-missing', 401);
                     return;
                 }
             } catch (e) {
@@ -1615,19 +1615,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAX_SSE_RETRY = 30000;
     const connectSSE = () => {
         if (authRedirectPending) return; // Don't reconnect if auth failed
+        console.log('SSE: Attempting to connect to /api/logs...');
         const es = new EventSource('/api/logs');
-        es.onopen = () => { sseRetryDelay = 2000; }; // Reset backoff on success
+        
+        es.onopen = (e) => { 
+            console.log('SSE: Connection established');
+            sseRetryDelay = 2000; 
+        };
+        
         es.onmessage = (e) => { 
             try { 
                 const d = JSON.parse(e.data); 
                 addLog(d.msg, d.level); 
             } catch(err) {
-                addLog(e.data, 'info');
+                if (e.data) addLog(e.data, 'info');
             } 
         };
-        es.onerror = () => {
+        
+        es.onerror = (err) => {
+            console.error('SSE: Connection error', err);
             es.close();
             if (authRedirectPending) return;
+            console.log(`SSE: Retrying in ${sseRetryDelay}ms...`);
             setTimeout(connectSSE, sseRetryDelay);
             sseRetryDelay = Math.min(sseRetryDelay * 1.5, MAX_SSE_RETRY);
         };
