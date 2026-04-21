@@ -67,13 +67,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 const keyObj = await SecureStorage.deriveKey(password, salt);
+                console.log('Login: Master key derived successfully');
                 
                 // Store raw key array for compatibility with app.js
                 sessionStorage.setItem('uplarr_master_key', JSON.stringify(keyObj.key));
+                console.log('Login: sessionStorage masterKey initialized');
                 
                 // Perform legacy migration immediately using in-memory password
                 const masterKey = await SecureStorage.getKey();
                 if (masterKey) {
+                    console.log('Login: Verified masterKey retrieval works');
                     const keys = Object.keys(localStorage);
                     for (const key of keys) {
                         if (key.startsWith('uplarr_') && !key.endsWith('_salt')) {
@@ -97,12 +100,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!saltStr) {
                     localStorage.setItem('uplarr_installation_salt', JSON.stringify(keyObj.salt));
+                    console.log('Login: Installation salt generated and stored');
                 }
                 
                 // Success transition
                 loginBtn.innerHTML = 'Success!';
                 loginBtn.style.background = 'var(--success)';
                 
+                console.log('Login: Success. Redirecting to home...');
                 setTimeout(() => {
                     window.location.href = '/';
                 }, 500);
