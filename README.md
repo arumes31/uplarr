@@ -190,7 +190,7 @@ We welcome contributions! Please follow our streamlined workflow:
 2. Create a Feature Branch (`git checkout -b feature/AmazingFeature`).
 3. Commit Changes (`git commit -m 'Add some AmazingFeature'`).
 4. Push to the Branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request to the `v2_test` branch.
+5. Open a Pull Request to the `v2.2` branch.
 
 ---
 
