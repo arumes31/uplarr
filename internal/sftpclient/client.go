@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"bytes"
 	"sync"
 	"time"
 
@@ -138,6 +139,12 @@ func (l *Limiter) GetStats() (currentKB, maxKB int, lastLat time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return int(l.rateLimiter.Limit() / 1024), int(l.MaxLimit / 1024), l.lastLatency
+}
+
+func (l *Limiter) GetMaxLatency() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.MaxLatency
 }
 
 func (l *Limiter) Burst() int {
@@ -535,16 +542,23 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 			logger.Info(fmt.Sprintf("Partial file found (%d/%d bytes). Attempting to resume...", remoteStat.Size(), localStat.Size()))
 			rf, errOpen := s.sftpClient.OpenFile(tempRemotePath, os.O_RDWR)
 			if errOpen == nil {
-				// Verify prefix content matches to prevent corruption
+				// Verify prefix content matches to prevent corruption.
+				// Cap verification at 1MB to avoid OOM for large resume offsets.
 				match := false
-				remotePrefix := make([]byte, remoteStat.Size())
+				const maxPrefix = 1024 * 1024
+				checkSize := remoteStat.Size()
+				if checkSize > maxPrefix {
+					checkSize = maxPrefix
+				}
+
+				remotePrefix := make([]byte, checkSize)
 				_, errRead := io.ReadFull(rf, remotePrefix)
 				if errRead == nil {
-					localPrefix := make([]byte, remoteStat.Size())
+					localPrefix := make([]byte, checkSize)
 					_, errLSeek := localFile.Seek(0, io.SeekStart)
 					if errLSeek == nil {
 						_, errLRead := io.ReadFull(localFile, localPrefix)
-						if errLRead == nil && string(remotePrefix) == string(localPrefix) {
+						if errLRead == nil && bytes.Equal(remotePrefix, localPrefix) {
 							match = true
 						}
 					}
@@ -557,7 +571,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 						if errLSeek == nil {
 							remoteFile = rf
 							startOffset = offset
-							logger.Info(fmt.Sprintf("Verfied prefix matches. Resuming from offset %d", startOffset))
+							logger.Info(fmt.Sprintf("Verified prefix matches. Resuming from offset %d", startOffset))
 						} else {
 							logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
 							_ = rf.Close()
@@ -746,7 +760,7 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 				}
 
 				// For other transient errors, record a value that triggers throttling
-				exceed := s.Limiter.MaxLatency + time.Millisecond
+				exceed := s.Limiter.GetMaxLatency() + time.Millisecond
 				s.Limiter.RecordLatency(exceed)
 				logger.Warn(fmt.Sprintf("Latency sampler error for %s: %v", s.Host, err))
 			}

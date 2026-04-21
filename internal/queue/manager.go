@@ -63,6 +63,8 @@ type QueueManager struct {
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
 	limiters      map[string]*sftpclient.Limiter
+	maxConcurrent int
+	runningTasks  int
 }
 
 func NewQueueManager(localDir, configDir string) *QueueManager {
@@ -81,11 +83,17 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 		cancel:        cancel,
 		activeCancels: make(map[string]context.CancelFunc),
 		limiters:      make(map[string]*sftpclient.Limiter),
+		maxConcurrent: 1,
 	}
 	qm.loadState()
 	qm.wg.Add(1)
 	go qm.processLoop()
 	return qm
+}
+
+type diskState struct {
+	Tasks           []diskTask `json:"tasks"`
+	MaxConcurrent   int        `json:"max_concurrent"`
 }
 
 type diskTask struct {
@@ -98,7 +106,11 @@ func (qm *QueueManager) saveStateLocked() {
 	for _, t := range qm.tasks {
 		dt = append(dt, diskTask{Task: t, Config: t.Config})
 	}
-	data, err := json.MarshalIndent(dt, "", "  ")
+	state := diskState{
+		Tasks:         dt,
+		MaxConcurrent: qm.maxConcurrent,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err == nil {
 		root, err := OsOpenRoot(qm.configDir)
 		if err != nil {
@@ -125,10 +137,10 @@ func (qm *QueueManager) loadState() {
 
 	data, err := root.ReadFile(".queue_state.json")
 	if err == nil {
-		var dt []diskTask
-		if err := json.Unmarshal(data, &dt); err == nil {
+		var state diskState
+		if err := json.Unmarshal(data, &state); err == nil {
 			var loaded []*models.Task
-			for _, d := range dt {
+			for _, d := range state.Tasks {
 				if d.Task != nil {
 					d.Task.Config = d.Config
 					if d.Task.Status == models.TaskRunning {
@@ -142,11 +154,34 @@ func (qm *QueueManager) loadState() {
 				}
 			}
 			qm.tasks = loaded
+			if state.MaxConcurrent > 0 {
+				qm.maxConcurrent = state.MaxConcurrent
+			}
 			if len(qm.tasks) > 0 {
-				go func() {
-					// ensure worker is triggered to process pending tasks on startup
-					qm.trigger()
-				}()
+				go qm.trigger()
+			}
+		} else {
+			// Fallback for old state format (just a slice of diskTask)
+			var dt []diskTask
+			if err := json.Unmarshal(data, &dt); err == nil {
+				var loaded []*models.Task
+				for _, d := range dt {
+					if d.Task != nil {
+						d.Task.Config = d.Config
+						if d.Task.Status == models.TaskRunning {
+							d.Task.Status = models.TaskPending
+						}
+						idVal, _ := strconv.ParseUint(d.Task.ID, 10, 64)
+						if idVal > qm.nextID {
+							qm.nextID = idVal
+						}
+						loaded = append(loaded, d.Task)
+					}
+				}
+				qm.tasks = loaded
+				if len(qm.tasks) > 0 {
+					go qm.trigger()
+				}
 			}
 		}
 	}
@@ -195,7 +230,7 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 	return limiter
 }
 
-func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKBps, maxLatencyMs int) {
+func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKBps, maxLatencyMs, concurrentFiles int) {
 	qm.mu.Lock()
 	limiter, exists := qm.limiters[host]
 	qm.mu.Unlock()
@@ -214,6 +249,17 @@ func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKB
 		maxLat := time.Duration(maxLatencyMs) * time.Millisecond
 		limiter.UpdateConfig(limit, minLimit, maxLat)
 		logger.Info(fmt.Sprintf("Live-updated throttling for host %s: %v KB/s, %v KB/s min, %v ms latency", host, rateLimitKBps, minLimitKBps, maxLatencyMs))
+	}
+
+	// Update concurrency if specified
+	if concurrentFiles > 0 {
+		qm.mu.Lock()
+		if qm.maxConcurrent != concurrentFiles {
+			qm.maxConcurrent = concurrentFiles
+			logger.Info(fmt.Sprintf("Live-updated concurrency: %d simultaneous transfers", qm.maxConcurrent))
+		}
+		qm.mu.Unlock()
+		qm.trigger() // Immediately trigger if limit was increased
 	}
 }
 
@@ -249,30 +295,52 @@ func (qm *QueueManager) processLoop() {
 		case <-qm.ctx.Done():
 			return
 		case <-qm.worker:
-			qm.processNext()
+			qm.mu.Lock()
+			// Spawn workers until limit reached or no more pending tasks
+			for qm.runningTasks < qm.maxConcurrent {
+				var nextTask *models.Task
+				for _, t := range qm.tasks {
+					if t.Status == models.TaskPending {
+						nextTask = t
+						break
+					}
+				}
+
+				if nextTask == nil {
+					break
+				}
+
+				// Mark as running atomically while under lock to prevent duplicate acquisition
+				nextTask.Status = models.TaskRunning
+				now := time.Now()
+				nextTask.StartedAt = &now
+				nextTask.BytesUploaded = 0
+				nextTask.TotalBytes = 0
+				nextTask.Progress = 0
+
+				qm.runningTasks++
+				go qm.runTask(nextTask)
+			}
+			qm.mu.Unlock()
+			qm.saveState() // Persist the updated statuses
 		}
 	}
 }
 
-func (qm *QueueManager) processNext() {
-	qm.mu.Lock()
-	var nextTask *models.Task
-	for _, t := range qm.tasks {
-		if t.Status == models.TaskPending {
-			nextTask = t
-			break
-		}
-	}
-	if nextTask == nil {
+func (qm *QueueManager) runTask(task *models.Task) {
+	defer func() {
+		qm.mu.Lock()
+		qm.runningTasks--
 		qm.mu.Unlock()
-		return
-	}
-	nextTask.Status = models.TaskRunning
-	now := time.Now()
-	nextTask.StartedAt = &now
-	nextTask.BytesUploaded = 0
-	nextTask.TotalBytes = 0
-	nextTask.Progress = 0
+		qm.trigger() // Check if another task can start
+	}()
+
+	qm.processTask(task)
+}
+
+func (qm *QueueManager) processTask(nextTask *models.Task) {
+	qm.mu.Lock()
+	// Task status/timestamps are already initialized by processLoop
 
 	taskCtx, taskCancel := context.WithCancel(qm.ctx)
 	qm.activeCancels[nextTask.ID] = taskCancel

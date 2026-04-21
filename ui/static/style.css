@@ -129,8 +129,7 @@ body {
     -webkit-text-fill-color: var(--accent-primary);
 }
 
-    color: var(--text-muted);
-}
+
 .status-bar {
     display: flex;
     align-items: center;

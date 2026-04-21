@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renameConfirmBtn = document.getElementById('rename-confirm-btn');
     const selectionRenameBtn = document.getElementById('selection-rename-btn');
     const renameCountBadge = document.getElementById('rename-count-badge');
+    const concurrentFilesInput = document.getElementById('concurrent_files');
 
     const contextMenu = document.getElementById('context-menu');
     const sidebarTree = document.getElementById('sidebar-tree');
@@ -827,6 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rate_limit_kbps: parseInt(formData.get('rate_limit_kbps')) || 0,
             max_latency_ms: parseInt(formData.get('max_latency_ms')) || 0,
             min_limit_kbps: parseInt(formData.get('min_limit_kbps')) || 0,
+            concurrent_files: parseInt(formData.get('concurrent_files')) || 1,
             files: Array.from(queuedFiles.keys())
         };
     };
@@ -1114,6 +1116,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPath(remoteBreadcrumb, remoteCurrentPath, true);
             remoteFilesList = data.files || [];
             renderRemoteFiles();
+            updateFolderTree(remoteCurrentPath, true);
         } catch (err) {
             addLog(`Remote fetch error: ${err.message}`, 'error');
             remoteFileListBody.innerHTML = '';

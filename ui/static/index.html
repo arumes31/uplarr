@@ -371,14 +371,19 @@
                                                             <input type="number" id="max_latency_ms"
                                                                 name="max_latency_ms" value="150" placeholder="150">
                                                         </div>
+                                                        <div class="form-field">
+                                                            <label for="concurrent_files">Concurrent Files</label>
+                                                            <input type="number" id="concurrent_files"
+                                                                name="concurrent_files" value="1" min="1" max="10" placeholder="1">
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div class="adv-toggles">
                                                 <label class="toggle-label">
                                                     <input type="checkbox" id="skip_host_key_verification"
-                                                        name="skip_host_key_verification" checked>
-                                                    <span class="toggle-text">Skip Host Key Verification</span>
+                                                        name="skip_host_key_verification">
+                                                    <span class="toggle-text">Skip Host Key Verification <small style="color: var(--error); opacity: 0.8; margin-left: 4px;">(Weakens Security)</small></span>
                                                 </label>
                                                 <label class="toggle-label">
                                                     <input type="checkbox" id="delete_after_verify"
