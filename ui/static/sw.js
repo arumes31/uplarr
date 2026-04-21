@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uplarr-cache-v4';
+const CACHE_NAME = 'uplarr-cache-v5';
 const ASSETS = [
     '/static/style.css',
     '/static/app.js',
@@ -18,6 +18,14 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+
+    // Never intercept API requests — let SSE, auth, and data endpoints go
+    // straight to the network without any service worker interference.
+    if (url.pathname.startsWith('/api/')) {
+        return;
+    }
+
     // Network-First for navigation requests (HTML)
     if (event.request.mode === 'navigate') {
         event.respondWith(
