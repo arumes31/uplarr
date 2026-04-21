@@ -92,8 +92,8 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 }
 
 type diskState struct {
-	Tasks           []diskTask `json:"tasks"`
-	MaxConcurrent   int        `json:"max_concurrent"`
+	Tasks         []diskTask `json:"tasks"`
+	MaxConcurrent int        `json:"max_concurrent"`
 }
 
 type diskTask struct {
@@ -463,10 +463,12 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	snapshot := make([]*models.Task, len(qm.tasks))
 	for i, t := range qm.tasks {
 		copyTask := *t
-		// Check if local file still exists
-		fullPath := filepath.Join(qm.localDir, t.FileName)
-		_, err := os.Stat(fullPath)
-		copyTask.LocalFileExists = (err == nil)
+		// Check if local file still exists (only needed for completed or failed tasks to show retry button)
+		if t.Status == models.TaskCompleted || t.Status == models.TaskFailed {
+			fullPath := filepath.Join(qm.localDir, t.FileName)
+			_, err := os.Stat(fullPath)
+			copyTask.LocalFileExists = (err == nil)
+		}
 
 		// Deep-copy mutable reference fields so snapshot doesn't share state
 		if t.Config.Files != nil {
