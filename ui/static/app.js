@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const speedHistory = new Map(); // host -> [rates...] for sparklines
     const folderTreeHistory = { local: new Set(), remote: new Set() };
     const countedTaskIds = new Set(); // To prevent double-counting analytics
+    let currentLiveBytes = 0; // sum of bytes_uploaded for non-completed tasks
 
     // --- Centralized Auth Failure Handler ---
     // Prevents multiple simultaneous 401 redirects from creating a reload loop.
@@ -675,9 +676,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Session Analytics
     const updateSessionStats = () => {
-        statTotalData.textContent = formatSize(sessionTotalBytes);
+        const total = sessionTotalBytes + currentLiveBytes;
+        statTotalData.textContent = formatSize(total);
         const elapsed = (Date.now() - sessionStart) / 1000;
-        const avg = sessionTotalBytes / (elapsed || 1);
+        const avg = total / (elapsed || 1);
         statAvgSpeed.textContent = formatRate(avg);
     };
 
@@ -1234,8 +1236,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res.status === 401) return handleAuthFailure('fetchQueue', 401);
             const tasks = await res.json();
             
+            let activeBytesSum = 0;
             queueBody.innerHTML = '';
             tasks.reverse().forEach(task => {
+                if (task.status !== 'Completed') {
+                    activeBytesSum += task.bytes_uploaded;
+                }
                 const id = task.id;
                 const row = document.createElement('tr');
                 row.id = `queue-row-${id}`;
@@ -1340,6 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             lastTotalRate = globalTotalRate;
             globalTotalRate = 0;
+            currentLiveBytes = activeBytesSum;
         } catch (e) {
             console.error('Failed to fetch queue:', e);
         }
