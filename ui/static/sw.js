@@ -1,4 +1,5 @@
-const CACHE_NAME = 'uplarr-cache-v5';
+const CACHE_NAME = 'uplarr-cache-v6';
+const OFFLINE_URL = '/static/offline.html';
 const ASSETS = [
     '/static/style.css',
     '/static/app.js',
@@ -6,7 +7,8 @@ const ASSETS = [
     '/static/fonts.css',
     '/static/manifest.json',
     '/static/favicon.png',
-    '/static/icon-maskable-1024.png'
+    '/static/icon-maskable-1024.png',
+    OFFLINE_URL
 ];
 
 self.addEventListener('install', (event) => {
@@ -29,8 +31,11 @@ self.addEventListener('fetch', (event) => {
     // Network-First for navigation requests (HTML)
     if (event.request.mode === 'navigate') {
         event.respondWith(
-            fetch(event.request).catch(() => {
-                return caches.match(event.request);
+            fetch(event.request).catch(async () => {
+                const cache = await caches.open(CACHE_NAME);
+                const cachedResponse = await cache.match(event.request);
+                if (cachedResponse) return cachedResponse;
+                return cache.match(OFFLINE_URL);
             })
         );
         return;

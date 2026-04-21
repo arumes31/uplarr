@@ -516,8 +516,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		// Use path (POSIX) package for SFTP paths which always use forward slashes
 		normalizedBase := pathpkg.Clean(strings.ReplaceAll(client.GetRemoteDir(), "\\", "/"))
 		normalizedTarget := pathpkg.Clean(strings.ReplaceAll(req.Path, "\\", "/"))
-		rel, err := filepath.Rel(normalizedBase, normalizedTarget)
-		normalizedRel := strings.ReplaceAll(rel, "\\", "/")
+		// filepath.Rel is OS-dependent; to handle POSIX (SFTP) paths correctly on all platforms,
+		// we convert them to the local OS format first, compute the relative path, then convert back to forward slashes.
+		rel, err := filepath.Rel(filepath.FromSlash(normalizedBase), filepath.FromSlash(normalizedTarget))
+		normalizedRel := filepath.ToSlash(rel)
 		if err != nil || normalizedRel == ".." || strings.HasPrefix(normalizedRel, "../") {
 			http.Error(w, "Unauthorized remote path", http.StatusUnauthorized)
 			return
