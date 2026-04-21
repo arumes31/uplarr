@@ -1563,13 +1563,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         masterKey = await SecureStorage.getKey();
         if (!masterKey) {
+            console.warn('Uplarr init: masterKey is null.',
+                'SecureStorage.isAvailable:', SecureStorage.isAvailable,
+                'sessionStorage has key:', !!sessionStorage.getItem('uplarr_master_key'));
             try {
                 const authRes = await fetch('/api/auth/status');
                 const authData = await authRes.json();
                 if (authData.auth_required) {
-                    // Backend requires auth but we have no masterKey (e.g. opened in a new tab).
-                    // Force log out to prompt for password to derive the key.
-                    // Use the centralized handler to avoid reload loops.
+                    // Backend requires auth but we have no masterKey (e.g. opened in a new tab
+                    // or sessionStorage was cleared). We need the user to re-enter their password
+                    // to derive the encryption key.
+                    // Invalidate the session so '/' serves the login page, then redirect.
                     await fetch('/api/logout', { method: 'POST' });
                     handleAuthFailure();
                     return;

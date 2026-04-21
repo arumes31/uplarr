@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uplarr-cache-v6';
+const CACHE_NAME = 'uplarr-cache-v7';
 const OFFLINE_URL = '/static/offline.html';
 const ASSETS = [
     '/static/style.css',
@@ -12,6 +12,9 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+    // Force this new service worker to activate immediately, even if
+    // an older version is still controlling other tabs.
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             return cache.addAll(ASSETS);
@@ -41,7 +44,20 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Cache-First for static assets
+    // Network-First for JS files to avoid stale code after deployments.
+    // Falls back to cache for offline support.
+    if (url.pathname.endsWith('.js')) {
+        event.respondWith(
+            fetch(event.request).then((response) => {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+                return response;
+            }).catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // Cache-First for other static assets (CSS, fonts, images)
     event.respondWith(
         caches.match(event.request).then((response) => {
             return response || fetch(event.request);
@@ -50,11 +66,12 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+    // Take control of all open pages immediately.
     event.waitUntil(
         caches.keys().then((keys) => {
             return Promise.all(
                 keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
             );
-        })
+        }).then(() => self.clients.claim())
     );
 });
