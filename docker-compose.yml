@@ -1,6 +1,6 @@
 services:
   uplarr:
-    image: ghcr.io/arumes31/uplarr:main
+    image: ghcr.io/arumes31/uplarr:v2_test
     container_name: uplarr
     restart: unless-stopped
     ports:
