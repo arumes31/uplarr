@@ -21,8 +21,6 @@
         <div class="blob blob-3"></div>
     </div>
     <div class="app-container">
-        <div id="metrics-overlay" class="metrics-overlay"></div>
-
         <svg style="display: none;">
             <symbol id="icon-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -108,8 +106,11 @@
                     <img src="/static/logo.png" alt="Uplarr Logo" class="logo-icon-img" width="28" height="28">
                     <h1>Uplarr <span class="badge">V2</span></h1>
                 </div>
-                <div id="session-stats" class="session-stats">
-                    <span id="stat-total-data">0 B</span> sent | <span id="stat-avg-speed">0 B/s</span> avg
+                <div id="status-bar" class="status-bar">
+                    <div id="session-stats" class="session-stats">
+                        <span id="stat-total-data">0 B</span> sent | <span id="stat-avg-speed">0 B/s</span> avg
+                    </div>
+                    <div id="header-host-metrics" class="header-host-metrics"></div>
                 </div>
                 <div class="header-right" style="display: flex; gap: 12px; align-items: center;">
                     <div class="theme-picker">
