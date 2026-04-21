@@ -21,8 +21,6 @@
         <div class="blob blob-3"></div>
     </div>
     <div class="app-container">
-        <div id="metrics-overlay" class="metrics-overlay"></div>
-
         <svg style="display: none;">
             <symbol id="icon-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -108,8 +106,11 @@
                     <img src="/static/logo.png" alt="Uplarr Logo" class="logo-icon-img" width="28" height="28">
                     <h1>Uplarr <span class="badge">V2</span></h1>
                 </div>
-                <div id="session-stats" class="session-stats">
-                    <span id="stat-total-data">0 B</span> sent | <span id="stat-avg-speed">0 B/s</span> avg
+                <div id="status-bar" class="status-bar">
+                    <div id="session-stats" class="session-stats">
+                        <span id="stat-total-data">0 B</span> sent | <span id="stat-avg-speed">0 B/s</span> avg
+                    </div>
+                    <div id="header-host-metrics" class="header-host-metrics"></div>
                 </div>
                 <div class="header-right" style="display: flex; gap: 12px; align-items: center;">
                     <div class="theme-picker">
@@ -370,14 +371,19 @@
                                                             <input type="number" id="max_latency_ms"
                                                                 name="max_latency_ms" value="150" placeholder="150">
                                                         </div>
+                                                        <div class="form-field">
+                                                            <label for="concurrent_files">Concurrent Files</label>
+                                                            <input type="number" id="concurrent_files"
+                                                                name="concurrent_files" value="1" min="1" max="10" placeholder="1">
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div class="adv-toggles">
                                                 <label class="toggle-label">
                                                     <input type="checkbox" id="skip_host_key_verification"
-                                                        name="skip_host_key_verification" checked>
-                                                    <span class="toggle-text">Skip Host Key Verification</span>
+                                                        name="skip_host_key_verification">
+                                                    <span class="toggle-text">Skip Host Key Verification <small style="color: var(--error); opacity: 0.8; margin-left: 4px;">(Weakens Security)</small></span>
                                                 </label>
                                                 <label class="toggle-label">
                                                     <input type="checkbox" id="delete_after_verify"

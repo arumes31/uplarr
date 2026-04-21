@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"bytes"
 	"sync"
 	"time"
 
@@ -138,6 +139,12 @@ func (l *Limiter) GetStats() (currentKB, maxKB int, lastLat time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return int(l.rateLimiter.Limit() / 1024), int(l.MaxLimit / 1024), l.lastLatency
+}
+
+func (l *Limiter) GetMaxLatency() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.MaxLatency
 }
 
 func (l *Limiter) Burst() int {
@@ -535,16 +542,23 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 			logger.Info(fmt.Sprintf("Partial file found (%d/%d bytes). Attempting to resume...", remoteStat.Size(), localStat.Size()))
 			rf, errOpen := s.sftpClient.OpenFile(tempRemotePath, os.O_RDWR)
 			if errOpen == nil {
-				// Verify prefix content matches to prevent corruption
+				// Verify prefix content matches to prevent corruption.
+				// Cap verification at 1MB to avoid OOM for large resume offsets.
 				match := false
-				remotePrefix := make([]byte, remoteStat.Size())
+				const maxPrefix = 1024 * 1024
+				checkSize := remoteStat.Size()
+				if checkSize > maxPrefix {
+					checkSize = maxPrefix
+				}
+
+				remotePrefix := make([]byte, checkSize)
 				_, errRead := io.ReadFull(rf, remotePrefix)
 				if errRead == nil {
-					localPrefix := make([]byte, remoteStat.Size())
+					localPrefix := make([]byte, checkSize)
 					_, errLSeek := localFile.Seek(0, io.SeekStart)
 					if errLSeek == nil {
 						_, errLRead := io.ReadFull(localFile, localPrefix)
-						if errLRead == nil && string(remotePrefix) == string(localPrefix) {
+						if errLRead == nil && bytes.Equal(remotePrefix, localPrefix) {
 							match = true
 						}
 					}
@@ -557,7 +571,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 						if errLSeek == nil {
 							remoteFile = rf
 							startOffset = offset
-							logger.Info(fmt.Sprintf("Verfied prefix matches. Resuming from offset %d", startOffset))
+							logger.Info(fmt.Sprintf("Verified prefix matches. Resuming from offset %d", startOffset))
 						} else {
 							logger.Error(fmt.Sprintf("Failed to seek local file: %v", errLSeek))
 							_ = rf.Close()
@@ -715,27 +729,40 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	addr := net.JoinHostPort(s.Host, s.Port)
-	const timeout = 2 * time.Second
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if s.sshClient == nil {
+				continue
+			}
+
 			start := time.Now()
-			// TCP Ping: simply dial and close to measure RTT
-			conn, err := net.DialTimeout("tcp", addr, timeout)
+			// Use an in-channel SSH Global Request to measure RTT.
+			// This avoids server-side DNS lookups and new TCP handshakes that often
+			// add artificial latency (e.g., DNS timeouts) on the server side.
+			// Standard OpenSSH will respond with a failure packet if this specific 
+			// request type is unknown, but since wantReply is true, it still 
+			// provides an accurate RTT measurement.
+			_, _, err := s.sshClient.SendRequest("keepalive@openssh.com", true, nil)
 			latency := time.Since(start)
+
 			if err == nil {
-				_ = conn.Close()
 				s.Limiter.RecordLatency(latency)
 			} else {
-				// If dial fails (e.g. timeout), record a latency that is guaranteed
-				// to exceed the limiter's MaxLatency threshold so throttle-down
-				// triggers regardless of the configured threshold.
-				exceed := s.Limiter.MaxLatency + time.Millisecond
+				// Handle actual connection/network errors. If the connection is closed,
+				// the sampler should stop.
+				if strings.Contains(err.Error(), "use of closed network connection") || 
+				   strings.Contains(err.Error(), "EOF") || 
+				   strings.Contains(err.Error(), "connection reset") {
+					return
+				}
+
+				// For other transient errors, record a value that triggers throttling
+				exceed := s.Limiter.GetMaxLatency() + time.Millisecond
 				s.Limiter.RecordLatency(exceed)
+				logger.Warn(fmt.Sprintf("Latency sampler error for %s: %v", s.Host, err))
 			}
 		}
 	}

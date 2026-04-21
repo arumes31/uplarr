@@ -25,6 +25,7 @@ type UploadRequest struct {
 	RateLimitKBps           int      `json:"rate_limit_kbps"`
 	MaxLatencyMs            int      `json:"max_latency_ms"`
 	MinLimitKBps            int      `json:"min_limit_kbps"`
+	ConcurrentFiles         int      `json:"concurrent_files"`
 }
 
 type FileActionRequest struct {

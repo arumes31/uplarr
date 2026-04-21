@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Queue Elements
     const queueBody = document.getElementById('queue-body');
-    const metricsOverlay = document.getElementById('metrics-overlay');
+    const headerHostMetrics = document.getElementById('header-host-metrics');
 
     // Shared Elements
     const testBtn = document.getElementById('test-btn');
@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renameConfirmBtn = document.getElementById('rename-confirm-btn');
     const selectionRenameBtn = document.getElementById('selection-rename-btn');
     const renameCountBadge = document.getElementById('rename-count-badge');
+    const concurrentFilesInput = document.getElementById('concurrent_files');
 
     const contextMenu = document.getElementById('context-menu');
     const sidebarTree = document.getElementById('sidebar-tree');
@@ -562,7 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     ['metrics', 'queue', 'logs'].forEach(id => {
         const cb = document.getElementById(`toggle-${id}`);
-        const section = document.querySelector(`.section-${id}`);
+        const section = id === 'metrics' ? headerHostMetrics : document.querySelector(`.section-${id}`);
         
         cb.addEventListener('change', async () => {
             if (section) section.style.display = cb.checked ? '' : 'none';
@@ -827,6 +828,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rate_limit_kbps: parseInt(formData.get('rate_limit_kbps')) || 0,
             max_latency_ms: parseInt(formData.get('max_latency_ms')) || 0,
             min_limit_kbps: parseInt(formData.get('min_limit_kbps')) || 0,
+            concurrent_files: parseInt(formData.get('concurrent_files')) || 1,
             files: Array.from(queuedFiles.keys())
         };
     };
@@ -1114,6 +1116,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPath(remoteBreadcrumb, remoteCurrentPath, true);
             remoteFilesList = data.files || [];
             renderRemoteFiles();
+            updateFolderTree(remoteCurrentPath, true);
         } catch (err) {
             addLog(`Remote fetch error: ${err.message}`, 'error');
             remoteFileListBody.innerHTML = '';
@@ -1362,75 +1365,33 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderStats = (stats) => {
-        if (!stats || stats.length === 0) {
-            metricsOverlay.innerHTML = '';
+        if (!stats || stats.length === 0 || !headerHostMetrics) {
+            if (headerHostMetrics) headerHostMetrics.innerHTML = '';
             return;
         }
 
-        metricsOverlay.innerHTML = '';
+        headerHostMetrics.innerHTML = '';
         stats.forEach(s => {
-            const card = document.createElement('div');
-            card.className = 'metric-card';
+            const item = document.createElement('div');
+            item.className = 'host-metric-item';
 
-            const hostEl = document.createElement('div');
-            hostEl.className = 'metric-host';
-            hostEl.textContent = s.host;
-            card.appendChild(hostEl);
+            const hostName = document.createElement('span');
+            hostName.className = 'host-name';
+            hostName.textContent = s.host;
 
-            // Latency row
-            const latRow = document.createElement('div');
-            latRow.className = 'metric-row';
-            const latLabel = document.createElement('span');
-            latLabel.className = 'metric-label';
-            latLabel.textContent = 'Latency';
-            const latValue = document.createElement('span');
-            latValue.className = 'metric-value latency' + (s.last_latency_ms > 100 ? ' high-latency' : '');
-            latValue.textContent = s.last_latency_ms + 'ms';
-            latRow.appendChild(latLabel);
-            latRow.appendChild(latValue);
-            card.appendChild(latRow);
+            const latencyVal = document.createElement('span');
+            latencyVal.className = `latency ${s.last_latency_ms > 100 ? 'high' : ''}`;
+            latencyVal.textContent = `${s.last_latency_ms}ms`;
 
-            // Rate Limit row
-            const rlRow = document.createElement('div');
-            rlRow.className = 'metric-row';
-            const rlLabel = document.createElement('span');
-            rlLabel.className = 'metric-label';
-            rlLabel.textContent = 'Rate Limit';
-            const rlValue = document.createElement('span');
-            rlValue.className = 'metric-value';
-            rlValue.textContent = (s.current_limit_kb / 1024).toFixed(1) + ' MB/s';
-            rlRow.appendChild(rlLabel);
-            rlRow.appendChild(rlValue);
-            card.appendChild(rlRow);
-
-            // Current Speed row with Sparkline
-            const spRow = document.createElement('div');
-            spRow.className = 'metric-row';
-            const spLabel = document.createElement('span');
-            spLabel.className = 'metric-label';
-            spLabel.textContent = 'Current Speed';
-            const spValue = document.createElement('span');
-            spValue.className = 'metric-value speed';
-            
+            const speedVal = document.createElement('span');
+            speedVal.className = 'speed';
             const hostSpeed = (s.total_speed_kbps || 0) * 1024;
-            spValue.textContent = formatRate(hostSpeed);
-            
-            // Phase 4 Sparkline logic
-            if (!speedHistory.has(s.host)) speedHistory.set(s.host, []);
-            const history = speedHistory.get(s.host);
-            history.push(hostSpeed);
-            if (history.length > 20) history.shift();
+            speedVal.textContent = formatRate(hostSpeed);
 
-            const sparkSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            sparkSvg.setAttribute("class", "sparkline-container");
-            sparkSvg.innerHTML = `<path class="sparkline" d="${generateSparklinePath(history, 60, 16)}" />`;
-            
-            spRow.appendChild(spLabel);
-            spRow.appendChild(spValue);
-            spRow.appendChild(sparkSvg);
-            card.appendChild(spRow);
-
-            metricsOverlay.appendChild(card);
+            item.appendChild(hostName);
+            item.appendChild(latencyVal);
+            item.appendChild(speedVal);
+            headerHostMetrics.appendChild(item);
         });
     };
 
