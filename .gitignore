@@ -31,3 +31,5 @@ test_data/
 /api
 /api_cov
 /queue
+.Jules/
+.Jules
