@@ -92,8 +92,8 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 }
 
 type diskState struct {
-	Tasks           []diskTask `json:"tasks"`
-	MaxConcurrent   int        `json:"max_concurrent"`
+	Tasks         []diskTask `json:"tasks"`
+	MaxConcurrent int        `json:"max_concurrent"`
 }
 
 type diskTask struct {

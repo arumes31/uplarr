@@ -1,6 +1,7 @@
 package sftpclient
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"bytes"
 	"sync"
 	"time"
 
@@ -742,8 +742,8 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 			// Use an in-channel SSH Global Request to measure RTT.
 			// This avoids server-side DNS lookups and new TCP handshakes that often
 			// add artificial latency (e.g., DNS timeouts) on the server side.
-			// Standard OpenSSH will respond with a failure packet if this specific 
-			// request type is unknown, but since wantReply is true, it still 
+			// Standard OpenSSH will respond with a failure packet if this specific
+			// request type is unknown, but since wantReply is true, it still
 			// provides an accurate RTT measurement.
 			_, _, err := s.sshClient.SendRequest("keepalive@openssh.com", true, nil)
 			latency := time.Since(start)
@@ -753,9 +753,9 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 			} else {
 				// Handle actual connection/network errors. If the connection is closed,
 				// the sampler should stop.
-				if strings.Contains(err.Error(), "use of closed network connection") || 
-				   strings.Contains(err.Error(), "EOF") || 
-				   strings.Contains(err.Error(), "connection reset") {
+				if strings.Contains(err.Error(), "use of closed network connection") ||
+					strings.Contains(err.Error(), "EOF") ||
+					strings.Contains(err.Error(), "connection reset") {
 					return
 				}
 
