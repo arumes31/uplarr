@@ -715,27 +715,40 @@ func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	addr := net.JoinHostPort(s.Host, s.Port)
-	const timeout = 2 * time.Second
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if s.sshClient == nil {
+				continue
+			}
+
 			start := time.Now()
-			// TCP Ping: simply dial and close to measure RTT
-			conn, err := net.DialTimeout("tcp", addr, timeout)
+			// Use an in-channel SSH Global Request to measure RTT.
+			// This avoids server-side DNS lookups and new TCP handshakes that often
+			// add artificial latency (e.g., DNS timeouts) on the server side.
+			// Standard OpenSSH will respond with a failure packet if this specific 
+			// request type is unknown, but since wantReply is true, it still 
+			// provides an accurate RTT measurement.
+			_, _, err := s.sshClient.SendRequest("keepalive@openssh.com", true, nil)
 			latency := time.Since(start)
+
 			if err == nil {
-				_ = conn.Close()
 				s.Limiter.RecordLatency(latency)
 			} else {
-				// If dial fails (e.g. timeout), record a latency that is guaranteed
-				// to exceed the limiter's MaxLatency threshold so throttle-down
-				// triggers regardless of the configured threshold.
+				// Handle actual connection/network errors. If the connection is closed,
+				// the sampler should stop.
+				if strings.Contains(err.Error(), "use of closed network connection") || 
+				   strings.Contains(err.Error(), "EOF") || 
+				   strings.Contains(err.Error(), "connection reset") {
+					return
+				}
+
+				// For other transient errors, record a value that triggers throttling
 				exceed := s.Limiter.MaxLatency + time.Millisecond
 				s.Limiter.RecordLatency(exceed)
+				logger.Warn(fmt.Sprintf("Latency sampler error for %s: %v", s.Host, err))
 			}
 		}
 	}
