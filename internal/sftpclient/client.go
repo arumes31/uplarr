@@ -30,7 +30,7 @@ import (
 // ProFTPD mod_sftp or FileZilla Server configurations) may need a lower value.
 // If you experience transfer failures or server disconnects, try reducing
 // this to 64.
-const DefaultMaxConcurrentRequestsPerFile = 256
+const DefaultMaxConcurrentRequestsPerFile = 64
 
 type Limiter struct {
 	rateLimiter    *rate.Limiter
