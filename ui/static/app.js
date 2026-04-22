@@ -200,15 +200,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Navigation & Search Logic ---
 
     // Instant Search Functionalify
-    localSearchInput.addEventListener('input', (e) => {
+
+    // ⚡ Bolt: Debounce search inputs to prevent jank when typing quickly.
+    // 📊 Impact: Reduces UI render cycle executions on every keystroke by combining them.
+    const debounce = (func, delay) => {
+        let timeoutId;
+        return (...args) => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => func(...args), delay);
+        };
+    };
+
+    localSearchInput.addEventListener('input', debounce((e) => {
         localFilter = e.target.value.toLowerCase();
         renderLocalFiles();
-    });
+    }, 250));
 
-    remoteSearchInput.addEventListener('input', (e) => {
+    remoteSearchInput.addEventListener('input', debounce((e) => {
         remoteFilter = e.target.value.toLowerCase();
         renderRemoteFiles();
-    });
+    }, 250));
 
     // Interactive Breadcrumb Generator
     const renderPath = (container, path, isRemote = false) => {
@@ -878,7 +889,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Local Files ---
 
     const renderLocalFiles = () => {
-        const sorted = sortFiles(localFilesList, localSort.key, localSort.dir);
+        // ⚡ Bolt: Filter files before sorting to improve performance.
+        // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
+        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
 
