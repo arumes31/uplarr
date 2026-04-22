@@ -720,6 +720,15 @@ section { padding: 8px 12px; }
     border-radius: 3px;
 }
 
+/* General focus states for accessibility */
+button:focus-visible,
+input:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
 /* Buttons */
 button {
     font-family: var(--font-main);
@@ -733,6 +742,12 @@ button {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(100%);
 }
 
 .glass-btn { background: rgba(255,255,255,0.05); color: var(--text-main); border: 1px solid var(--glass-border); }

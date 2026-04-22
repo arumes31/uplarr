@@ -178,7 +178,7 @@
                                             </svg></button>
                                     </div>
                                     <div class="toolbar-search">
-                                        <input type="search" id="local-search" placeholder="Filter...">
+                                        <input type="search" id="local-search" placeholder="Filter..." aria-label="Filter local files">
                                     </div>
                                     <button id="compact-toggle" class="compact-toggle"
                                         title="Compact List">Compact</button>
@@ -187,7 +187,7 @@
                                     <table id="file-table" class="file-table">
                                         <thead>
                                             <tr>
-                                                <th class="col-check"><input type="checkbox" id="select-all-checkbox">
+                                                <th class="col-check"><input type="checkbox" id="select-all-checkbox" aria-label="Select all local files">
                                                 </th>
                                                 <th class="col-name sortable" data-sort="name">Name <span
                                                         class="sort-arrow">▲</span></th>
@@ -223,7 +223,7 @@
                                             </svg></button>
                                     </div>
                                     <div class="toolbar-search">
-                                        <input type="search" id="remote-search" placeholder="Filter...">
+                                        <input type="search" id="remote-search" placeholder="Filter..." aria-label="Filter remote files">
                                     </div>
                                     <button id="remote-compact-toggle" class="compact-toggle"
                                         title="Compact List">Compact</button>
@@ -433,7 +433,7 @@
                         <section class="logs-section section-logs">
                             <div class="section-header">
                                 <h3>Logs</h3>
-                                <input type="text" id="log-search" placeholder="Filter..." class="search-input-sm">
+                                <input type="text" id="log-search" placeholder="Filter..." class="search-input-sm" aria-label="Filter logs">
                             </div>
                             <div id="log-container" class="log-window"></div>
                         </section>
