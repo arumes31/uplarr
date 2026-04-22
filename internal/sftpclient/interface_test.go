@@ -25,7 +25,7 @@ func (m *mockStatFileInfo) Size() int64 { return m.size }
 
 func TestReaderInterfaceSatisfaction(t *testing.T) {
 	mock := &mockStatReader{size: 12345}
-	
+
 	t.Run("progressReader", func(t *testing.T) {
 		pr := &progressReader{r: mock}
 		if s, ok := interface{}(pr).(interface{ Stat() (os.FileInfo, error) }); !ok {
