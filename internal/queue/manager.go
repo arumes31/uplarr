@@ -48,6 +48,7 @@ var NewClient = func(req models.UploadRequest) ClientInterface {
 		RateLimitKBps:           req.RateLimitKBps,
 		MaxLatencyMs:            req.MaxLatencyMs,
 		MinLimitKBps:            req.MinLimitKBps,
+		ConcurrentWrites:        req.ConcurrentWrites,
 	}
 }
 

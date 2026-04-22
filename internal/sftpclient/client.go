@@ -155,6 +155,7 @@ type SFTPFile interface {
 	io.ReadWriteCloser
 	io.Seeker
 	Stat() (os.FileInfo, error)
+	Truncate(size int64) error
 }
 
 type SFTPClientInterface interface {
@@ -213,6 +214,7 @@ type SFTPClient struct {
 	SkipHostKeyVerification bool
 	RateLimitKBps           int
 	MaxLatencyMs            int
+	ConcurrentWrites        bool
 	MinLimitKBps            int
 	ProgressCallback        func(bytesWritten int64)
 	FileSizeCallback        func(totalBytes int64)
@@ -337,11 +339,15 @@ func (s *SFTPClient) Connect() error {
 	}
 	s.sshClient = client
 
-	sftpClient, err := sftp.NewClient(client,
+	opts := []sftp.ClientOption{
 		sftp.MaxConcurrentRequestsPerFile(DefaultMaxConcurrentRequestsPerFile),
 		sftp.MaxPacket(32768),
-		sftp.UseConcurrentWrites(true),
-	)
+	}
+	if s.ConcurrentWrites {
+		opts = append(opts, sftp.UseConcurrentWrites(true))
+	}
+
+	sftpClient, err := sftp.NewClient(client, opts...)
 	if err != nil {
 		_ = client.Close() // #nosec G104
 		return fmt.Errorf("failed to create sftp client: %v", err)
@@ -661,7 +667,8 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 
 	// Always wrap reader with progress tracker. This correctly updates progress
 	// sequentially as pkg/sftp chunks payload to its connection pool
-	targetReader = &progressReader{r: targetReader, callback: s.ProgressCallback, total: startOffset}
+	progReader := &progressReader{r: targetReader, callback: s.ProgressCallback, total: startOffset}
+	targetReader = progReader
 	if s.ProgressCallback != nil && startOffset > 0 {
 		s.ProgressCallback(startOffset)
 	}
@@ -682,6 +689,9 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		_, err = io.Copy(targetWriter, targetReader)
 	}
 	if err != nil {
+		if s.ConcurrentWrites && remoteFile != nil {
+			_ = remoteFile.Truncate(progReader.total)
+		}
 		return fmt.Errorf("failed to copy file: %v", err)
 	}
 
