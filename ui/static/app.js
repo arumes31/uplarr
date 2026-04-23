@@ -158,7 +158,9 @@ document.addEventListener('DOMContentLoaded', () => {
         remotePane.classList.toggle('compact', compactState.remote);
         document.body.classList.toggle('global-compact', compactState.global);
         compactToggle.classList.toggle('active', compactState.local);
+        compactToggle.setAttribute('aria-pressed', compactState.local.toString());
         remoteCompactToggle.classList.toggle('active', compactState.remote);
+        remoteCompactToggle.setAttribute('aria-pressed', compactState.remote.toString());
         if (toggleGlobalCompact) toggleGlobalCompact.checked = !!compactState.global;
     };
     
@@ -566,11 +568,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Layout Toggles
     viewToggleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        viewMenu.classList.toggle('hidden');
+        const isHidden = viewMenu.classList.toggle('hidden');
+        viewToggleBtn.setAttribute('aria-expanded', (!isHidden).toString());
     });
 
     document.addEventListener('click', (e) => {
-        if (!viewMenu.contains(e.target)) viewMenu.classList.add('hidden');
+        if (!viewMenu.contains(e.target)) {
+            viewMenu.classList.add('hidden');
+            viewToggleBtn.setAttribute('aria-expanded', 'false');
+        }
     });
 
     ['metrics', 'queue', 'logs'].forEach(id => {

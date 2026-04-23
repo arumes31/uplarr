@@ -122,7 +122,7 @@
                             title="Rose" aria-label="Rose theme"></button>
                     </div>
                     <div class="dropdown">
-                        <button id="view-toggle-btn" class="glass-btn" title="View Options" aria-label="Toggle view options">
+                        <button id="view-toggle-btn" class="glass-btn" title="View Options" aria-label="Toggle view options" aria-haspopup="menu" aria-expanded="false">
                             <svg class="icon-inline" width="14" height="14">
                                 <use href="#icon-eye"></use>
                             </svg>
@@ -181,7 +181,7 @@
                                         <input type="search" id="local-search" placeholder="Filter..." aria-label="Filter local files">
                                     </div>
                                     <button id="compact-toggle" class="compact-toggle"
-                                        title="Compact List">Compact</button>
+                                        title="Compact List" aria-pressed="false">Compact</button>
                                 </div>
                                 <div class="file-list-container">
                                     <table id="file-table" class="file-table">
@@ -226,7 +226,7 @@
                                         <input type="search" id="remote-search" placeholder="Filter..." aria-label="Filter remote files">
                                     </div>
                                     <button id="remote-compact-toggle" class="compact-toggle"
-                                        title="Compact List">Compact</button>
+                                        title="Compact List" aria-pressed="false">Compact</button>
                                 </div>
                                 <div class="file-list-container">
                                     <table id="remote-file-table" class="file-table">
