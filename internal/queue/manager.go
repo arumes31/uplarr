@@ -459,15 +459,9 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 
 func (qm *QueueManager) GetTasks() []*models.Task {
 	qm.mu.RLock()
-	defer qm.mu.RUnlock()
 	snapshot := make([]*models.Task, len(qm.tasks))
 	for i, t := range qm.tasks {
 		copyTask := *t
-		// Check if local file still exists
-		fullPath := filepath.Join(qm.localDir, t.FileName)
-		_, err := os.Stat(fullPath)
-		copyTask.LocalFileExists = (err == nil)
-
 		// Deep-copy mutable reference fields so snapshot doesn't share state
 		if t.Config.Files != nil {
 			copyTask.Config.Files = make([]string, len(t.Config.Files))
@@ -475,6 +469,19 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 		}
 		snapshot[i] = &copyTask
 	}
+	qm.mu.RUnlock()
+
+	for _, copyTask := range snapshot {
+		// Only check if local file exists for states that actually need it (for Retry UI)
+		if copyTask.Status == models.TaskFailed || copyTask.Status == models.TaskCompleted {
+			fullPath := filepath.Join(qm.localDir, copyTask.FileName)
+			_, err := os.Stat(fullPath)
+			copyTask.LocalFileExists = (err == nil)
+		} else {
+			copyTask.LocalFileExists = true // Default for pending/running where we don't care to stat yet
+		}
+	}
+
 	return snapshot
 }
 
