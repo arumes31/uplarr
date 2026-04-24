@@ -312,7 +312,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 		absLocalDir, err := FilepathAbs(config.LocalDir)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("FilepathAbs error: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		absLocalDir, _ = FilepathEvalSymlinks(absLocalDir)
@@ -354,7 +355,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}()
 
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("Failed to read directory: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
@@ -392,14 +394,16 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		// Security check
 		absLocalDir, err := FilepathAbs(config.LocalDir)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("FilepathAbs error (config.LocalDir): %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		absLocalDir, _ = FilepathEvalSymlinks(absLocalDir)
 
 		absPath, err := FilepathAbs(fullPath)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("FilepathAbs error (fullPath): %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		// EvalSymlinks might fail if path doesn't exist yet (mkdir), so we check error
@@ -423,7 +427,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		// Security check: use OsOpenRoot for hardware-level containment
 		root, err := OsOpenRoot(absLocalDir)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("OsOpenRoot error: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		defer root.Close()
@@ -440,7 +445,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			newPath := filepath.Join(filepath.Dir(absPath), req.NewName)
 			newPath, err = FilepathAbs(newPath)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				logger.Error(fmt.Sprintf("FilepathAbs error (newPath): %v", err))
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
 			newRel, err := filepath.Rel(absLocalDir, newPath)
@@ -457,7 +463,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		if errAct != nil {
-			http.Error(w, errAct.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("Action '%s' failed: %v", req.Action, errAct))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -508,8 +515,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 		files, err := client.ReadRemoteDir(remotePath)
 		if err != nil {
+			logger.Error(fmt.Sprintf("ReadRemoteDir error: %v", err))
 			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Internal server error"})
 			return
 		}
 
@@ -568,7 +576,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 
 		if errAct != nil {
-			http.Error(w, errAct.Error(), http.StatusInternalServerError)
+			logger.Error(fmt.Sprintf("Remote action '%s' failed: %v", req.Action, errAct))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -585,6 +594,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		// within LocalDir (fixes CodeQL: uncontrolled data in path expression)
 		baseDirAbs, err := filepath.Abs(config.LocalDir)
 		if err != nil {
+			logger.Error(fmt.Sprintf("filepath.Abs error for config.LocalDir: %v", err))
 			http.Error(w, "Server configuration error", http.StatusInternalServerError)
 			return
 		}
