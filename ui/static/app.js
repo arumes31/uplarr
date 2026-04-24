@@ -894,7 +894,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     const updateUploadButtonText = () => {
-        uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
+        const textSpan = uploadBtn.querySelector('.btn-text');
+        if (textSpan) {
+            textSpan.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
+        } else {
+            uploadBtn.textContent = queuedFiles.size > 0 ? `Queue ${queuedFiles.size} Files` : "Queue All Files";
+        }
+    };
+
+    const toggleButtonLoading = (btn, isLoading, loadingText = "Loading...", restoreFn = null) => {
+        if (!btn) return;
+        const icon = btn.querySelector('.btn-icon');
+        const spinner = btn.querySelector('.btn-spinner');
+        const textSpan = btn.querySelector('.btn-text');
+
+        if (isLoading) {
+            if (icon) icon.classList.add('hidden');
+            if (spinner) spinner.classList.remove('hidden');
+            if (textSpan) {
+                btn.dataset.originalText = textSpan.textContent;
+                textSpan.textContent = loadingText;
+            }
+        } else {
+            if (icon) icon.classList.remove('hidden');
+            if (spinner) spinner.classList.add('hidden');
+            if (restoreFn) {
+                restoreFn();
+            } else if (textSpan && btn.dataset.originalText) {
+                textSpan.textContent = btn.dataset.originalText;
+            }
+        }
     };
 
     // --- Local Files ---
@@ -1463,6 +1492,7 @@ document.addEventListener('DOMContentLoaded', () => {
         testBtn.addEventListener('click', async () => {
             const config = getFormData();
             testBtn.disabled = true;
+            toggleButtonLoading(testBtn, true, "Connecting...");
             showStatus("Connecting...", "info");
             try {
                 const res = await fetch('/api/test-connection', { 
@@ -1475,6 +1505,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 else showStatus(`Failed: ${data.error || "Unknown error"}`, "error");
             } catch (e) { showStatus("Request failed", "error"); }
             testBtn.disabled = false;
+            toggleButtonLoading(testBtn, false);
         });
     }
 
@@ -1482,6 +1513,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateThrottleBtn.addEventListener('click', async () => {
             const config = getFormData();
             updateThrottleBtn.disabled = true;
+            toggleButtonLoading(updateThrottleBtn, true, "Applying...");
             try {
                 const res = await fetch('/api/throttle/update', { 
                     method: 'POST', 
@@ -1497,6 +1529,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (e) { showStatus("Request failed", "error"); }
             updateThrottleBtn.disabled = false;
+            toggleButtonLoading(updateThrottleBtn, false);
         });
     }
 
@@ -1531,6 +1564,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addLog(`Queueing ${filesToUpload.length} files to: ${config.remote_dir}`, 'info');
         
         uploadBtn.disabled = true;
+        toggleButtonLoading(uploadBtn, true, "Queueing...");
         try {
             const res = await fetch('/api/upload', { 
                 method: 'POST', 
@@ -1549,6 +1583,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) { showStatus("Upload request failed", "error"); }
         uploadBtn.disabled = false;
+        toggleButtonLoading(uploadBtn, false, "", updateUploadButtonText);
     });
 }
 
