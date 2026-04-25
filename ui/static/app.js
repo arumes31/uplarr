@@ -936,6 +936,10 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
 
+        // ⚡ Bolt: Batch DOM inserts using DocumentFragment to prevent layout thrashing
+        // 📊 Impact: O(1) reflow instead of O(n) for large directories, making rendering significantly smoother
+        const fragment = document.createDocumentFragment();
+
         sorted.forEach(file => {
             const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
             const row = document.createElement('tr');
@@ -1017,9 +1021,10 @@ document.addEventListener('DOMContentLoaded', () => {
             row.appendChild(tdName);
             row.appendChild(tdSize);
             row.appendChild(tdType);
-            fileListBody.appendChild(row);
+            fragment.appendChild(row);
         });
 
+        fileListBody.appendChild(fragment);
         lastCheckedIndex = -1;
         selectAllCheckbox.checked = false;
     };
@@ -1116,6 +1121,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // ⚡ Bolt: Batch DOM inserts using DocumentFragment to prevent layout thrashing
+        // 📊 Impact: O(1) reflow instead of O(n) for remote directory rendering
+        const fragment = document.createDocumentFragment();
+
         sorted.forEach(file => {
             const row = document.createElement('tr');
             if (file.is_dir) {
@@ -1149,8 +1158,10 @@ document.addEventListener('DOMContentLoaded', () => {
             row.appendChild(tdName);
             row.appendChild(tdSize);
             row.appendChild(tdType);
-            remoteFileListBody.appendChild(row);
+            fragment.appendChild(row);
         });
+
+        remoteFileListBody.appendChild(fragment);
     };
 
     const fetchRemoteFiles = async (path = null) => {
@@ -1298,6 +1309,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let activeBytesSum = 0;
             queueBody.innerHTML = '';
+
+            // ⚡ Bolt: Batch DOM inserts using DocumentFragment to prevent layout thrashing
+            // 📊 Impact: O(1) reflow instead of O(n) for queue rendering
+            const fragment = document.createDocumentFragment();
+
             tasks.reverse().forEach(task => {
                 if (task.status !== 'Completed') {
                     activeBytesSum += task.bytes_uploaded;
@@ -1402,8 +1418,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 row.appendChild(tdRate);
                 row.appendChild(tdCreated);
                 row.appendChild(tdActions);
-                queueBody.appendChild(row);
+                fragment.appendChild(row);
             });
+
+            queueBody.appendChild(fragment);
             lastTotalRate = globalTotalRate;
             globalTotalRate = 0;
             currentLiveBytes = activeBytesSum;
