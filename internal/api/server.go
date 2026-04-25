@@ -470,6 +470,49 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	mux.HandleFunc("/api/files/download", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		relPath := filepath.Clean(r.URL.Query().Get("path"))
+		if relPath == "" || relPath == "." {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		fullPath := filepath.Join(config.LocalDir, relPath)
+
+		absLocalDir, err := FilepathAbs(config.LocalDir)
+		if err != nil {
+			logger.Error(fmt.Sprintf("FilepathAbs error: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		absLocalDir, _ = FilepathEvalSymlinks(absLocalDir)
+
+		absPath, err := FilepathAbs(fullPath)
+		if err != nil {
+			logger.Error(fmt.Sprintf("FilepathAbs error (fullPath): %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if evalPath, err := FilepathEvalSymlinks(absPath); err == nil {
+			absPath = evalPath
+		}
+
+		rel, err := filepath.Rel(absLocalDir, absPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(absPath)))
+		http.ServeFile(w, r, absPath)
+	}))
+
 	mux.HandleFunc("/api/test-connection", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
