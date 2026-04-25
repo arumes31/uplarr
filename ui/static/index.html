@@ -480,23 +480,8 @@
         <div class="modal-content glass-panel">
             <h3>Mass Rename</h3>
             <div class="rename-inputs">
-                <input type="text" id="rename-search" placeholder="Search (Regex supported)">
-                <input type="text" id="rename-replace" placeholder="Replace (use $idx for sequence)">
-            </div>
-            <div id="rename-preview" class="rename-preview"></div>
-            <div class="modal-actions">
-                <button id="rename-cancel-btn" class="secondary-btn">Cancel</button>
-                <button id="rename-confirm-btn" class="primary-btn">Apply Rename</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="rename-modal" class="modal hidden">
-        <div class="modal-content glass-panel">
-            <h3>Mass Rename</h3>
-            <div class="rename-inputs">
-                <input type="text" id="rename-search" placeholder="Search (Regex supported)">
-                <input type="text" id="rename-replace" placeholder="Replace (use $idx for sequence)">
+                <input type="text" id="rename-search" placeholder="Search (Regex supported)" aria-label="Search pattern">
+                <input type="text" id="rename-replace" placeholder="Replace (use $idx for sequence)" aria-label="Replacement pattern">
             </div>
             <div id="rename-preview" class="rename-preview"></div>
             <div class="modal-actions">
