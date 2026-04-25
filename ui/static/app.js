@@ -940,6 +940,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // 📊 Impact: O(1) reflow instead of O(n) for large directories, making rendering significantly smoother
         const fragment = document.createDocumentFragment();
 
+        if (sorted.length === 0) {
+            const row = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.className = 'empty-msg';
+            td.textContent = localFilter ? `No files matching "${localFilter}"` : 'This folder is empty';
+            row.appendChild(td);
+            fileListBody.appendChild(row);
+            return;
+        }
+
         sorted.forEach(file => {
             const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
             const row = document.createElement('tr');
@@ -1309,10 +1320,19 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let activeBytesSum = 0;
             queueBody.innerHTML = '';
-
             // ⚡ Bolt: Batch DOM inserts using DocumentFragment to prevent layout thrashing
             // 📊 Impact: O(1) reflow instead of O(n) for queue rendering
             const fragment = document.createDocumentFragment();
+
+            if (tasks.length === 0) {
+                const row = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 6;
+                td.className = 'empty-msg';
+                td.textContent = 'Queue is empty. Select files to start transferring.';
+                row.appendChild(td);
+                fragment.appendChild(row);
+            }
 
             tasks.reverse().forEach(task => {
                 if (task.status !== 'Completed') {
