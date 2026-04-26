@@ -8,3 +8,7 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+
+## 2025-05-25 - Using DocumentFragment for batching DOM insertions
+**Learning:** Appending DOM nodes one by one in a loop inside vanilla JS scripts triggers unnecessary browser layout recalculations and repaints on every insertion, causing severe performance issues when the list of elements is large.
+**Action:** When creating and inserting multiple elements dynamically in vanilla JavaScript, always batch the operations by creating a `DocumentFragment` first, appending the new elements to it within the loop, and then appending the complete fragment to the target DOM node in a single action. This ensures O(1) DOM reflows instead of O(N) reflows.
