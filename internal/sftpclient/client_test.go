@@ -41,6 +41,11 @@ func (m *mockSFTPFile) Read(p []byte) (n int, err error) {
 	m.pos += int64(n)
 	return n, nil
 }
+func (m *mockSFTPFile) Truncate(size int64) error {
+	m.statSize = size
+	return nil
+}
+
 func (m *mockSFTPFile) Write(p []byte) (n int, err error) {
 	if m.delay > 0 {
 		time.Sleep(m.delay)

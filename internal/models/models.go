@@ -23,6 +23,7 @@ type UploadRequest struct {
 	SkipHostKeyVerification bool     `json:"skip_host_key_verification"`
 	Files                   []string `json:"files"`
 	RateLimitKBps           int      `json:"rate_limit_kbps"`
+	ConcurrentWrites        bool     `json:"concurrent_writes"`
 	MaxLatencyMs            int      `json:"max_latency_ms"`
 	MinLimitKBps            int      `json:"min_limit_kbps"`
 	ConcurrentFiles         int      `json:"concurrent_files"`
