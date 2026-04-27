@@ -8,3 +8,6 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+## 2025-05-26 - O(N²) Lock Contention in GetHostStats
+**Learning:** `GetHostStats` was iterating over all tasks inside a host loop while holding an RLock, resulting in O(N²) traversal. In a long-polling or fast-polling endpoint, this causes lock contention, slowing down other operations holding the write lock.
+**Action:** When returning stats derived from lists within a read lock, use an O(N) map aggregation to pre-calculate the subset needed, reducing iteration overhead inside the critical section.
