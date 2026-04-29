@@ -953,8 +953,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
                 row.addEventListener('click', (e) => {
                     if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.target.type !== 'checkbox' && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        fetchFiles(fullRelPath);
+                    }
                 });
             } else {
                 row.draggable = true;
@@ -1131,9 +1139,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('tr');
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
                 row.addEventListener('click', () => {
                     const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                     fetchRemoteFiles(newPath);
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.target.type !== 'checkbox' && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
+                        fetchRemoteFiles(newPath);
+                    }
                 });
             }
 
