@@ -632,10 +632,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		for _, file := range validFiles {
-			// Update the host-wide limiter with the latest config provided with this upload request
+		if len(validFiles) > 0 {
 			qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MinLimitKBps, req.MaxLatencyMs, req.ConcurrentFiles)
-			qm.AddTask(file, req)
+			qm.AddTasks(validFiles, req)
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Tasks added to queue"})

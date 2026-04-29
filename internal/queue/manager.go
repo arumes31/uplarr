@@ -263,22 +263,33 @@ func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKB
 	}
 }
 
-func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
+// ⚡ Bolt: Batch adding tasks prevents O(N) disk writes to the state file
+func (qm *QueueManager) AddTasks(fileNames []string, config models.UploadRequest) {
 	qm.mu.Lock()
-	qm.nextID++
-	id := qm.nextID
-	task := &models.Task{
-		ID:        strconv.FormatUint(id, 10),
-		FileName:  fileName,
-		RemoteDir: config.RemoteDir,
-		Status:    models.TaskPending,
-		CreatedAt: time.Now(),
-		Config:    config,
+	for _, fileName := range fileNames {
+		qm.nextID++
+		id := qm.nextID
+		task := &models.Task{
+			ID:        strconv.FormatUint(id, 10),
+			FileName:  fileName,
+			RemoteDir: config.RemoteDir,
+			Status:    models.TaskPending,
+			CreatedAt: time.Now(),
+			Config:    config,
+		}
+		qm.tasks = append(qm.tasks, task)
 	}
-	qm.tasks = append(qm.tasks, task)
 	qm.mu.Unlock()
-	qm.saveState()
-	qm.trigger()
+	if len(fileNames) > 0 {
+		qm.saveState()
+		for i := 0; i < len(fileNames); i++ {
+			qm.trigger()
+		}
+	}
+}
+
+func (qm *QueueManager) AddTask(fileName string, config models.UploadRequest) {
+	qm.AddTasks([]string{fileName}, config)
 }
 
 func (qm *QueueManager) trigger() {
