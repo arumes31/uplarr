@@ -724,9 +724,14 @@ section { padding: 8px 12px; }
 button:focus-visible,
 input:focus-visible,
 a:focus-visible,
-[role="button"]:focus-visible {
+[role="button"]:focus-visible,
+.clickable-row:focus-visible {
     outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
+}
+
+.clickable-row:focus-visible {
+    outline-offset: -2px;
 }
 
 /* Buttons */

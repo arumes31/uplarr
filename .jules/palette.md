@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2024-05-18 - Keyboard Accessibility for Custom Table Rows
+**Learning:** Found that custom table rows used as interactive elements (e.g., clicking a directory row to navigate) lack built-in keyboard accessibility, making navigation impossible for non-mouse users.
+**Action:** Whenever using non-interactive elements (like `<tr>` or `<div>`) as clickable items, always assign `role="button"`, `tabindex="0"`, and attach a `keydown` event listener to trigger the action on Enter or Space keys, while also providing `:focus-visible` styles.
