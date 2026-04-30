@@ -138,13 +138,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Toggle Password Visibility (if icon added later)
     const toggleBtn = document.getElementById('toggle-password');
-    if (toggleBtn) {
+    const eyeVisible = document.getElementById('icon-eye-visible');
+    const eyeHidden = document.getElementById('icon-eye-hidden');
+
+    if (toggleBtn && eyeVisible && eyeHidden) {
         toggleBtn.addEventListener('click', () => {
             if (!passwordInput) return;
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-            toggleBtn.classList.toggle('fa-eye');
-            toggleBtn.classList.toggle('fa-eye-slash');
+            const isPassword = passwordInput.getAttribute('type') === 'password';
+            passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+
+            if (isPassword) {
+                eyeVisible.classList.add('hidden');
+                eyeHidden.classList.remove('hidden');
+                toggleBtn.setAttribute('aria-label', 'Hide password');
+            } else {
+                eyeVisible.classList.remove('hidden');
+                eyeHidden.classList.add('hidden');
+                toggleBtn.setAttribute('aria-label', 'Show password');
+            }
         });
     }
 });
