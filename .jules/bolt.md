@@ -8,3 +8,7 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+
+## 2025-05-25 - Avoid O(N) disk I/O in polled endpoints
+**Learning:** Checking file existence (`os.Stat`) inside a frequently polled endpoint (like `/api/queue`) creates massive disk I/O overhead as the number of items grows, even outside of mutex critical sections.
+**Action:** Shift file existence validation from "display-time" to "action-time". For UI states, assume the file exists to skip the read, and validate it when the user actually attempts to act on it (e.g. click Retry).
