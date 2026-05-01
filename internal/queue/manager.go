@@ -472,14 +472,10 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	qm.mu.RUnlock()
 
 	for _, copyTask := range snapshot {
-		// Only check if local file exists for states that actually need it (for Retry UI)
-		if copyTask.Status == models.TaskFailed || copyTask.Status == models.TaskCompleted {
-			fullPath := filepath.Join(qm.localDir, copyTask.FileName)
-			_, err := os.Stat(fullPath)
-			copyTask.LocalFileExists = (err == nil)
-		} else {
-			copyTask.LocalFileExists = true // Default for pending/running where we don't care to stat yet
-		}
+		// ⚡ Bolt: Removed os.Stat from this polled endpoint to prevent O(n) disk I/O.
+		// The backend will instead validate file existence in ControlTask when a retry is actually attempted.
+		// Impact: Eliminates mass disk I/O on every UI queue poll for completed/failed tasks.
+		copyTask.LocalFileExists = true
 	}
 
 	return snapshot
