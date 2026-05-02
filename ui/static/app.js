@@ -406,10 +406,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const table = document.getElementById(tableId);
         table.querySelectorAll('th.sortable').forEach(th => {
             th.classList.remove('sort-asc', 'sort-desc');
+            th.setAttribute('aria-sort', 'none');
             const arrow = th.querySelector('.sort-arrow');
             if (arrow) arrow.textContent = '\u25B2';
             if (th.dataset.sort === sortState.key) {
                 th.classList.add(sortState.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+                th.setAttribute('aria-sort', sortState.dir === 'asc' ? 'ascending' : 'descending');
                 if (arrow) arrow.textContent = sortState.dir === 'asc' ? '\u25B2' : '\u25BC';
             }
         });
