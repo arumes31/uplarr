@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -15,6 +16,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"golang.org/x/time/rate"
 	"sync"
 	"uplarr/internal/logger"
 	"uplarr/internal/models"
@@ -117,6 +119,41 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 	mux := http.NewServeMux()
 
+	// IP-based rate limiter for login to prevent brute force attacks
+	type visitor struct {
+		limiter  *rate.Limiter
+		lastSeen time.Time
+	}
+	var loginLimiters = make(map[string]*visitor)
+	var loginLimitersMu sync.Mutex
+
+	// Cleanup routine to prevent memory leaks from unbounded map growth
+	go func() {
+		for {
+			time.Sleep(10 * time.Minute)
+			loginLimitersMu.Lock()
+			for ip, v := range loginLimiters {
+				if time.Since(v.lastSeen) > 10*time.Minute {
+					delete(loginLimiters, ip)
+				}
+			}
+			loginLimitersMu.Unlock()
+		}
+	}()
+
+	getLoginLimiter := func(ip string) *rate.Limiter {
+		loginLimitersMu.Lock()
+		defer loginLimitersMu.Unlock()
+		if v, exists := loginLimiters[ip]; exists {
+			v.lastSeen = time.Now()
+			return v.limiter
+		}
+		// Allow 5 login attempts per minute per IP, with a burst of 5
+		limiter := rate.NewLimiter(rate.Every(time.Minute/5), 5)
+		loginLimiters[ip] = &visitor{limiter: limiter, lastSeen: time.Now()}
+		return limiter
+	}
+
 	withAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if config.AuthPassword == "" {
@@ -154,6 +191,15 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	}
 
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if !getLoginLimiter(ip).Allow() {
+			http.Error(w, "Too many login attempts", http.StatusTooManyRequests)
+			return
+		}
+
 		if config.AuthPassword == "" {
 			w.WriteHeader(http.StatusOK)
 			return
