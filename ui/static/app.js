@@ -230,7 +230,16 @@ document.addEventListener('DOMContentLoaded', () => {
         rootIcon.className = 'breadcrumb-segment root';
         rootIcon.textContent = '/';
         rootIcon.title = 'Go to root';
-        rootIcon.addEventListener('click', () => isRemote ? fetchRemoteFiles('/') : fetchFiles(''));
+        rootIcon.setAttribute('role', 'button');
+        rootIcon.tabIndex = 0;
+        const rootAction = () => isRemote ? fetchRemoteFiles('/') : fetchFiles('');
+        rootIcon.addEventListener('click', rootAction);
+        rootIcon.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                rootAction();
+            }
+        });
         container.appendChild(rootIcon);
 
         const cleanPath = path.replace(/^[\\/]+|[\\/]+$/g, '');
@@ -250,7 +259,16 @@ document.addEventListener('DOMContentLoaded', () => {
             segment.className = 'breadcrumb-segment';
             segment.textContent = part;
             segment.title = `Jump to ${part}`;
-            segment.addEventListener('click', () => isRemote ? fetchRemoteFiles(currentAcc) : fetchFiles(currentAcc));
+            segment.setAttribute('role', 'button');
+            segment.tabIndex = 0;
+            const segmentAction = () => isRemote ? fetchRemoteFiles(currentAcc) : fetchFiles(currentAcc);
+            segment.addEventListener('click', segmentAction);
+            segment.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    segmentAction();
+                }
+            });
             container.appendChild(segment);
         });
     };
@@ -810,7 +828,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span>${escapeHTML(name)}</span>
             `;
             item.title = p;
-            item.onclick = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
+            item.setAttribute('role', 'button');
+            item.tabIndex = 0;
+            const itemAction = () => isRemote ? fetchRemoteFiles(p) : fetchFiles(p);
+            item.onclick = itemAction;
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    itemAction();
+                }
+            });
             container.appendChild(item);
         });
     };
@@ -953,8 +980,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
+                row.tabIndex = 0;
+                const rowAction = () => fetchFiles(fullRelPath);
                 row.addEventListener('click', (e) => {
-                    if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
+                    if (e.target.type !== 'checkbox') rowAction();
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        if (e.target.type !== 'checkbox') {
+                            e.preventDefault();
+                            rowAction();
+                        }
+                    }
                 });
             } else {
                 row.draggable = true;
@@ -1131,9 +1168,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('tr');
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
-                row.addEventListener('click', () => {
+                row.tabIndex = 0;
+                const rowAction = () => {
                     const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                     fetchRemoteFiles(newPath);
+                };
+                row.addEventListener('click', rowAction);
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        rowAction();
+                    }
                 });
             }
 

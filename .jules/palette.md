@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2024-05-18 - Keyboard accessibility for custom interactive elements
+**Learning:** In Vanilla JS applications, interactive elements that behave like links or buttons (like custom file browser breadcrumbs, custom tree sidebars, and clickable table rows) often lack keyboard accessibility by default. Screen reader and keyboard-only users cannot access them.
+**Action:** When creating custom interactive DOM elements via JS (e.g., dynamically rendering clickable segments), always add `role="button"`, `tabIndex=0`, and listen for both `click` and `keydown` (`Enter` or `Space`) events. Pair with a visible `:focus-visible` CSS outline to ensure visual feedback during keyboard navigation.
