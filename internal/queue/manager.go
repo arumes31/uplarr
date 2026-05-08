@@ -489,41 +489,53 @@ func (qm *QueueManager) GetHostStats() []models.HostStats {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 
-	var stats []models.HostStats
-	for host, limiter := range qm.limiters {
-		// Only report hosts that are actually relevant (have tasks)
-		hasActiveTasks := false
-		activeCount := 0
-		for _, t := range qm.tasks {
-			if t.Config.Host == host && (t.Status == models.TaskRunning || t.Status == models.TaskPending) {
-				hasActiveTasks = true
-				if t.Status == models.TaskRunning {
-					activeCount++
-				}
-			}
+	type hostAgg struct {
+		activeTasks  int
+		hostSpeedBps float64
+		hasActive    bool
+	}
+	agg := make(map[string]*hostAgg)
+
+	// O(T) pass: aggregate task metrics by host
+	for _, t := range qm.tasks {
+		h := t.Config.Host
+		if _, exists := qm.limiters[h]; !exists {
+			continue // Only track hosts we have limiters for
 		}
 
-		if hasActiveTasks {
-			curr, max, lat := limiter.GetStats()
+		a, ok := agg[h]
+		if !ok {
+			a = &hostAgg{}
+			agg[h] = a
+		}
 
-			// Compute per-host total speed from running tasks
-			var hostSpeedBps float64
-			for _, t := range qm.tasks {
-				if t.Config.Host == host && t.Status == models.TaskRunning && t.StartedAt != nil && t.BytesUploaded > 0 {
+		if t.Status == models.TaskRunning || t.Status == models.TaskPending {
+			a.hasActive = true
+			if t.Status == models.TaskRunning {
+				a.activeTasks++
+				if t.StartedAt != nil && t.BytesUploaded > 0 {
 					elapsed := time.Since(*t.StartedAt).Seconds()
 					if elapsed > 0 {
-						hostSpeedBps += float64(t.BytesUploaded) / elapsed
+						a.hostSpeedBps += float64(t.BytesUploaded) / elapsed
 					}
 				}
 			}
+		}
+	}
 
+	var stats []models.HostStats
+	// O(H) pass: build stats for hosts with active tasks
+	for host, limiter := range qm.limiters {
+		a, ok := agg[host]
+		if ok && a.hasActive {
+			curr, max, lat := limiter.GetStats()
 			stats = append(stats, models.HostStats{
 				Host:           host,
 				LastLatencyMs:  lat.Milliseconds(),
 				CurrentLimitKB: curr,
 				MaxLimitKB:     max,
-				ActiveTasks:    activeCount,
-				TotalSpeedKBps: hostSpeedBps / 1024,
+				ActiveTasks:    a.activeTasks,
+				TotalSpeedKBps: a.hostSpeedBps / 1024,
 			})
 		}
 	}
