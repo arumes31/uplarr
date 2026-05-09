@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2026-05-09 - Accessible interactive rows with internal inputs
+**Learning:** Found that when adding keyboard accessibility (`keydown` for `Enter`/`Space`) to a custom interactive element that wraps other focusable inputs (like a table row wrapping a checkbox), normal keyboard interactions with the child input can unintentionally trigger the parent's event listener.
+**Action:** When adding keydown event listeners to custom interactive elements containing inputs, explicitly ignore events originating from child inputs (e.g., `if (e.target.type !== 'checkbox')`) to prevent overriding their default behavior during keyboard navigation.
