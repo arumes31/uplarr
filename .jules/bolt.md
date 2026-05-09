@@ -8,3 +8,6 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+## 2025-05-25 - Avoid O(N*M) nested loops under RWMutex
+**Learning:** In the `GetHostStats` function, iterating over all tasks inside a loop over all hosts created an O(T*H) time complexity. Since this is executed under a read lock (`qm.mu.RLock()`), it prolongs lock duration, which can block write operations and cause contention, especially when polled frequently.
+**Action:** Always prefer O(N+M) aggregation using an intermediate map rather than nested loops when processing large collections, especially inside critical sections protected by a Mutex.
