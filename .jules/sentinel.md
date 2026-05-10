@@ -10,3 +10,8 @@
 **Prevention:**
 1. Used a robust `escapeHTML` helper function in `ui/static/app.js` to encode HTML entities (`&`, `<`, `>`, `"`, `'`) before using them in DOM elements constructed via `innerHTML`.
 2. Replaced the standard password string comparison (`!=`) in `internal/api/server.go` with `subtle.ConstantTimeCompare` from the `crypto/subtle` package to ensure the comparison time is independent of the input contents.
+## 2025-02-28 - Login Rate Limiting
+
+**Vulnerability:** The `/api/login` endpoint was missing rate limiting, making it susceptible to brute-force password guessing attacks.
+**Learning:** Adding rate-limiting via in-memory maps requires memory exhaustion protection to prevent DDoS attacks from filling the heap by spoofing `X-Forwarded-For`.
+**Prevention:** Always bound dynamically sized state maps based on untrusted network inputs with limits or eviction policies.

@@ -15,7 +15,10 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"net"
 	"sync"
+
+	"golang.org/x/time/rate"
 	"uplarr/internal/logger"
 	"uplarr/internal/models"
 	"uplarr/internal/queue"
@@ -26,6 +29,9 @@ import (
 var (
 	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
+
+	loginRateLimiters = make(map[string]*rate.Limiter)
+	loginRateMu       sync.Mutex
 )
 
 func generateToken() (string, error) {
@@ -158,6 +164,34 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if config.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
+			ips := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			ip = strings.TrimSpace(ips[0])
+		}
+
+		loginRateMu.Lock()
+		if len(loginRateLimiters) > 10000 {
+			// Prevent memory exhaustion under DDoS
+			loginRateLimiters = make(map[string]*rate.Limiter)
+		}
+		limiter, exists := loginRateLimiters[ip]
+		if !exists {
+			// Strict limit: 5 requests per minute
+			limiter = rate.NewLimiter(rate.Every(time.Minute/5), 5)
+			loginRateLimiters[ip] = limiter
+		}
+		loginRateMu.Unlock()
+
+		if !limiter.Allow() {
+			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			return
+		}
+
 		var loginReq struct {
 			Password string `json:"password"`
 		}
