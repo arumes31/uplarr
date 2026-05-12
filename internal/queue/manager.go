@@ -489,41 +489,54 @@ func (qm *QueueManager) GetHostStats() []models.HostStats {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 
-	var stats []models.HostStats
-	for host, limiter := range qm.limiters {
-		// Only report hosts that are actually relevant (have tasks)
-		hasActiveTasks := false
-		activeCount := 0
-		for _, t := range qm.tasks {
-			if t.Config.Host == host && (t.Status == models.TaskRunning || t.Status == models.TaskPending) {
-				hasActiveTasks = true
-				if t.Status == models.TaskRunning {
-					activeCount++
-				}
-			}
+	// ⚡ Bolt: Optimize GetHostStats from O(T×H) to O(T+H)
+	// We aggregate active tasks and speeds in a single pass over tasks,
+	// rather than looping over tasks for every host in the limiters map.
+	// This minimizes the duration the read lock is held on this frequently polled endpoint.
+
+	type hostAgg struct {
+		hasActiveTasks bool
+		activeCount    int
+		totalSpeedBps  float64
+	}
+	agg := make(map[string]*hostAgg)
+
+	// Single pass over tasks to compute active counts and speeds
+	for _, t := range qm.tasks {
+		h := t.Config.Host
+		if _, ok := agg[h]; !ok {
+			agg[h] = &hostAgg{}
 		}
 
-		if hasActiveTasks {
-			curr, max, lat := limiter.GetStats()
+		if t.Status == models.TaskRunning || t.Status == models.TaskPending {
+			agg[h].hasActiveTasks = true
+			if t.Status == models.TaskRunning {
+				agg[h].activeCount++
 
-			// Compute per-host total speed from running tasks
-			var hostSpeedBps float64
-			for _, t := range qm.tasks {
-				if t.Config.Host == host && t.Status == models.TaskRunning && t.StartedAt != nil && t.BytesUploaded > 0 {
+				if t.StartedAt != nil && t.BytesUploaded > 0 {
 					elapsed := time.Since(*t.StartedAt).Seconds()
 					if elapsed > 0 {
-						hostSpeedBps += float64(t.BytesUploaded) / elapsed
+						agg[h].totalSpeedBps += float64(t.BytesUploaded) / elapsed
 					}
 				}
 			}
+		}
+	}
+
+	var stats []models.HostStats
+	// Single pass over limiters to build final output
+	for host, limiter := range qm.limiters {
+		hostData, ok := agg[host]
+		if ok && hostData.hasActiveTasks {
+			curr, max, lat := limiter.GetStats()
 
 			stats = append(stats, models.HostStats{
 				Host:           host,
 				LastLatencyMs:  lat.Milliseconds(),
 				CurrentLimitKB: curr,
 				MaxLimitKB:     max,
-				ActiveTasks:    activeCount,
-				TotalSpeedKBps: hostSpeedBps / 1024,
+				ActiveTasks:    hostData.activeCount,
+				TotalSpeedKBps: hostData.totalSpeedBps / 1024,
 			})
 		}
 	}

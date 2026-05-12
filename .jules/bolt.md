@@ -8,3 +8,7 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+
+## 2025-05-25 - Optimize map aggregations under lock
+**Learning:** Nested loops iterating over $O(H)$ and $O(T)$ elements while holding a read-lock can create contention in frequently polled backend APIs (e.g., `/api/stats`). By taking a single pass over tasks to aggregate needed data into a temporary map, the complexity reduces from $O(H \times T)$ to $O(H + T)$.
+**Action:** When calculating statistics or filtering data under a mutex, especially in an API endpoint, prefer $O(N)$ single-pass map aggregations over nested loops to minimize lock hold duration and prevent blocking workers.
