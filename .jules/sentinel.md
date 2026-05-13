@@ -10,3 +10,8 @@
 **Prevention:**
 1. Used a robust `escapeHTML` helper function in `ui/static/app.js` to encode HTML entities (`&`, `<`, `>`, `"`, `'`) before using them in DOM elements constructed via `innerHTML`.
 2. Replaced the standard password string comparison (`!=`) in `internal/api/server.go` with `subtle.ConstantTimeCompare` from the `crypto/subtle` package to ensure the comparison time is independent of the input contents.
+
+## 2024-05-13 - Unbounded Rate Limiting Map Memory Exhaustion (DoS)
+**Vulnerability:** The in-memory map storing host rate limiters (`qm.limiters` in `internal/queue/manager.go`) had no bounding mechanism, allowing an attacker to continually provide unique hostnames, causing the map to grow indefinitely and exhaust server memory (DoS).
+**Learning:** In-memory state tracking (e.g., rate limiting maps, sessions) must always include a bounding mechanism.
+**Prevention:** Implement checks on map sizes (e.g., `if len(map) > threshold { clear(map) }`) or use LRU caches for state tracking structures to bound memory allocation. Note that just clearing the map resets existing limit tokens which defeats rate limiting, so proper expiry tracking should be implemented.

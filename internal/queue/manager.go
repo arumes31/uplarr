@@ -216,6 +216,36 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 
 	limiter, exists := qm.limiters[host]
 	if !exists {
+		// Prevent memory exhaustion (DoS) by bounding map. Only check on insertions.
+		if len(qm.limiters) >= 1000 {
+			// Find an inactive host by checking tasks inline to minimize memory footprint
+			var evictedHost string
+			for h := range qm.limiters {
+				active := false
+				for _, t := range qm.tasks {
+					if t.Config.Host == h && (t.Status == models.TaskRunning || t.Status == models.TaskPending) {
+						active = true
+						break
+					}
+				}
+				if !active {
+					evictedHost = h
+					break
+				}
+			}
+			if evictedHost != "" {
+				delete(qm.limiters, evictedHost)
+				logger.Warn(fmt.Sprintf("Evicted inactive host limiter for %s to maintain map bounds", evictedHost))
+			} else {
+				// Fallback: evict random entry to strictly bound memory (rate limits will momentarily reset for that host)
+				for h := range qm.limiters {
+					delete(qm.limiters, h)
+					logger.Warn(fmt.Sprintf("Force evicted active host limiter for %s to maintain map bounds", h))
+					break
+				}
+			}
+		}
+
 		burst := 16 * 1024
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
