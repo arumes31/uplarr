@@ -220,6 +220,31 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
 		}
+
+		// Bounding mechanism to prevent memory exhaustion (DoS) vulnerability
+		if len(qm.limiters) > 1000 {
+			// Clean up inactive hosts
+			activeHosts := make(map[string]bool)
+			for _, t := range qm.tasks {
+				if t.Status == models.TaskRunning || t.Status == models.TaskPending {
+					activeHosts[t.Config.Host] = true
+				}
+			}
+			for h := range qm.limiters {
+				if !activeHosts[h] {
+					delete(qm.limiters, h)
+				}
+			}
+
+			// If still over threshold, return a standalone limiter without caching it.
+			// This prevents DoS from unbounded map growth, avoids panics by returning a valid object,
+			// and ensures rate limiting is still applied (per-task rather than host-shared)
+			// without evicting legitimately active limiters from the cache.
+			if len(qm.limiters) > 1000 {
+				return sftpclient.NewLimiter(limit, rate.Limit(burst), minLimit, maxLat)
+			}
+		}
+
 		limiter = sftpclient.NewLimiter(limit, rate.Limit(burst), minLimit, maxLat)
 		qm.limiters[host] = limiter
 		return limiter
