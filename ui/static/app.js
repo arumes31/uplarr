@@ -976,8 +976,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.className = 'file-checkbox';
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
-            if (file.is_dir) cb.disabled = true;
-            if (queuedFiles.has(fullRelPath)) cb.checked = true;
+            cb.setAttribute('aria-label', `Select ${file.name}`);
+            if (file.is_dir) {
+                cb.disabled = true;
+                cb.setAttribute('title', 'Directories cannot be selected directly');
+            } else {
+                if (queuedFiles.has(fullRelPath)) cb.checked = true;
+            }
 
             cb.addEventListener('click', (e) => {
                 const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));

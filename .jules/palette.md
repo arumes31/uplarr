@@ -4,3 +4,7 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+
+## 2026-05-14 - Checkbox Accessibility in File Tables
+**Learning:** Dynamically generated inputs in table structures often miss contextual labels. Screen readers simply announce "checkbox" without the file name context. Similarly, disabling elements (like directory checkboxes) without explanation creates a confusing UX gap for both visual and non-visual users.
+**Action:** Always add dynamic `aria-label`s (e.g., "Select {filename}") to generated checkboxes. For disabled interactive elements, explicitly add a `title` or `aria-description` explaining the inactive state.
