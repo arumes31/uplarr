@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2026-05-15 - Add context to dynamic lists and disabled states
+**Learning:** Found that dynamically generated components like item action buttons in a list (e.g. Pause, Retry, Remove) lacked clear context for screen-reader users, and disabled directory checkboxes did not offer a visible explanation for being unselectable.
+**Action:** Always add `aria-label` to list items components (identifying the specific item they control) and assign `title` attributes explaining why inputs are disabled natively.

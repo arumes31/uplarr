@@ -33,3 +33,5 @@ test_data/
 /queue
 .Jules/
 .Jules
+# Queue state file
+config/.queue_state.json

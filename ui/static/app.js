@@ -976,7 +976,11 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.className = 'file-checkbox';
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
-            if (file.is_dir) cb.disabled = true;
+            cb.setAttribute('aria-label', `Select ${file.name}`);
+            if (file.is_dir) {
+                cb.disabled = true;
+                cb.title = 'Directories cannot be selected directly';
+            }
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
             cb.addEventListener('click', (e) => {
@@ -1399,7 +1403,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (task.status === 'Pending' || task.status === 'Paused') {
                     const controlBtn = document.createElement('button');
                     controlBtn.className = 'action-btn';
-                    controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
+                    const actionName = task.status === 'Paused' ? 'Resume' : 'Pause';
+                    controlBtn.textContent = actionName;
+                    controlBtn.setAttribute('aria-label', `${actionName} task for ${task.file_name}`);
                     controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
                     tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
@@ -1407,6 +1413,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const retryBtn = document.createElement('button');
                         retryBtn.className = 'action-btn';
                         retryBtn.textContent = 'Retry';
+                        retryBtn.setAttribute('aria-label', `Retry task for ${task.file_name}`);
                         retryBtn.addEventListener('click', () => controlTask(task.id, 'retry'));
                         tdActions.appendChild(retryBtn);
                     }
@@ -1414,6 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const remBtn = document.createElement('button');
                 remBtn.className = 'action-btn btn-danger-text';
                 remBtn.textContent = 'Remove';
+                remBtn.setAttribute('aria-label', `Remove task for ${task.file_name}`);
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 
