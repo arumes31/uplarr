@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2026-05-17 - Added Accessibility Labels to Dynamically Generated Inputs
+**Learning:** Found that when dynamically creating `<input type="checkbox">` elements via JavaScript (e.g., in `app.js`'s `renderLocalFiles`), they lacked `aria-label`s, leaving screen reader users without context about which file the checkbox selects. Additionally, checkboxes disabled for directories lacked explanation.
+**Action:** When dynamically generating form elements, ensure accessibility and clear UX by adding `aria-label` attributes for screen reader context and `title` attributes on disabled elements to explicitly explain why they are inactive.
