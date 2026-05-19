@@ -220,6 +220,22 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
 		}
+
+		if len(qm.limiters) >= 100 {
+			activeHosts := make(map[string]bool)
+			for _, t := range qm.tasks {
+				activeHosts[t.Config.Host] = true
+			}
+			for h := range qm.limiters {
+				if !activeHosts[h] {
+					delete(qm.limiters, h)
+				}
+			}
+			if len(qm.limiters) >= 100 {
+				return sftpclient.NewLimiter(limit, rate.Limit(burst), minLimit, maxLat)
+			}
+		}
+
 		limiter = sftpclient.NewLimiter(limit, rate.Limit(burst), minLimit, maxLat)
 		qm.limiters[host] = limiter
 		return limiter

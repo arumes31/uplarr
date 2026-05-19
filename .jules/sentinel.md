@@ -10,3 +10,7 @@
 **Prevention:**
 1. Used a robust `escapeHTML` helper function in `ui/static/app.js` to encode HTML entities (`&`, `<`, `>`, `"`, `'`) before using them in DOM elements constructed via `innerHTML`.
 2. Replaced the standard password string comparison (`!=`) in `internal/api/server.go` with `subtle.ConstantTimeCompare` from the `crypto/subtle` package to ensure the comparison time is independent of the input contents.
+## 2025-02-25 - In-Memory Map Bounding for DoS Prevention
+**Vulnerability:** The `qm.limiters` map in `QueueManager` could grow infinitely, leading to a memory exhaustion DoS if an attacker repeatedly submitted requests with unique `Host` values.
+**Learning:** In-memory tracking maps used for rate limiting or caching must have strict bounds and safe eviction policies to prevent attackers from causing memory leaks or denial of service through exhaustion.
+**Prevention:** Always implement bounded map limits with an $O(T+H)$ eviction strategy (clearing inactive entries based on current tasks) when creating caching or tracking maps. Ensure an un-cached fallback instance is safely returned if the eviction cannot free space.
