@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -21,12 +22,62 @@ import (
 	"uplarr/internal/queue"
 	"uplarr/internal/sftpclient"
 	"uplarr/ui"
+
+	"golang.org/x/time/rate"
 )
 
 var (
 	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
 )
+
+type ipLimiter struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+type loginRateLimiter struct {
+	limiters map[string]*ipLimiter
+	mu       sync.RWMutex
+	rate     rate.Limit
+	burst    int
+}
+
+func newLoginRateLimiter(r rate.Limit, b int) *loginRateLimiter {
+	return &loginRateLimiter{
+		limiters: make(map[string]*ipLimiter),
+		rate:     r,
+		burst:    b,
+	}
+}
+
+func (l *loginRateLimiter) getLimiter(ip string) *rate.Limiter {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if v, exists := l.limiters[ip]; exists {
+		v.lastSeen = time.Now()
+		return v.limiter
+	}
+
+	if len(l.limiters) > 1000 {
+		now := time.Now()
+		for k, v := range l.limiters {
+			if now.Sub(v.lastSeen) > 3*time.Minute {
+				delete(l.limiters, k)
+			}
+		}
+		if len(l.limiters) > 1000 {
+			return rate.NewLimiter(l.rate, l.burst)
+		}
+	}
+
+	newLimiter := rate.NewLimiter(l.rate, l.burst)
+	l.limiters[ip] = &ipLimiter{limiter: newLimiter, lastSeen: time.Now()}
+	return newLimiter
+}
+
+var loginLimiter = newLoginRateLimiter(rate.Every(time.Second), 5)
 
 func generateToken() (string, error) {
 	b := make([]byte, 32)
@@ -158,6 +209,24 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if config.TrustProxy {
+			if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+				ips := strings.Split(forwardedFor, ",")
+				ip = strings.TrimSpace(ips[0])
+			}
+		}
+
+		if !loginLimiter.getLimiter(ip).Allow() {
+			logger.Warn(fmt.Sprintf("Rate limit exceeded for login from IP: %s", ip))
+			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			return
+		}
+
 		var loginReq struct {
 			Password string `json:"password"`
 		}

@@ -10,3 +10,7 @@
 **Prevention:**
 1. Used a robust `escapeHTML` helper function in `ui/static/app.js` to encode HTML entities (`&`, `<`, `>`, `"`, `'`) before using them in DOM elements constructed via `innerHTML`.
 2. Replaced the standard password string comparison (`!=`) in `internal/api/server.go` with `subtle.ConstantTimeCompare` from the `crypto/subtle` package to ensure the comparison time is independent of the input contents.
+## 2026-05-22 - [Fix login endpoint brute-force vulnerability]
+**Vulnerability:** The `/api/login` endpoint lacked any mechanism for rate-limiting authentication attempts, allowing attackers to mount brute-force or credential stuffing attacks uninterrupted.
+**Learning:** The issue existed because there was no global or per-IP throttling in the application logic. However, adding an IP-based rate limiter to the login endpoint introduced a data race because `time.Time` is a multi-word struct containing a pointer, and concurrent writes without an exclusive lock (`Lock()`) lead to torn values.
+**Prevention:** In Go, always use an exclusive lock when mutating `time.Time` fields. Avoid using `RLock()` when mutating any struct fields, even if it feels like a "read-mostly" operation.
