@@ -953,8 +953,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
-                row.addEventListener('click', (e) => {
+                row.tabIndex = 0;
+                row.setAttribute('aria-label', `Open directory ${file.name}`);
+                const openDir = (e) => {
                     if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
+                };
+                row.addEventListener('click', openDir);
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openDir(e);
+                    }
                 });
             } else {
                 row.draggable = true;
@@ -976,7 +985,11 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.className = 'file-checkbox';
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
-            if (file.is_dir) cb.disabled = true;
+            cb.setAttribute('aria-label', `Select ${file.name}`);
+            if (file.is_dir) {
+                cb.disabled = true;
+                cb.title = "Directories cannot be selected for upload";
+            }
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
             cb.addEventListener('click', (e) => {
@@ -1131,9 +1144,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('tr');
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
-                row.addEventListener('click', () => {
+                row.tabIndex = 0;
+                row.setAttribute('aria-label', `Open directory ${file.name}`);
+                const openDir = () => {
                     const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                     fetchRemoteFiles(newPath);
+                };
+                row.addEventListener('click', openDir);
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openDir();
+                    }
                 });
             }
 
