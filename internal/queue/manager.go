@@ -485,47 +485,62 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	return snapshot
 }
 
+// ⚡ Bolt: Optimized GetHostStats with O(T + H) map aggregation
+// 💡 What: Replaced nested O(H × T) loops with a single pass over tasks to aggregate host metrics, followed by a pass over limiters.
+// 🎯 Why: GetHostStats is polled frequently by the UI. The nested loop inside a read lock caused significant lock contention when many tasks/hosts existed, stalling the main queue processing loop.
+// 📊 Impact: Reduces time complexity from O(H × T) to O(T + H). Significantly decreases the time the queue read lock is held, improving overall application throughput.
+// 🔬 Measurement: Benchmarks or profiling would show reduced RWMutex block time in GetHostStats.
 func (qm *QueueManager) GetHostStats() []models.HostStats {
 	qm.mu.RLock()
 	defer qm.mu.RUnlock()
 
-	var stats []models.HostStats
-	for host, limiter := range qm.limiters {
-		// Only report hosts that are actually relevant (have tasks)
-		hasActiveTasks := false
-		activeCount := 0
-		for _, t := range qm.tasks {
-			if t.Config.Host == host && (t.Status == models.TaskRunning || t.Status == models.TaskPending) {
-				hasActiveTasks = true
-				if t.Status == models.TaskRunning {
-					activeCount++
-				}
-			}
+	// Pre-aggregate task data in a single pass O(T)
+	type hostAggregation struct {
+		hasActiveTasks bool
+		activeCount    int
+		hostSpeedBps   float64
+	}
+	aggs := make(map[string]*hostAggregation)
+
+	for _, t := range qm.tasks {
+		agg, exists := aggs[t.Config.Host]
+		if !exists {
+			agg = &hostAggregation{}
+			aggs[t.Config.Host] = agg
 		}
 
-		if hasActiveTasks {
-			curr, max, lat := limiter.GetStats()
-
-			// Compute per-host total speed from running tasks
-			var hostSpeedBps float64
-			for _, t := range qm.tasks {
-				if t.Config.Host == host && t.Status == models.TaskRunning && t.StartedAt != nil && t.BytesUploaded > 0 {
+		if t.Status == models.TaskRunning || t.Status == models.TaskPending {
+			agg.hasActiveTasks = true
+			if t.Status == models.TaskRunning {
+				agg.activeCount++
+				if t.StartedAt != nil && t.BytesUploaded > 0 {
 					elapsed := time.Since(*t.StartedAt).Seconds()
 					if elapsed > 0 {
-						hostSpeedBps += float64(t.BytesUploaded) / elapsed
+						agg.hostSpeedBps += float64(t.BytesUploaded) / elapsed
 					}
 				}
 			}
-
-			stats = append(stats, models.HostStats{
-				Host:           host,
-				LastLatencyMs:  lat.Milliseconds(),
-				CurrentLimitKB: curr,
-				MaxLimitKB:     max,
-				ActiveTasks:    activeCount,
-				TotalSpeedKBps: hostSpeedBps / 1024,
-			})
 		}
+	}
+
+	var stats []models.HostStats
+	// Single pass over limiters O(H)
+	for host, limiter := range qm.limiters {
+		agg, exists := aggs[host]
+		if !exists || !agg.hasActiveTasks {
+			continue // Only report hosts that are actually relevant (have tasks)
+		}
+
+		curr, max, lat := limiter.GetStats()
+
+		stats = append(stats, models.HostStats{
+			Host:           host,
+			LastLatencyMs:  lat.Milliseconds(),
+			CurrentLimitKB: curr,
+			MaxLimitKB:     max,
+			ActiveTasks:    agg.activeCount,
+			TotalSpeedKBps: agg.hostSpeedBps / 1024,
+		})
 	}
 	return stats
 }
