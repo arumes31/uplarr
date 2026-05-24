@@ -976,7 +976,15 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.className = 'file-checkbox';
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
-            if (file.is_dir) cb.disabled = true;
+            cb.setAttribute('aria-label', `Select ${file.name}`);
+
+            if (file.is_dir) {
+                cb.disabled = true;
+                cb.title = "Cannot queue directories directly";
+            } else {
+                cb.title = `Select ${file.name}`;
+            }
+
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
             cb.addEventListener('click', (e) => {
