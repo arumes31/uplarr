@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -21,12 +22,76 @@ import (
 	"uplarr/internal/queue"
 	"uplarr/internal/sftpclient"
 	"uplarr/ui"
+
+	"golang.org/x/time/rate"
 )
 
 var (
 	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
 )
+
+type ipLimiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+type IPRateLimiter struct {
+	ips map[string]*ipLimiterEntry
+	mu  sync.Mutex
+}
+
+func (rl *IPRateLimiter) GetLimiter(ip string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if entry, exists := rl.ips[ip]; exists {
+		entry.lastSeen = time.Now()
+		return entry.limiter
+	}
+
+	if len(rl.ips) >= 1000 {
+		now := time.Now()
+		evicted := false
+		for k, v := range rl.ips {
+			if now.Sub(v.lastSeen) > 10*time.Minute {
+				delete(rl.ips, k)
+				evicted = true
+			}
+		}
+		if !evicted && len(rl.ips) >= 1000 {
+			for k := range rl.ips {
+				delete(rl.ips, k)
+				break
+			}
+		}
+	}
+
+	// 5 requests per second, burst 10
+	limiter := rate.NewLimiter(rate.Every(time.Second), 5)
+	rl.ips[ip] = &ipLimiterEntry{
+		limiter:  limiter,
+		lastSeen: time.Now(),
+	}
+	return limiter
+}
+
+var loginRateLimiter = &IPRateLimiter{
+	ips: make(map[string]*ipLimiterEntry),
+}
+
+func getClientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			return strings.TrimSpace(strings.Split(xff, ",")[0])
+		}
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
 
 func generateToken() (string, error) {
 	b := make([]byte, 32)
@@ -154,6 +219,12 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	}
 
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		ip := getClientIP(r, config.TrustProxy)
+		if !loginRateLimiter.GetLimiter(ip).Allow() {
+			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			return
+		}
+
 		if config.AuthPassword == "" {
 			w.WriteHeader(http.StatusOK)
 			return
