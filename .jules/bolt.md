@@ -8,3 +8,7 @@
 ## 2024-04-24 - Optimizing String Sorting Performance in Large Lists
 **Learning:** `String.prototype.localeCompare` is significantly slower (up to 40x) than using an initialized `Intl.Collator` instance when executed within tight loops like `Array.prototype.sort()`. This creates notable jank when sorting large arrays, such as a file list.
 **Action:** When sorting arrays of strings on the frontend, particularly lists that can grow large, initialize `Intl.Collator` once and reuse its `.compare()` method instead of calling `.localeCompare` directly on the strings.
+
+## 2024-05-30 - O(T*H) Nested Loops inside RLock
+**Learning:** Performing a nested loop over tasks and limiters (O(T*H)) inside a read lock (`qm.mu.RLock()`) for a frequently polled API endpoint (`/api/stats`) causes performance degradation due to lock contention and high CPU usage.
+**Action:** Always pre-aggregate metrics in a single pass over the elements (e.g. `O(T)`) to build an intermediate structure, then iterate the secondary collections (`O(H)`) resulting in linear `O(T+H)` complexity within critical sections.
