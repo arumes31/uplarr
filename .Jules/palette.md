@@ -8,3 +8,7 @@
 ## 2024-04-24 - Preserving Button Icons & Providing Inline Loading States
 **Learning:** Overwriting the entire `.textContent` of a button that contains an inline icon (like `<svg>`) accidentally destroys the icon. Furthermore, users often lack immediate feedback on buttons like "Connect" or "Upload" while the action is processing, making the UI feel unresponsive even if a toast appears.
 **Action:** Always wrap button text in a `<span class="btn-text">` when the button also contains an SVG icon. Create a reusable `toggleButtonLoading` utility that toggles visibility between the static icon and a spinner icon, and temporarily updates the `.btn-text` content to reflect the loading state (e.g., "Connecting...").
+
+## 2026-05-31 - Add contextual ARIA labels to dynamic tables
+**Learning:** For dynamic tables containing actionable rows (e.g. file lists with checkboxes, queue tasks with action buttons), screen readers do not provide adequate context for the elements if they share identical visual text or lack text entirely. Adding a context-specific `aria-label` (e.g. "Select [filename]") or explicit `title` attributes on disabled fields ensures users relying on assistive technology understand what action corresponds to which row.
+**Action:** When adding interactive elements like checkboxes or inline buttons to data tables, always dynamically inject contextual details into the `aria-label` or `title` attributes.
