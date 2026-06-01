@@ -4,3 +4,6 @@
 ## 2024-05-18 - Added Empty States for Queues and Lists
 **Learning:** Tables representing local file lists and background task queues that are initially empty appear broken to users if only headers are displayed. Providing explicit "empty state" messages confirms system status and avoids user confusion.
 **Action:** Always include empty states for lists/tables that may be empty, and style them consistently to be visually distinct (e.g., center alignment, italic, muted text).
+## 2026-06-01 - Contextual Attributes for Dynamic Interactive Table Elements
+**Learning:** When generating interactive elements like checkboxes inside a data table, users relying on screen readers lack context of what row the element corresponds to, and users encountering disabled elements may not know why they are disabled.
+**Action:** When creating dynamic interactive elements within tables, inject contextual details like the file name into the `aria-label` to provide context for screen readers, and set the `title` attribute on disabled elements to explain why they are inactive.
