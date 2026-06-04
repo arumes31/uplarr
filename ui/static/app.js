@@ -1287,7 +1287,9 @@ document.addEventListener('DOMContentLoaded', () => {
         config.remote_dir = remoteCurrentPath;
         config.delete_after_verify = modalDeleteLocal.checked;
         config.overwrite = modalOverwriteRemote.checked;
-        dropModal.classList.add('hidden');
+
+        modalConfirmBtn.disabled = true;
+        toggleButtonLoading(modalConfirmBtn, true, 'Uploading...');
         try {
             const res = await fetch('/api/upload', { 
                 method: 'POST', 
@@ -1301,9 +1303,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json().catch(() => ({}));
                 addLog(`Failed to queue task: ${data.error || res.statusText}`, 'error');
             }
+            dropModal.classList.add('hidden');
         } catch (err) {
             addLog(`Failed to queue task: ${err.message}`, 'error');
             showStatus("Upload request failed", "error");
+        } finally {
+            modalConfirmBtn.disabled = false;
+            toggleButtonLoading(modalConfirmBtn, false, 'Upload');
         }
     });
 
