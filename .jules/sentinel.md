@@ -10,6 +10,10 @@
 **Prevention:**
 1. Used a robust `escapeHTML` helper function in `ui/static/app.js` to encode HTML entities (`&`, `<`, `>`, `"`, `'`) before using them in DOM elements constructed via `innerHTML`.
 2. Replaced the standard password string comparison (`!=`) in `internal/api/server.go` with `subtle.ConstantTimeCompare` from the `crypto/subtle` package to ensure the comparison time is independent of the input contents.
+## 2024-05-25 - Rate Limiter Map Eviction Memory Protection
+**Vulnerability:** Unbounded map growth during active rate limiting could lead to memory exhaustion (DoS). Standard map inserts without checks would grow indefinitely on malicious inputs or distributed attacks where IP entropy is high.
+**Learning:** Simply checking `len(map) > limit` and skipping rate limiting or returning a generic error is insufficient because it bypasses security on new attackers or panics on nil objects. A bounded map must safely evict elements when full.
+**Prevention:** Always bound map-based memory trackers (like rate limiters) by implementing an eviction check *on insertion*. If full, safely evict inactive elements. If still full after that (extreme entropy), forcefully evict an arbitrary element to make room for the new one, ensuring bounded memory without blocking or crashing the application.
 
 ## 2026-05-27 - Prevent DoS Memory Exhaustion in Tracking Maps
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
