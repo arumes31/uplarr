@@ -12,3 +12,9 @@
 ## 2025-05-25 - Using DocumentFragment for batching DOM insertions
 **Learning:** Appending DOM nodes one by one in a loop inside vanilla JS scripts triggers unnecessary browser layout recalculations and repaints on every insertion, causing severe performance issues when the list of elements is large.
 **Action:** When creating and inserting multiple elements dynamically in vanilla JavaScript, always batch the operations by creating a `DocumentFragment` first, appending the new elements to it within the loop, and then appending the complete fragment to the target DOM node in a single action. This ensures O(1) DOM reflows instead of O(N) reflows.
+## 2025-05-26 - Batch Disk Operations for State Preservation
+**Learning:** Saving state to a `.json` file synchronously within a loop for individual items (e.g., adding multiple tasks) causes O(N) disk writes and can significantly block performance during bulk operations.
+**Action:** Expose batching variants of queue addition functions (e.g., `AddTasks`) that loop through state modifications in memory under a lock, and then perform a single disk I/O operation (`saveState()`) at the end.
+## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
+**Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
+**Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -26,6 +27,20 @@ import (
 var (
 	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
+)
+
+type loginAttempt struct {
+	count        int
+	blockedUntil time.Time
+	lastAttempt  time.Time
+}
+
+var (
+	loginAttempts      = make(map[string]*loginAttempt)
+	loginAttemptsMu    sync.Mutex
+	maxLoginAttempts   = 5
+	loginBlockDuration = 15 * time.Minute
+	maxLimiterEntries  = 1000
 )
 
 func generateToken() (string, error) {
@@ -166,10 +181,75 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if config.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
+			ips := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			if len(ips) > 0 {
+				ip = strings.TrimSpace(ips[0])
+			}
+		}
+
+		loginAttemptsMu.Lock()
+		attempt, exists := loginAttempts[ip]
+		if !exists {
+			if len(loginAttempts) >= maxLimiterEntries {
+				now := time.Now()
+				for k, v := range loginAttempts {
+					if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > 15*time.Minute {
+						delete(loginAttempts, k)
+					}
+				}
+				if len(loginAttempts) >= maxLimiterEntries {
+					for k := range loginAttempts {
+						delete(loginAttempts, k)
+						break
+					}
+				}
+			}
+			attempt = &loginAttempt{}
+			loginAttempts[ip] = attempt
+		}
+		attempt.lastAttempt = time.Now()
+
+		isBlocked := time.Now().Before(attempt.blockedUntil)
+		loginAttemptsMu.Unlock()
+
+		if isBlocked {
+			http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+
 		if subtle.ConstantTimeCompare([]byte(loginReq.Password), []byte(config.AuthPassword)) != 1 {
+			loginAttemptsMu.Lock()
+			currentAttempt, exists := loginAttempts[ip]
+			if !exists {
+				currentAttempt = &loginAttempt{}
+				loginAttempts[ip] = currentAttempt
+			}
+
+			// Reset attempt count if the previous ban expired
+			if time.Now().After(currentAttempt.blockedUntil) && currentAttempt.count >= maxLoginAttempts {
+				currentAttempt.count = 0
+			}
+
+			currentAttempt.count++
+			currentAttempt.lastAttempt = time.Now()
+
+			if currentAttempt.count >= maxLoginAttempts {
+				currentAttempt.blockedUntil = time.Now().Add(loginBlockDuration)
+			}
+			loginAttemptsMu.Unlock()
+
 			http.Error(w, "Invalid password", http.StatusUnauthorized)
 			return
 		}
+
+		loginAttemptsMu.Lock()
+		delete(loginAttempts, ip)
+		loginAttemptsMu.Unlock()
 
 		token, err := generateToken()
 		if err != nil {
@@ -470,6 +550,49 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	mux.HandleFunc("/api/files/download", withAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		relPath := filepath.Clean(r.URL.Query().Get("path"))
+		if relPath == "" || relPath == "." {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		fullPath := filepath.Join(config.LocalDir, relPath)
+
+		absLocalDir, err := FilepathAbs(config.LocalDir)
+		if err != nil {
+			logger.Error(fmt.Sprintf("FilepathAbs error: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		absLocalDir, _ = FilepathEvalSymlinks(absLocalDir)
+
+		absPath, err := FilepathAbs(fullPath)
+		if err != nil {
+			logger.Error(fmt.Sprintf("FilepathAbs error (fullPath): %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if evalPath, err := FilepathEvalSymlinks(absPath); err == nil {
+			absPath = evalPath
+		}
+
+		rel, err := filepath.Rel(absLocalDir, absPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(absPath)))
+		http.ServeFile(w, r, absPath)
+	}))
+
 	mux.HandleFunc("/api/test-connection", withAuth(func(w http.ResponseWriter, r *http.Request) {
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -632,10 +755,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		for _, file := range validFiles {
-			// Update the host-wide limiter with the latest config provided with this upload request
+		if len(validFiles) > 0 {
 			qm.UpdateHostLimiter(req.Host, req.RateLimitKBps, req.MinLimitKBps, req.MaxLatencyMs, req.ConcurrentFiles)
-			qm.AddTask(file, req)
+			qm.AddTasks(validFiles, req)
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Tasks added to queue"})
