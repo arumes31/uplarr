@@ -807,3 +807,4 @@ button:disabled {
 .blob-1 { width: 300px; height: 300px; top: -50px; left: -50px; background: var(--accent-primary); }
 .blob-2 { width: 400px; height: 400px; bottom: -100px; right: -100px; background: var(--accent-secondary); }
 .blob-3 { width: 200px; height: 200px; top: 30%; left: 50%; background: var(--accent-primary); }
+.empty-msg { text-align: center; color: var(--text-muted); font-style: italic; padding: 24px !important; }
