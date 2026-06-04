@@ -216,6 +216,33 @@ func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpcli
 
 	limiter, exists := qm.limiters[host]
 	if !exists {
+		// Bounded map to prevent DoS memory exhaustion
+		if len(qm.limiters) >= 100 {
+			activeHosts := make(map[string]bool)
+			for _, t := range qm.tasks {
+				if t.Status == models.TaskPending || t.Status == models.TaskRunning || t.Status == models.TaskPaused {
+					activeHosts[t.Config.Host] = true
+				}
+			}
+
+			evicted := false
+			for h := range qm.limiters {
+				if !activeHosts[h] {
+					delete(qm.limiters, h)
+					evicted = true
+					break
+				}
+			}
+
+			// Forcefully evict if limit reached and all are active
+			if !evicted {
+				for h := range qm.limiters {
+					delete(qm.limiters, h)
+					break
+				}
+			}
+		}
+
 		burst := 16 * 1024
 		if int(limit)/10 > burst {
 			burst = int(limit) / 10
