@@ -150,6 +150,12 @@ func TestCoverageFlat(t *testing.T) {
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"invalid"}`)))
 
+	// 5.5 Download Handler
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=.", nil))
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=../secret", nil))
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/download?path=a", nil))
+
+
 	// 6. SFTP Handlers (315-414)
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/test-connection", strings.NewReader("!")))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {

@@ -7,3 +7,6 @@
 ## 2026-03-05 - Accessibility of dynamic form elements and complex rows
 **Learning:** Found that dynamically generated checkboxes in file lists lacked `aria-label` attributes and context for their disabled state (`title`), making them inaccessible to screen readers. Additionally, interactive table rows acting as folders lacked keyboard navigation (`tabIndex` and `keydown` handling).
 **Action:** Always ensure dynamically generated form elements have proper ARIA attributes (`aria-label`) and explanatory attributes (`title` for disabled state). When implementing keyboard navigation on complex rows, explicitly check the event target to avoid overriding the default behavior of child inputs (like checkboxes).
+## 2024-04-30 - Password Visibility Toggle
+**Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
+**Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
