@@ -953,8 +953,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
+                row.tabIndex = 0;
                 row.addEventListener('click', (e) => {
                     if (e.target.type !== 'checkbox') fetchFiles(fullRelPath);
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.target.type !== 'checkbox') fetchFiles(fullRelPath);
                 });
             } else {
                 row.draggable = true;
@@ -976,7 +980,11 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.className = 'file-checkbox';
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
-            if (file.is_dir) cb.disabled = true;
+            cb.setAttribute('aria-label', `Select ${file.name}`);
+            if (file.is_dir) {
+                cb.disabled = true;
+                cb.title = 'Directories cannot be selected';
+            }
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
             cb.addEventListener('click', (e) => {
@@ -1131,9 +1139,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = document.createElement('tr');
             if (file.is_dir) {
                 row.className = 'clickable-row folder-row';
+                row.tabIndex = 0;
                 row.addEventListener('click', () => {
                     const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
                     fetchRemoteFiles(newPath);
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        const newPath = remoteCurrentPath.endsWith('/') ? remoteCurrentPath + file.name : remoteCurrentPath + '/' + file.name;
+                        fetchRemoteFiles(newPath);
+                    }
                 });
             }
 
