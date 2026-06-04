@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	pathpkg "path"
@@ -26,6 +27,20 @@ import (
 var (
 	sessions   = make(map[string]bool)
 	sessionsMu sync.RWMutex
+)
+
+type loginAttempt struct {
+	count        int
+	blockedUntil time.Time
+	lastAttempt  time.Time
+}
+
+var (
+	loginAttempts      = make(map[string]*loginAttempt)
+	loginAttemptsMu    sync.Mutex
+	maxLoginAttempts   = 5
+	loginBlockDuration = 15 * time.Minute
+	maxLimiterEntries  = 1000
 )
 
 func generateToken() (string, error) {
@@ -166,10 +181,75 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if config.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
+			ips := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			if len(ips) > 0 {
+				ip = strings.TrimSpace(ips[0])
+			}
+		}
+
+		loginAttemptsMu.Lock()
+		attempt, exists := loginAttempts[ip]
+		if !exists {
+			if len(loginAttempts) >= maxLimiterEntries {
+				now := time.Now()
+				for k, v := range loginAttempts {
+					if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > 15*time.Minute {
+						delete(loginAttempts, k)
+					}
+				}
+				if len(loginAttempts) >= maxLimiterEntries {
+					for k := range loginAttempts {
+						delete(loginAttempts, k)
+						break
+					}
+				}
+			}
+			attempt = &loginAttempt{}
+			loginAttempts[ip] = attempt
+		}
+		attempt.lastAttempt = time.Now()
+
+		isBlocked := time.Now().Before(attempt.blockedUntil)
+		loginAttemptsMu.Unlock()
+
+		if isBlocked {
+			http.Error(w, "Too many login attempts. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+
 		if subtle.ConstantTimeCompare([]byte(loginReq.Password), []byte(config.AuthPassword)) != 1 {
+			loginAttemptsMu.Lock()
+			currentAttempt, exists := loginAttempts[ip]
+			if !exists {
+				currentAttempt = &loginAttempt{}
+				loginAttempts[ip] = currentAttempt
+			}
+
+			// Reset attempt count if the previous ban expired
+			if time.Now().After(currentAttempt.blockedUntil) && currentAttempt.count >= maxLoginAttempts {
+				currentAttempt.count = 0
+			}
+
+			currentAttempt.count++
+			currentAttempt.lastAttempt = time.Now()
+
+			if currentAttempt.count >= maxLoginAttempts {
+				currentAttempt.blockedUntil = time.Now().Add(loginBlockDuration)
+			}
+			loginAttemptsMu.Unlock()
+
 			http.Error(w, "Invalid password", http.StatusUnauthorized)
 			return
 		}
+
+		loginAttemptsMu.Lock()
+		delete(loginAttempts, ip)
+		loginAttemptsMu.Unlock()
 
 		token, err := generateToken()
 		if err != nil {
