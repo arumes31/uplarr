@@ -18,3 +18,6 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+## 2025-05-26 - Eliminate redundant string and array allocations in file lists
+**Learning:** Using `.split('.').pop()` in a sort comparator creates a large number of temporary array objects and string allocations, triggering frequent garbage collection during an O(N log N) sorting process. Also, blindly applying an empty `.filter` over a large list creates unnecessary iterations.
+**Action:** Always conditionally bypass array map/filter operations when the condition is empty, and utilize `lastIndexOf` with `substring` instead of `.split()` inside comparators to prevent excessive object instantiation.

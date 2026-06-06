@@ -293,8 +293,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    const extA = a.name.lastIndexOf('.') > 0 ? a.name.substring(a.name.lastIndexOf('.') + 1).toLowerCase() : '';
+                    const extB = b.name.lastIndexOf('.') > 0 ? b.name.substring(b.name.lastIndexOf('.') + 1).toLowerCase() : '';
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
@@ -929,9 +929,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Local Files ---
 
     const renderLocalFiles = () => {
-        // ⚡ Bolt: Filter files before sorting to improve performance.
-        // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // ⚡ Bolt: Filter files conditionally to improve performance.
+        // 📊 Impact: Avoids O(N) iteration when no search is active.
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1123,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: Filter remote files conditionally to improve performance.
+        // 📊 Impact: Avoids O(N) iteration when no search is active.
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
