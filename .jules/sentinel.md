@@ -24,3 +24,8 @@
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
 **Learning:** Maps used for state tracking (e.g., rate limiting, metrics) without eviction mechanisms represent a severe memory leak vector. Bounding and evicting items safely prevents this.
 **Prevention:** Implement safe map bounds and evictions. Evict inactive entries when exceeding a threshold (e.g., 100). When full and all entries are active, forceful eviction of an arbitrary/oldest entry must be used rather than throwing errors or skipping caching to maintain rate-limiting properties and bound memory.
+
+## 2026-05-30 - Fix Timing Attack in SFTP Client Tests
+**Vulnerability:** The mock SFTP server in `internal/sftpclient/client_test.go` used standard string comparison (`==`) for the password check, introducing a timing attack vulnerability.
+**Learning:** Standard string comparisons short-circuit on mismatched characters. Even in test files, using insecure patterns risks them being copy-pasted into production or failing strict security scans.
+**Prevention:** Always use `crypto/subtle.ConstantTimeCompare` for sensitive comparisons (passwords, tokens, hashes), regardless of whether the code is in production or test environments.
