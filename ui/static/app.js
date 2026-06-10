@@ -293,8 +293,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    // ⚡ Bolt: Use allocation-free lastIndexOf/substring instead of split().pop() in sort comparator
+                    // 📊 Impact: Significantly reduces garbage collection pressure and speeds up sorting O(N log N)
+                    const lastDotA = a.name.lastIndexOf('.');
+                    const lastDotB = b.name.lastIndexOf('.');
+                    const extA = lastDotA > 0 ? a.name.substring(lastDotA + 1).toLowerCase() : '';
+                    const extB = lastDotB > 0 ? b.name.substring(lastDotB + 1).toLowerCase() : '';
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
@@ -929,9 +933,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Local Files ---
 
     const renderLocalFiles = () => {
-        // ⚡ Bolt: Filter files before sorting to improve performance.
-        // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // ⚡ Bolt: Conditionally bypass array .filter() when search condition is empty.
+        // 📊 Impact: Avoids redundant O(N) iterations over the UI list when the search filter is clear.
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1127,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: Conditionally bypass array .filter() when search condition is empty.
+        // 📊 Impact: Avoids redundant O(N) iterations over the UI list when the search filter is clear.
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
