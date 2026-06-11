@@ -172,11 +172,20 @@
             align-items: center;
             justify-content: center;
             padding: 0;
-            transition: color 0.2s;
+            transition: all 0.2s;
+            box-shadow: none !important;
         }
 
         .toggle-password-btn:hover {
             color: var(--text-main);
+            transform: translateY(-50%);
+            box-shadow: none !important;
+            filter: none !important;
+        }
+
+        .toggle-password-btn:active {
+            transform: translateY(-50%) scale(0.9);
+            box-shadow: none !important;
         }
 
         .toggle-password-btn svg {
@@ -191,59 +200,68 @@
         input {
             width: 100%;
             padding: 1.1rem 3rem 1.1rem 1.25rem;
-            background: rgba(15, 23, 42, 0.5);
+            background: rgba(15, 23, 42, 0.4);
             border: 1px solid var(--glass-border);
             border-radius: 12px;
             color: white;
             font-size: 1rem;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             font-family: inherit;
+            outline: none;
+        }
+
+        input:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            background: rgba(15, 23, 42, 0.55);
         }
 
         input:focus {
             outline: none;
             border-color: var(--accent-primary);
-            background: rgba(15, 23, 42, 0.8);
-            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
-            transform: translateY(-1px);
+            background: rgba(15, 23, 42, 0.7);
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18), 0 8px 20px rgba(0, 0, 0, 0.25);
+            transform: translateY(-1.5px);
         }
 
         input::placeholder {
-            color: rgba(148, 163, 184, 0.5);
+            color: rgba(148, 163, 184, 0.45);
         }
 
         button {
             width: 100%;
             padding: 1.1rem;
             background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-            border: none;
+            border: 1px solid transparent;
             border-radius: 12px;
             color: white;
             font-size: 1rem;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 10px 20px -5px rgba(56, 189, 248, 0.4);
-            display: flex;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 16px -4px rgba(56, 189, 248, 0.3);
+            display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 10px;
+            outline: none;
         }
 
-        button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 30px -8px rgba(56, 189, 248, 0.5);
-            filter: brightness(1.1);
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px -6px rgba(56, 189, 248, 0.45);
+            filter: brightness(1.08);
         }
 
-        button:active {
-            transform: translateY(-1px) scale(0.98);
+        button:active:not(:disabled) {
+            transform: translateY(0) scale(0.97);
+            box-shadow: 0 4px 8px -2px rgba(56, 189, 248, 0.3);
         }
 
         button:disabled {
-            opacity: 0.6;
+            opacity: 0.55;
             cursor: not-allowed;
             transform: none;
+            filter: grayscale(60%);
         }
 
         .error-msg {
@@ -361,7 +379,7 @@
         <form id="login-form">
             <div class="form-group">
                 <input type="password" id="password" placeholder="Enter Master Password" required autofocus aria-label="Master Password">
-                <button id="toggle-password" class="toggle-password-btn" type="button" aria-label="Toggle password visibility">
+                <button id="toggle-password" class="toggle-password-btn" type="button" aria-label="Toggle password visibility" title="Toggle password visibility">
                     <svg id="icon-eye-visible" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z"></path>
                         <circle cx="12" cy="12" r="3"></circle>
