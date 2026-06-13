@@ -1429,15 +1429,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 tdActions.className = 'col-actions';
                 if (task.status === 'Pending' || task.status === 'Paused') {
                     const controlBtn = document.createElement('button');
+                    const isPaused = task.status === 'Paused';
                     controlBtn.className = 'action-btn';
-                    controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
-                    controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
+                    controlBtn.textContent = isPaused ? 'Resume' : 'Pause';
+                    controlBtn.setAttribute('aria-label', `${isPaused ? 'Resume' : 'Pause'} ${task.file_name}`);
+                    controlBtn.title = `${isPaused ? 'Resume' : 'Pause'} ${task.file_name}`;
+                    controlBtn.addEventListener('click', () => controlTask(task.id, isPaused ? 'resume' : 'pause'));
                     tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
                     if (task.local_file_exists) {
                         const retryBtn = document.createElement('button');
                         retryBtn.className = 'action-btn';
                         retryBtn.textContent = 'Retry';
+                        retryBtn.setAttribute('aria-label', `Retry ${task.file_name}`);
+                        retryBtn.title = `Retry ${task.file_name}`;
                         retryBtn.addEventListener('click', () => controlTask(task.id, 'retry'));
                         tdActions.appendChild(retryBtn);
                     }
@@ -1445,6 +1450,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const remBtn = document.createElement('button');
                 remBtn.className = 'action-btn btn-danger-text';
                 remBtn.textContent = 'Remove';
+                remBtn.setAttribute('aria-label', `Remove ${task.file_name}`);
+                remBtn.title = `Remove ${task.file_name}`;
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 
