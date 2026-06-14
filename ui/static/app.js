@@ -278,6 +278,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const basicCollator = new Intl.Collator();
 
+    // ⚡ Bolt: Replace object-instantiating methods like .split().pop() with allocation-free alternatives
+    // 📊 Impact: Avoids O(N log N) array instantiations during sorting, reducing GC pressure and UI jank
+    const getExt = (name) => {
+        const lastDot = name.lastIndexOf('.');
+        return lastDot !== -1 && lastDot !== 0 && lastDot !== name.length - 1 ? name.substring(lastDot + 1).toLowerCase() : '';
+    };
+
     const sortFiles = (files, sortKey, sortDir) => {
         const sorted = [...files];
         const dirMul = sortDir === 'asc' ? 1 : -1;
@@ -293,8 +300,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    const extA = getExt(a.name);
+                    const extB = getExt(b.name);
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
