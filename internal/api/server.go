@@ -29,6 +29,23 @@ var (
 	sessionsMu sync.RWMutex
 )
 
+func evictLoginAttempts(loginAttempts map[string]*loginAttempt) {
+	if len(loginAttempts) >= maxLimiterEntries {
+		now := time.Now()
+		for k, v := range loginAttempts {
+			if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > 15*time.Minute {
+				delete(loginAttempts, k)
+			}
+		}
+		if len(loginAttempts) >= maxLimiterEntries {
+			for k := range loginAttempts {
+				delete(loginAttempts, k)
+				break
+			}
+		}
+	}
+}
+
 type loginAttempt struct {
 	count        int
 	blockedUntil time.Time
@@ -195,20 +212,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		loginAttemptsMu.Lock()
 		attempt, exists := loginAttempts[ip]
 		if !exists {
-			if len(loginAttempts) >= maxLimiterEntries {
-				now := time.Now()
-				for k, v := range loginAttempts {
-					if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > 15*time.Minute {
-						delete(loginAttempts, k)
-					}
-				}
-				if len(loginAttempts) >= maxLimiterEntries {
-					for k := range loginAttempts {
-						delete(loginAttempts, k)
-						break
-					}
-				}
-			}
+			evictLoginAttempts(loginAttempts)
 			attempt = &loginAttempt{}
 			loginAttempts[ip] = attempt
 		}
@@ -226,6 +230,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			loginAttemptsMu.Lock()
 			currentAttempt, exists := loginAttempts[ip]
 			if !exists {
+				evictLoginAttempts(loginAttempts)
 				currentAttempt = &loginAttempt{}
 				loginAttempts[ip] = currentAttempt
 			}

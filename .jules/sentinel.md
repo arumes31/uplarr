@@ -24,3 +24,7 @@
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
 **Learning:** Maps used for state tracking (e.g., rate limiting, metrics) without eviction mechanisms represent a severe memory leak vector. Bounding and evicting items safely prevents this.
 **Prevention:** Implement safe map bounds and evictions. Evict inactive entries when exceeding a threshold (e.g., 100). When full and all entries are active, forceful eviction of an arbitrary/oldest entry must be used rather than throwing errors or skipping caching to maintain rate-limiting properties and bound memory.
+## 2025-02-27 - Rate Limiter DoS Vulnerability Fix
+**Vulnerability:** Memory exhaustion DoS risk in `loginAttempts` map rate limiter.
+**Learning:** The map size bounding logic was only executed when creating the *first* attempt, but if the password check failed and a new block was instantiated, the map was inserted into without bounds checking.
+**Prevention:** Centralize and abstract eviction/bounding logic to ensure it is systematically applied at every point a new entry is added to a bounded map.
