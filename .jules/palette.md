@@ -1,3 +1,6 @@
+## 2026-03-05 - Contextual Accessibility for Generic Action Buttons
+**Learning:** Generic action buttons like 'Retry', 'Remove', or 'Pause' in dynamic lists (like the task queue) can be completely ambiguous to screen reader users if they aren't uniquely identified. Adding context (like the file name) to their `aria-label` and `title` attributes solves this problem.
+**Action:** When creating dynamic lists with repetitive action buttons, inject contextual data (like `task.file_name`) into the `aria-label` and `title` attributes to provide specific, actionable information for screen readers and improve the micro-UX.
 ## 2026-03-05 - Adding accessibility to toggle buttons
 **Learning:** Found that layout toggles (`view-toggle-btn`) and view options (`compact-toggle`) missed dynamic ARIA attributes, leaving screen reader users without proper context of the current interface state.
 **Action:** When creating toggle buttons or dropdown buttons, always pair with `aria-pressed` or `aria-expanded` and `aria-haspopup` to properly convey state changes and control relationships.
