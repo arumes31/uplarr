@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2026-06-05 - Avoid allocation-heavy operations in O(N log N) loops
+**Learning:** Using `a.name.split('.').pop()` to get an extension in a sort comparator creates a new array for every comparison during `Array.prototype.sort()`. This leads to excessive garbage collection (GC) pressure and slows down large list rendering.
+**Action:** In vanilla JS frontends, optimize O(N log N) sorting operations by replacing object-instantiating methods like `.split().pop()` within comparators with allocation-free alternatives like `lastIndexOf` and `substring`.
