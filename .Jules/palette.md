@@ -8,3 +8,7 @@
 ## 2024-04-24 - Preserving Button Icons & Providing Inline Loading States
 **Learning:** Overwriting the entire `.textContent` of a button that contains an inline icon (like `<svg>`) accidentally destroys the icon. Furthermore, users often lack immediate feedback on buttons like "Connect" or "Upload" while the action is processing, making the UI feel unresponsive even if a toast appears.
 **Action:** Always wrap button text in a `<span class="btn-text">` when the button also contains an SVG icon. Create a reusable `toggleButtonLoading` utility that toggles visibility between the static icon and a spinner icon, and temporarily updates the `.btn-text` content to reflect the loading state (e.g., "Connecting...").
+
+## 2026-06-22 - Added visual indicators to required form fields
+**Learning:** HTML5 `required` attributes alone are insufficient for providing visual cues to sighted users. Adding explicit required field indicators, while ensuring they remain hidden from screen readers via `aria-hidden="true"`, significantly improves form usability without degrading the screen reader experience.
+**Action:** Always complement HTML5 `required` attributes on form elements with visible asterisks explicitly hidden from screen readers to enhance UX.
