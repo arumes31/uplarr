@@ -10,3 +10,6 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+## 2026-06-27 - Adding visual required indicators
+**Learning:** Found that required form inputs like Host, Port, and Username lacked visual indicators (like asterisks), which could confuse users about which fields must be filled out before attempting to connect. Adding HTML required attributes isn't enough for visual users.
+**Action:** When adding HTML5 `required` attributes to form fields, always complement them with an explicit visual indicator (like an asterisk). Hide this indicator from screen readers using `aria-hidden="true"` to avoid redundant announcements since the input itself is already marked as required.
