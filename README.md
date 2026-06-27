@@ -1,6 +1,6 @@
 <p align="center"><img src="ui/static/logo.png" alt="Uplarr Logo" width="200"></p>
 
-# 🚀 Uplarr
+# Uplarr - GO SFTP Client
 
 
 <p align="center">
