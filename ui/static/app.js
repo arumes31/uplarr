@@ -293,8 +293,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    const getExt = name => {
+                        const i = name.lastIndexOf('.');
+                        return i > 0 ? name.substring(i + 1).toLowerCase() : '';
+                    };
+                    const extA = getExt(a.name);
+                    const extB = getExt(b.name);
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
@@ -931,7 +935,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderLocalFiles = () => {
         // ⚡ Bolt: Filter files before sorting to improve performance.
         // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // ⚡ Bolt: Bypass filter loop entirely when empty
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1128,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: Bypass filter loop entirely when empty
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
