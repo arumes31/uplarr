@@ -10,3 +10,6 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+## 2026-03-05 - Add contextual ARIA labels to queue action buttons
+**Learning:** Found that generic action buttons (like "Resume", "Retry", "Remove") dynamically generated for tasks in background queues lacked context for screen readers. When focused, they only announced the generic action without identifying which file or task they apply to.
+**Action:** When dynamically generating rows with inline action buttons in data tables or queues, always inject contextual identifiers (like the file name or row subject) into an `aria-label` attribute (e.g., `aria-label="Remove example.txt"`) to ensure actions are explicitly clear to screen reader users.
