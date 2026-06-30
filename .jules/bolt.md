@@ -18,3 +18,10 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+## 2025-05-24 - Avoiding object instantiations in sort comparators
+**Learning:** Using `.split('.').pop()` in a sort comparator (like the O(N log N) `Array.prototype.sort()`) creates numerous short-lived array objects, leading to high garbage collection overhead and potential jank during UI rendering.
+**Action:** When extracting substrings in performance-critical paths like sort comparators, use allocation-free methods like `lastIndexOf()` and `substring()` instead of object-instantiating methods like `split()`.
+
+## 2025-05-24 - Conditionally bypassing redundant array filters
+**Learning:** Running `Array.prototype.filter()` over a large UI list when the filter criteria (like a search string) is empty results in an unnecessary O(N) iteration and creates a redundant array copy.
+**Action:** When filtering arrays based on user input, always check if the input is empty and bypass the `filter()` step entirely to avoid redundant work and memory allocations.
