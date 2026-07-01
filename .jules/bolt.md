@@ -18,3 +18,10 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+## 2024-05-27 - Bypassing Redundant Array Allocations in Filters
+**Learning:** Calling `Array.prototype.filter()` with a condition that evaluates to true for all items (like `.includes('')` when a search input is empty) still unnecessarily allocates a completely new array, consuming memory and triggering GC pressure during frequent list renders.
+**Action:** When filtering lists based on optional search inputs in JavaScript, always conditionally bypass the `.filter()` operation if the search string is empty, assigning the original array reference instead to achieve O(1) assignment over O(N) allocation.
+
+## 2024-05-27 - Allocation-Free String Processing in Sort Comparators
+**Learning:** Using `String.prototype.split('.').pop()` inside sort comparators forces the JavaScript engine to allocate a new array on the heap for every single comparison (which happens $O(N \log N)$ times). This creates massive garbage collection overhead that slows down sorting of large lists.
+**Action:** When parsing strings (like file extensions) within tight loops or comparators, prefer allocation-free methods like `lastIndexOf` and `substring` to avoid heap allocations and improve performance.

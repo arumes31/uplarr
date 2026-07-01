@@ -33,3 +33,4 @@ test_data/
 /queue
 .Jules/
 .Jules
+server.log
