@@ -1,0 +1,7 @@
+go: downloading golang.org/x/time v0.15.0
+go: downloading github.com/pkg/sftp v1.13.10
+go: downloading golang.org/x/crypto v0.51.0
+go: downloading github.com/kr/fs v0.1.0
+2026/07/01 08:57:38 {"level":"info","time":"2026-07-01T08:57:38Z","msg":"Server starting on port: 8080 (binding to 0.0.0.0)"}
+2026/07/01 08:57:40 {"level":"info","time":"2026-07-01T08:57:40Z","msg":"SSE Client connected to /api/logs from [::1]:50406"}
+2026/07/01 08:57:44 {"level":"info","time":"2026-07-01T08:57:44Z","msg":"SSE Client disconnected from /api/logs: [::1]:50406"}
