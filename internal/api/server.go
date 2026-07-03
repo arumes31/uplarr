@@ -25,7 +25,7 @@ import (
 )
 
 var (
-	sessions   = make(map[string]bool)
+	sessions   = make(map[string]time.Time)
 	sessionsMu sync.RWMutex
 )
 
@@ -145,7 +145,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				return
 			}
 			sessionsMu.RLock()
-			valid := sessions[cookie.Value]
+			exp, ok := sessions[cookie.Value]
+			valid := ok && time.Now().Before(exp)
 			sessionsMu.RUnlock()
 			if !valid {
 				logger.Warn(fmt.Sprintf("Auth failure: invalid or expired session token for %s", r.URL.Path))
@@ -257,7 +258,21 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		sessionsMu.Lock()
-		sessions[token] = true
+		if len(sessions) >= 10000 {
+			now := time.Now()
+			for k, v := range sessions {
+				if now.After(v) {
+					delete(sessions, k)
+				}
+			}
+			if len(sessions) >= 10000 {
+				for k := range sessions {
+					delete(sessions, k)
+					break
+				}
+			}
+		}
+		sessions[token] = time.Now().Add(7 * 24 * time.Hour)
 		sessionsMu.Unlock()
 
 		http.SetCookie(w, &http.Cookie{
@@ -313,7 +328,8 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				authenticated = false
 			} else {
 				sessionsMu.RLock()
-				authenticated = sessions[cookie.Value]
+				exp, ok := sessions[cookie.Value]
+				authenticated = ok && time.Now().Before(exp)
 				sessionsMu.RUnlock()
 			}
 		}
