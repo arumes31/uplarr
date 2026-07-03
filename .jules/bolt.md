@@ -18,3 +18,6 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+## 2024-07-03 - Allocation-Free String Parsing
+**Learning:** In vanilla JS frontends, using `.split('.').pop()` to extract file extensions inside O(N log N) sorting comparators causes redundant array allocations, impacting performance on large datasets. Additionally, `idx !== -1 && idx !== 0` or `idx > 0` must be used with `lastIndexOf` to correctly handle dotfiles (e.g., `.env`), treating them as having no extension rather than incorrectly using the entire filename.
+**Action:** Replace object-instantiating methods like `.split().pop()` within comparators with allocation-free alternatives like `lastIndexOf` and `substring`. Ensure `idx > 0` is checked when parsing file extensions to handle dotfiles correctly.

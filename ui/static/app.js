@@ -293,8 +293,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    // ⚡ Bolt: Use allocation-free string parsing for file extensions.
+                    // 📊 Impact: Prevents array allocations in O(N log N) sorting, speeding up type sorts on large lists.
+                    const getExt = (name) => {
+                        const idx = name.lastIndexOf('.');
+                        return idx > 0 ? name.substring(idx + 1).toLowerCase() : '';
+                    };
+                    const extA = getExt(a.name);
+                    const extB = getExt(b.name);
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
