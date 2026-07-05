@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2024-07-05 - Vanilla JS sorting optimizations
+**Learning:** In vanilla JS frontends (like `app.js`), using object-instantiating methods like `.split().pop()` within comparators causes redundant O(N log N) memory allocations which can be expensive during sorting of large arrays.
+**Action:** Replace string manipulating array methods with allocation-free alternatives like `lastIndexOf` and `substring`. Also, be careful with dotfiles when checking for file extensions by ensuring dot index `> 0`.
