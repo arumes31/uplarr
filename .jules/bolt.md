@@ -18,3 +18,6 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+## 2025-05-27 - File Extension Extraction without Allocations
+**Learning:** Using `.split('.').pop()` to extract file extensions inside a sorting comparator function generates large numbers of short-lived array and string allocations, causing measurable GC pauses (jank) when sorting large file lists.
+**Action:** Always use allocation-free methods like `lastIndexOf('.')` combined with `.substring()` in tight loops or comparators. Also, be sure to handle dotfiles correctly by ensuring the index is `> 0`.

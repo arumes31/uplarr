@@ -293,8 +293,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    // ⚡ Bolt: Use lastIndexOf and substring instead of split().pop() to avoid array allocations during sorting.
+                    const idxA = a.name.lastIndexOf('.');
+                    const extA = idxA > 0 ? a.name.substring(idxA + 1).toLowerCase() : '';
+                    const idxB = b.name.lastIndexOf('.');
+                    const extB = idxB > 0 ? b.name.substring(idxB + 1).toLowerCase() : '';
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
