@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2026-07-08 - Array filtering bypassing
+**Learning:** Passing an array through `.filter()` creates O(N) iterations and allocations, even if the condition returns true for every element (like an empty search string).
+**Action:** Conditionally bypass `.filter()` operations entirely if the search criteria is empty, just assigning the original array reference to prevent redundant processing.
