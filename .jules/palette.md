@@ -10,3 +10,7 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+
+## 2026-07-10 - Generic action buttons in dynamic lists
+**Learning:** Found that generic action buttons (like Pause, Resume, Retry, Remove) inside dynamic lists/tables lack context for screen reader users and those relying on tooltips, causing ambiguity about what item the action applies to.
+**Action:** Always inject contextual information (e.g., the specific file name or task ID) into the `aria-label` and `title` attributes of generic action buttons within dynamic lists to ensure clarity and accessibility.
