@@ -10,3 +10,6 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+## 2026-07-11 - Accessibility of Required Form Fields
+**Learning:** Found that relying solely on HTML5 `required` attributes lacks visual clarity for users, but simply adding asterisks causes redundant announcements for screen reader users.
+**Action:** When using `required` attributes, always complement them with a visual indicator (like a red asterisk) hidden from screen readers using `aria-hidden="true"`.
