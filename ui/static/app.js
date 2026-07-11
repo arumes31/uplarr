@@ -931,7 +931,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderLocalFiles = () => {
         // ⚡ Bolt: Filter files before sorting to improve performance.
         // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // ⚡ Bolt: Conditionally execute `.filter()` only when filter is not empty.
+        // 📊 Impact: Avoids O(N) iterations and memory allocations when there is no filter.
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1125,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: Conditionally execute `.filter()` only when filter is not empty.
+        // 📊 Impact: Avoids O(N) iterations and memory allocations when there is no filter.
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
