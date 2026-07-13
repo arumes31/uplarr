@@ -10,3 +10,7 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+
+## 2026-07-13 - Contextual Labels in Dynamic Tables
+**Learning:** Generic action buttons (like 'Pause', 'Retry', 'Remove') within large dynamic lists or tables lack context for screen reader users and can be ambiguous even visually if row context isn't obvious.
+**Action:** Dynamically inject row-specific identifiers (e.g., `task.file_name`) into the `aria-label` and `title` attributes when creating these interactive elements to ensure clear, accessible functionality.
