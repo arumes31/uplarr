@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2026-07-13 - Conditional Array Filtering Optimization
+**Learning:** Invanilla JS frontends with massive datasets, calling `.filter()` with an empty string condition still iterates the entire array and allocates a new array in memory, creating a significant O(N) bottleneck.
+**Action:** Always conditionally bypass array `.filter()` operations over large UI lists when the search or filter condition is empty. Remember that doing so returns a reference to the original array rather than a new shallow copy, so ensure downstream code does not mutate it.
