@@ -25,9 +25,25 @@ import (
 )
 
 var (
-	sessions   = make(map[string]bool)
+	sessions   = make(map[string]time.Time)
 	sessionsMu sync.RWMutex
 )
+
+func init() {
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			sessionsMu.Lock()
+			now := time.Now()
+			for token, expiry := range sessions {
+				if now.After(expiry) {
+					delete(sessions, token)
+				}
+			}
+			sessionsMu.Unlock()
+		}
+	}()
+}
 
 type loginAttempt struct {
 	count        int
@@ -144,10 +160,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			sessionsMu.RLock()
-			valid := sessions[cookie.Value]
-			sessionsMu.RUnlock()
-			if !valid {
+			sessionsMu.Lock()
+			expiry, exists := sessions[cookie.Value]
+			if exists && time.Now().After(expiry) {
+				delete(sessions, cookie.Value)
+				exists = false
+			}
+			sessionsMu.Unlock()
+			if !exists {
 				logger.Warn(fmt.Sprintf("Auth failure: invalid or expired session token for %s", r.URL.Path))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -257,7 +277,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		sessionsMu.Lock()
-		sessions[token] = true
+		sessions[token] = time.Now().Add(7 * 24 * time.Hour) // 1 week
 		sessionsMu.Unlock()
 
 		http.SetCookie(w, &http.Cookie{
@@ -312,9 +332,14 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			if err != nil {
 				authenticated = false
 			} else {
-				sessionsMu.RLock()
-				authenticated = sessions[cookie.Value]
-				sessionsMu.RUnlock()
+				sessionsMu.Lock()
+				expiry, exists := sessions[cookie.Value]
+				if exists && time.Now().After(expiry) {
+					delete(sessions, cookie.Value)
+					exists = false
+				}
+				authenticated = exists
+				sessionsMu.Unlock()
 			}
 		}
 
