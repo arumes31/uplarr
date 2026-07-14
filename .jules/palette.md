@@ -10,3 +10,6 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+## 2024-07-14 - Required Field Visual Indicators in Configuration Forms
+**Learning:** Found that our SFTP configuration forms relied solely on HTML5 `required` attributes, leaving visual users without clear indicators of required inputs. Adding an inline visual element like `<span style="color: var(--error);" aria-hidden="true">*</span>` explicitly communicates this to visual users while `aria-hidden="true"` prevents redundant announcements for screen reader users, since the `required` attribute already conveys the state.
+**Action:** Always visually indicate required inputs in our app's configuration forms using the `var(--error)` CSS variable and `aria-hidden="true"` to balance visual clarity and screen reader accessibility.
