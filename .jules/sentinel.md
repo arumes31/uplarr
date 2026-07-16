@@ -24,3 +24,8 @@
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
 **Learning:** Maps used for state tracking (e.g., rate limiting, metrics) without eviction mechanisms represent a severe memory leak vector. Bounding and evicting items safely prevents this.
 **Prevention:** Implement safe map bounds and evictions. Evict inactive entries when exceeding a threshold (e.g., 100). When full and all entries are active, forceful eviction of an arbitrary/oldest entry must be used rather than throwing errors or skipping caching to maintain rate-limiting properties and bound memory.
+
+## 2026-07-16 - [Insecure Session Management / Missing Backend Expiration]
+**Vulnerability:** Sessions in the map store were mapped to booleans and didn't expire server-side, relying solely on client-side cookie expiration.
+**Learning:** This exposes the application to DoS attacks via memory exhaustion and allows indefinitely long lived sessions if tokens are leaked.
+**Prevention:** Track session creation time server-side, validate age upon authentication, and implement periodic garbage collection/eviction limits.
