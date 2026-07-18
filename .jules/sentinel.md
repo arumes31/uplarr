@@ -24,3 +24,8 @@
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
 **Learning:** Maps used for state tracking (e.g., rate limiting, metrics) without eviction mechanisms represent a severe memory leak vector. Bounding and evicting items safely prevents this.
 **Prevention:** Implement safe map bounds and evictions. Evict inactive entries when exceeding a threshold (e.g., 100). When full and all entries are active, forceful eviction of an arbitrary/oldest entry must be used rather than throwing errors or skipping caching to maintain rate-limiting properties and bound memory.
+
+## 2025-02-20 - JSON injection in logger fallback
+**Vulnerability:** The logger error fallback path used string concatenation (fmt.Sprintf with %s) to construct JSON, allowing log/JSON injection if input variables contain double quotes.
+**Learning:** Manual JSON construction in error/fallback paths often bypasses serialization protections and remains vulnerable.
+**Prevention:** Always use json.Marshal, or use %q in Sprintf to safely escape and quote strings.

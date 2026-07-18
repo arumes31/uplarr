@@ -43,7 +43,7 @@ func LogWithLevel(level, msg string, extra interface{}) {
 	if err != nil {
 		log.Printf("logger: failed to marshal log entry: %v (level=%s, msg=%s)", err, entry.Level, entry.Msg)
 		// Emit a safe fallback JSON string
-		fallback := fmt.Sprintf(`{"level":"%s","msg":"[marshal error] %s","time":"%s"}`, entry.Level, entry.Msg, entry.Time)
+		fallback := fmt.Sprintf(`{"level":%q,"msg":%q,"time":%q}`, entry.Level, "[marshal error] "+entry.Msg, entry.Time)
 		BroadcastLog(fallback)
 		return
 	}
