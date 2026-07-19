@@ -10,3 +10,6 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+## 2026-07-19 - Contextual details in dynamic lists
+**Learning:** Interactive elements inside dynamic lists need contextual details injected into their attributes to ensure screen readers and tooltips provide adequate context.
+**Action:** When adding interactive elements to dynamic tables or lists, dynamically inject contextual details into their aria-label and title attributes.

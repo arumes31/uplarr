@@ -32,4 +32,6 @@ test_data/
 /api_cov
 /queue
 .Jules/
-.Jules
+.Julesserver.log
+
+server.log
