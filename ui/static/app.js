@@ -931,7 +931,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderLocalFiles = () => {
         // ⚡ Bolt: Filter files before sorting to improve performance.
         // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // ⚡ Bolt: Bypass redundant array filtering when the search string is empty to avoid O(N) allocation overhead.
+        // 📊 Impact: Reduces O(N) iterations and memory allocations when rendering large file lists without an active search.
+        // Note: sortFiles inherently creates a shallow copy, safely treating this input as immutable.
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1126,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: Bypass redundant array filtering when the search string is empty to avoid O(N) allocation overhead.
+        // 📊 Impact: Reduces O(N) iterations and memory allocations when rendering large file lists without an active search.
+        // Note: sortFiles inherently creates a shallow copy, safely treating this input as immutable.
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
