@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2025-06-05 - Optimize string extraction in tight loops
+**Learning:** Using `String.prototype.split()` and `.pop()` to extract file extensions in tight loops (like within an `Array.prototype.sort()` callback) creates unnecessary intermediate arrays and is significantly slower than using `lastIndexOf()` and `substring()`.
+**Action:** When extracting suffixes from strings in performance-critical paths (e.g., frontend rendering or sorting of large lists), use `lastIndexOf()` combined with `substring()` instead of array-based manipulation to minimize garbage collection overhead and execution time. Ensure dotfiles are handled by explicitly verifying the returned index is not 0.
