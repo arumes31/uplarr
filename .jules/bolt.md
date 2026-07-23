@@ -18,3 +18,7 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2025-10-27 - Fast File Extension Parsing
+**Learning:** Using `split(".").pop()` in tight loops (like array sorting) creates unnecessary intermediate arrays and is significantly slower than using string methods like `lastIndexOf(".")` and `substring()`.
+**Action:** Always use string methods over array methods when extracting file extensions in JavaScript to improve rendering performance of large file lists.
