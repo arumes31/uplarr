@@ -10,3 +10,7 @@
 ## 2024-04-30 - Password Visibility Toggle
 **Learning:** Users need to verify their master password before submitting, and relying on missing/stubbed JS features (like fa-eye toggles without UI) creates a frustrating dead end.
 **Action:** Always implement a functional visibility toggle for sensitive inputs with proper ARIA labels and SVG swapping.
+
+## 2024-05-24 - Dynamic Action Button Context
+**Learning:** Generic action buttons (like "Remove", "Retry") inside dynamic tables (like task queues) lack context for screen reader users and can be ambiguous without tooltips.
+**Action:** Dynamically inject contextual details (e.g., the row's `task.file_name`) into their `aria-label` and `title` attributes when generating the elements to ensure adequate context.
