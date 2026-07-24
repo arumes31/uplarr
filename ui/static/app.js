@@ -293,8 +293,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
+                    let extA = '';
+                    const lastDotA = a.name.lastIndexOf('.');
+                    if (lastDotA > 0) extA = a.name.substring(lastDotA + 1).toLowerCase();
+
+                    let extB = '';
+                    const lastDotB = b.name.lastIndexOf('.');
+                    if (lastDotB > 0) extB = b.name.substring(lastDotB + 1).toLowerCase();
+
                     return dirMul * basicCollator.compare(extA, extB);
                 }
                 default:
