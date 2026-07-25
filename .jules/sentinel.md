@@ -24,3 +24,23 @@
 **Vulnerability:** Unbounded in-memory map tracking rate limiters (`qm.limiters`) per host allows a malicious user or numerous unauthenticated requests with unique hosts to exhaust server memory, leading to a Denial of Service (DoS).
 **Learning:** Maps used for state tracking (e.g., rate limiting, metrics) without eviction mechanisms represent a severe memory leak vector. Bounding and evicting items safely prevents this.
 **Prevention:** Implement safe map bounds and evictions. Evict inactive entries when exceeding a threshold (e.g., 100). When full and all entries are active, forceful eviction of an arbitrary/oldest entry must be used rather than throwing errors or skipping caching to maintain rate-limiting properties and bound memory.
+
+## 2026-07-25 - Server-Side Session Expiry and Bounded Session Map
+**Vulnerability:** The `sessions` map in `internal/api/server.go` stored `map[string]bool`, so a token stayed valid on the server forever. Expiry was enforced only by the client-side cookie `MaxAge`, and the map had no size bound.
+**Learning:** A cookie `MaxAge` is a client-side hint that an attacker holding a stolen token simply ignores. Server-side session state needs its own expiry, and any map keyed by attacker-influenced input needs a bound.
+**Prevention:** Store the expiry instant alongside the token (`map[string]time.Time`), derive it from a `sessionTTL` constant that mirrors the cookie `MaxAge`, reject and delete expired entries on access, and on insert prune expired entries before evicting the entry closest to expiring. Keep the read path on `RLock` so validation does not serialise every authenticated request.
+
+## 2026-07-25 - Rate Limiter Bound Bypassed on a Second Insert Path
+**Vulnerability:** `loginAttempts` was bounded only where the entry was created on the initial lookup. The failed-password path re-acquired the lock and inserted a second time without any capacity check, so the bound could be bypassed.
+**Learning:** When bounding logic is inlined at a call site rather than attached to the insert, a later code path that also inserts will silently skip it. The bug is invisible at the second call site because nothing there mentions the bound.
+**Prevention:** Extract eviction into a single `evictLoginAttemptsLocked` helper named for its locking contract and call it from every insert path.
+
+## 2026-07-25 - Hand-Built JSON in the Logger Fallback
+**Vulnerability:** When `json.Marshal` failed, `LogWithLevel` built the fallback entry with `fmt.Sprintf` and `%s`, so a quote or newline in the message could inject arbitrary JSON into the SSE log stream consumed by the UI.
+**Learning:** Fallback and error paths are exactly where hand-rolled serialisation tends to survive, because they are rarely exercised and rarely tested.
+**Prevention:** Re-marshal a reduced struct with `encoding/json` instead of formatting JSON by hand. `Extra` is the only field that can be unmarshalable, so dropping it guarantees the retry succeeds.
+
+## 2026-07-25 - gosec G124 on Dynamically Set Cookie Attributes
+**Vulnerability:** None in practice, but gosec >= 2.26 reports G124 on the login cookie because `Secure` is assigned from `isSecureRequest(r)` rather than a literal `true`, which it cannot evaluate statically.
+**Learning:** A scanner upgrade can block an otherwise routine dependency bump on a false positive. The finding needs triage, not a blanket suppression of the rule.
+**Prevention:** Annotate the specific statement with `// #nosec G124` and a comment explaining why the attribute is dynamic, matching the existing annotation on the logout cookie.

@@ -2,7 +2,6 @@ package logger
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -41,10 +40,19 @@ func LogWithLevel(level, msg string, extra interface{}) {
 
 	b, err := json.Marshal(entry)
 	if err != nil {
-		log.Printf("logger: failed to marshal log entry: %v (level=%s, msg=%s)", err, entry.Level, entry.Msg)
-		// Emit a safe fallback JSON string
-		fallback := fmt.Sprintf(`{"level":"%s","msg":"[marshal error] %s","time":"%s"}`, entry.Level, entry.Msg, entry.Time)
-		BroadcastLog(fallback)
+		log.Printf("logger: failed to marshal log entry: %v (level=%q, msg=%q)", err, entry.Level, entry.Msg)
+		// Marshal again without Extra, which is the only field that can carry an
+		// unmarshalable value. Building the fallback by hand would let a quote or
+		// newline in Msg inject arbitrary JSON into the log stream.
+		fallback, ferr := json.Marshal(LogMessage{
+			Level: entry.Level,
+			Time:  entry.Time,
+			Msg:   "[marshal error] " + entry.Msg,
+		})
+		if ferr != nil {
+			return
+		}
+		BroadcastLog(string(fallback))
 		return
 	}
 	log.Println(string(b))

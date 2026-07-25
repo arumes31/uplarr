@@ -24,10 +24,71 @@ import (
 	"uplarr/ui"
 )
 
+const (
+	// sessionTTL mirrors the uplarr_session cookie MaxAge so that a token can
+	// never outlive its cookie on the server side.
+	sessionTTL = 7 * 24 * time.Hour
+	// maxSessions bounds the session map so it cannot grow without limit.
+	maxSessions = 1000
+)
+
+// sessions maps a session token to the instant it expires.
 var (
-	sessions   = make(map[string]bool)
+	sessions   = make(map[string]time.Time)
 	sessionsMu sync.RWMutex
 )
+
+// validSession reports whether token names a live session, dropping the entry
+// if it has expired. Callers must not hold sessionsMu.
+func validSession(token string) bool {
+	sessionsMu.RLock()
+	expiry, ok := sessions[token]
+	sessionsMu.RUnlock()
+
+	if !ok {
+		return false
+	}
+	if time.Now().Before(expiry) {
+		return true
+	}
+
+	sessionsMu.Lock()
+	// Re-read under the write lock: another request may have replaced the entry.
+	if expiry, ok := sessions[token]; ok && !time.Now().Before(expiry) {
+		delete(sessions, token)
+	}
+	sessionsMu.Unlock()
+	return false
+}
+
+// addSession registers a new token. It first prunes expired entries and, if the
+// map is still at capacity, evicts the entry closest to expiring so that memory
+// stays bounded rather than failing the login. Callers must not hold sessionsMu.
+func addSession(token string) {
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+
+	now := time.Now()
+	if len(sessions) >= maxSessions {
+		for t, expiry := range sessions {
+			if !now.Before(expiry) {
+				delete(sessions, t)
+			}
+		}
+	}
+	if len(sessions) >= maxSessions {
+		var oldest string
+		var oldestExpiry time.Time
+		for t, expiry := range sessions {
+			if oldest == "" || expiry.Before(oldestExpiry) {
+				oldest, oldestExpiry = t, expiry
+			}
+		}
+		delete(sessions, oldest)
+	}
+
+	sessions[token] = now.Add(sessionTTL)
+}
 
 type loginAttempt struct {
 	count        int
@@ -41,7 +102,34 @@ var (
 	maxLoginAttempts   = 5
 	loginBlockDuration = 15 * time.Minute
 	maxLimiterEntries  = 1000
+	// limiterIdleTimeout is how long an unblocked entry must sit untouched
+	// before it is safe to forget. Tracking it for longer serves no purpose,
+	// since the attempt count only matters within the blocking window.
+	limiterIdleTimeout = 15 * time.Minute
 )
+
+// evictLoginAttemptsLocked bounds the rate-limiter map, preferring to drop
+// entries that are neither blocked nor recently active. Callers must hold
+// loginAttemptsMu.
+func evictLoginAttemptsLocked() {
+	if len(loginAttempts) < maxLimiterEntries {
+		return
+	}
+
+	now := time.Now()
+	for k, v := range loginAttempts {
+		if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > limiterIdleTimeout {
+			delete(loginAttempts, k)
+		}
+	}
+	// Every entry is still live; drop an arbitrary one so the bound holds.
+	if len(loginAttempts) >= maxLimiterEntries {
+		for k := range loginAttempts {
+			delete(loginAttempts, k)
+			break
+		}
+	}
+}
 
 func generateToken() (string, error) {
 	b := make([]byte, 32)
@@ -144,10 +232,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			sessionsMu.RLock()
-			valid := sessions[cookie.Value]
-			sessionsMu.RUnlock()
-			if !valid {
+			if !validSession(cookie.Value) {
 				logger.Warn(fmt.Sprintf("Auth failure: invalid or expired session token for %s", r.URL.Path))
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -195,20 +280,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		loginAttemptsMu.Lock()
 		attempt, exists := loginAttempts[ip]
 		if !exists {
-			if len(loginAttempts) >= maxLimiterEntries {
-				now := time.Now()
-				for k, v := range loginAttempts {
-					if now.After(v.blockedUntil) && now.Sub(v.lastAttempt) > 15*time.Minute {
-						delete(loginAttempts, k)
-					}
-				}
-				if len(loginAttempts) >= maxLimiterEntries {
-					for k := range loginAttempts {
-						delete(loginAttempts, k)
-						break
-					}
-				}
-			}
+			evictLoginAttemptsLocked()
 			attempt = &loginAttempt{}
 			loginAttempts[ip] = attempt
 		}
@@ -226,6 +298,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			loginAttemptsMu.Lock()
 			currentAttempt, exists := loginAttempts[ip]
 			if !exists {
+				evictLoginAttemptsLocked()
 				currentAttempt = &loginAttempt{}
 				loginAttempts[ip] = currentAttempt
 			}
@@ -256,10 +329,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		sessionsMu.Lock()
-		sessions[token] = true
-		sessionsMu.Unlock()
+		addSession(token)
 
+		// #nosec G124 -- Secure is set from isSecureRequest rather than a literal,
+		// so gosec cannot prove it statically; HttpOnly and SameSite are set below.
 		http.SetCookie(w, &http.Cookie{
 			Name:     "uplarr_session",
 			Value:    token,
@@ -312,9 +385,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			if err != nil {
 				authenticated = false
 			} else {
-				sessionsMu.RLock()
-				authenticated = sessions[cookie.Value]
-				sessionsMu.RUnlock()
+				authenticated = validSession(cookie.Value)
 			}
 		}
 
