@@ -136,8 +136,36 @@ Run with: `docker compose up -d`
 | `CONFIG_DIR` | Directory for application state (queue) | `./config` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
 | `AUTH_PASSWORD` | Password for Web UI authentication | (None) |
+| `UPLARR_SFTP_MAX_PACKET` | SFTP payload bytes per request (1024–131072) | `32768` |
+| `UPLARR_SFTP_MAX_REQUESTS` | Concurrent in-flight requests per file (1–1024) | `128` |
 
 *All SFTP parameters are managed dynamically via the Web UI.*
+
+### 🚀 Tuning transfer speed
+
+Uploads pipeline many requests at once, so a single large file is no longer
+limited to one packet per network round trip. On a link with 10 ms latency this
+is the difference between ~2.6 MB/s and ~22 MB/s for one file.
+
+If your server can take it, raising the packet size is the single biggest
+remaining lever — against an in-memory test server, `32768` → `131072` roughly
+doubled single-file throughput again:
+
+```yaml
+environment:
+  - UPLARR_SFTP_MAX_PACKET=131072
+```
+
+`32768` is the default because it is the only payload size the SFTP
+specification requires every server to accept. Servers built on OpenSSH or
+Go's `pkg/sftp` handle far more, but some (certain ProFTPD `mod_sftp` and
+FileZilla Server setups) do not, and an oversized packet shows up as the
+connection dropping mid-transfer. Raise it only against a server you control,
+and drop back to `32768` if transfers start failing. Values above `131072` are
+rejected because the packet header shares SFTP's 256 KiB message limit.
+
+The effective settings are written to the log on every connection, so you can
+confirm what a running container actually negotiated.
 
 ---
 

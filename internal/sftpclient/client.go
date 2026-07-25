@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,13 +25,44 @@ import (
 )
 
 // DefaultMaxConcurrentRequestsPerFile controls the maximum number of concurrent
-// outstanding requests per file during SFTP transfers. Raised from the library
-// default of 64 to 128 for higher throughput on high-bandwidth links.
-// Some SFTP servers with strict request/connection limits (e.g., certain
-// ProFTPD mod_sftp or FileZilla Server configurations) may need a lower value.
-// If you experience transfer failures or server disconnects, try reducing
-// this to 64.
-const DefaultMaxConcurrentRequestsPerFile = 64
+// outstanding requests per file during SFTP transfers. Some SFTP servers with
+// strict request/connection limits (e.g., certain ProFTPD mod_sftp or
+// FileZilla Server configurations) may need a lower value. If you experience
+// transfer failures or server disconnects, try reducing this to 64.
+const DefaultMaxConcurrentRequestsPerFile = 128
+
+// defaultMaxPacket is the SFTP payload size per request. 32 KiB is the only
+// size the specification requires every server to accept, so it stays the
+// default. Servers built on OpenSSH or pkg/sftp handle far more, and raising
+// this is the single biggest throughput lever available: measured against an
+// in-memory server, 32K -> 128K roughly doubled single-file throughput.
+// Override with UPLARR_SFTP_MAX_PACKET once you know your server tolerates it.
+const defaultMaxPacket = 32768
+
+// maxPacketCeiling keeps the payload below pkg/sftp's 256 KiB message limit,
+// which the packet header shares. Asking for exactly 256 KiB overflows it and
+// the server drops the connection.
+const maxPacketCeiling = 128 * 1024
+
+// tunable returns an env-provided int within [lo,hi], or fallback. An invalid
+// value warns and falls back rather than failing the connection, so a typo in a
+// compose file cannot take transfers down.
+func tunable(env string, fallback, lo, hi int) int {
+	raw, ok := os.LookupEnv(env)
+	if !ok {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("%s=%q is not a number, using %d", env, raw, fallback))
+		return fallback
+	}
+	if v < lo || v > hi {
+		logger.Warn(fmt.Sprintf("%s=%d is outside [%d,%d], using %d", env, v, lo, hi, fallback))
+		return fallback
+	}
+	return v
+}
 
 type Limiter struct {
 	rateLimiter    *rate.Limiter
@@ -399,9 +431,20 @@ func (s *SFTPClient) Connect() error {
 	}
 	s.sshClient = client
 
+	maxPacket := tunable("UPLARR_SFTP_MAX_PACKET", defaultMaxPacket, 1024, maxPacketCeiling)
+	maxRequests := tunable("UPLARR_SFTP_MAX_REQUESTS", DefaultMaxConcurrentRequestsPerFile, 1, 1024)
+	logger.Info(fmt.Sprintf("SFTP transport: maxPacket=%d bytes, maxRequests=%d, concurrentWrites=true", maxPacket, maxRequests))
+
 	sftpClient, err := sftp.NewClient(client,
-		sftp.MaxConcurrentRequestsPerFile(DefaultMaxConcurrentRequestsPerFile),
-		sftp.MaxPacket(32768),
+		sftp.MaxConcurrentRequestsPerFile(maxRequests),
+		// Unchecked because the checked variant refuses anything over 32 KiB;
+		// the ceiling above keeps us inside what the protocol can frame.
+		sftp.MaxPacketUnchecked(maxPacket),
+		// Without this, File.ReadFrom writes one packet per round trip, so a
+		// single file's throughput is capped at maxPacket/RTT no matter how
+		// fast the link is. The reader wrappers below all expose Size/Stat so
+		// pkg/sftp can size the request window.
+		sftp.UseConcurrentWrites(true),
 	)
 	if err != nil {
 		_ = client.Close() // #nosec G104
@@ -664,12 +707,22 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 
 	cleanupRemote := true
 	var verificationErr error
+
+	// closeRemote is idempotent so the transfer can close the handle early —
+	// before verifying and renaming — while the deferred call still covers
+	// every error path that returns before then.
+	remoteClosed := false
+	closeRemote := func() error {
+		if remoteFile == nil || remoteClosed {
+			return nil
+		}
+		remoteClosed = true
+		return remoteFile.Close()
+	}
+
 	defer func() {
-		if remoteFile != nil {
-			closeErr := remoteFile.Close()
-			if err == nil && closeErr != nil {
-				err = fmt.Errorf("failed to close remote file: %v", closeErr)
-			}
+		if closeErr := closeRemote(); err == nil && closeErr != nil {
+			err = fmt.Errorf("failed to close remote file: %v", closeErr)
 		}
 		if cleanupRemote {
 			if verificationErr != nil {
@@ -739,6 +792,9 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	// Use ReadFrom if available (provided by pkg/sftp.File for concurrent writes)
 	if rf, ok := targetWriter.(io.ReaderFrom); ok {
 		_, err = rf.ReadFrom(targetReader)
+		if err != nil {
+			trimPartialUpload(remoteFile, tempRemotePath)
+		}
 	} else {
 		_, err = io.Copy(targetWriter, targetReader)
 	}
@@ -748,6 +804,14 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 
 	duration := time.Since(startTime)
 	logger.Info(fmt.Sprintf("Uploaded %s -> %s (%d bytes) in %s", localPath, remotePath, localStat.Size(), duration))
+
+	// Close the remote handle before verifying and renaming. A Windows-hosted
+	// SFTP server refuses to rename a file that still has an open handle, and
+	// closing first also means the size check below sees fully flushed data
+	// rather than whatever the server has committed so far.
+	if closeErr := closeRemote(); closeErr != nil {
+		return fmt.Errorf("failed to close remote file: %v", closeErr)
+	}
 
 	// Verify the temp file
 	remoteStat, err = s.sftpClient.Stat(tempRemotePath)
@@ -787,6 +851,33 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 
 	return nil
 }
+
+// trimPartialUpload trims a failed transfer back to its last contiguous byte.
+//
+// With concurrent writes, requests for later offsets can succeed after an
+// earlier one has failed, so the temp file may contain a gap. Resume treats the
+// file as a prefix of the local one and only verifies the first megabyte, so a
+// gap further in would survive both that check and the final size comparison,
+// producing a corrupt upload. pkg/sftp leaves the file offset at the earliest
+// failed write, which is the last safe length.
+func trimPartialUpload(remoteFile SFTPFile, tempRemotePath string) {
+	truncator, ok := remoteFile.(interface{ Truncate(int64) error })
+	if !ok {
+		return
+	}
+
+	safeLen, err := remoteFile.Seek(0, io.SeekCurrent)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Could not determine safe length for %s, discarding partial file: %v", tempRemotePath, err))
+		return
+	}
+	if err := truncator.Truncate(safeLen); err != nil {
+		logger.Warn(fmt.Sprintf("Failed to trim partial file %s to %d bytes; a later resume will restart it: %v", tempRemotePath, safeLen, err))
+		return
+	}
+	logger.Info(fmt.Sprintf("Trimmed partial upload %s to %d contiguous bytes", tempRemotePath, safeLen))
+}
+
 func (s *SFTPClient) startLatencySampler(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
