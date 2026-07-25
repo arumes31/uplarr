@@ -34,3 +34,7 @@ test_data/
 .Jules/
 .Jules
 server.log
+
+# Local tooling artifacts
+graphify-out/
+.claudeignore
