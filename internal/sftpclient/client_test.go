@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -182,7 +183,7 @@ func generateMockServerKey() ([]byte, error) {
 func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string, func()) {
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, p []byte) (*ssh.Permissions, error) {
-			if c.User() == user && string(p) == password {
+			if c.User() == user && subtle.ConstantTimeCompare(p, []byte(password)) == 1 {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("password rejected")

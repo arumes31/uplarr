@@ -278,25 +278,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     const basicCollator = new Intl.Collator();
 
+    // ⚡ Bolt: Extract the extension without allocating an intermediate array.
+    // 📊 Impact: split('.') built a throwaway array per comparison; slice does not.
+    const fileExtension = (name) => {
+        const dot = name.lastIndexOf('.');
+        return dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
+    };
+
     const sortFiles = (files, sortKey, sortDir) => {
-        const sorted = [...files];
         const dirMul = sortDir === 'asc' ? 1 : -1;
 
-        sorted.sort((a, b) => {
-            // Directories always first
+        // Directories always first.
+        const byDir = (a, b) => {
             if (a.is_dir && !b.is_dir) return -1;
             if (!a.is_dir && b.is_dir) return 1;
+            return 0;
+        };
+
+        if (sortKey === 'type') {
+            // ⚡ Bolt: Decorate-sort-undecorate. The extension is derived once per
+            // file rather than twice per comparison.
+            // 📊 Impact: O(n) extension parsing instead of O(n log n).
+            return files
+                .map((file) => ({ file, ext: fileExtension(file.name) }))
+                .sort((a, b) => byDir(a.file, b.file) || dirMul * basicCollator.compare(a.ext, b.ext))
+                .map((entry) => entry.file);
+        }
+
+        const sorted = [...files];
+        sorted.sort((a, b) => {
+            const dirOrder = byDir(a, b);
+            if (dirOrder !== 0) return dirOrder;
 
             switch (sortKey) {
                 case 'name':
                     return dirMul * collator.compare(a.name, b.name);
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
-                case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
-                    return dirMul * basicCollator.compare(extA, extB);
-                }
                 default:
                     return 0;
             }
@@ -931,7 +949,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderLocalFiles = () => {
         // ⚡ Bolt: Filter files before sorting to improve performance.
         // 📊 Impact: O(n log n) sorting now only runs on the matching files, not the entire list.
-        const filtered = localFilesList.filter(f => f.name.toLowerCase().includes(localFilter));
+        // sortFiles already copies, so an empty query can skip the scan entirely.
+        const filtered = localFilter ? localFilesList.filter(f => f.name.toLowerCase().includes(localFilter)) : localFilesList;
         const sorted = sortFiles(filtered, localSort.key, localSort.dir);
         updateSortHeaders('file-table', localSort);
         fileListBody.innerHTML = '';
@@ -1123,7 +1142,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Remote Files ---
 
     const renderRemoteFiles = () => {
-        const filtered = remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter));
+        // ⚡ Bolt: sortFiles already copies, so an empty query can skip the scan entirely.
+        const filtered = remoteFilter ? remoteFilesList.filter(f => f.name.toLowerCase().includes(remoteFilter)) : remoteFilesList;
         const sorted = sortFiles(filtered, remoteSort.key, remoteSort.dir);
         updateSortHeaders('remote-file-table', remoteSort);
         remoteFileListBody.innerHTML = '';
@@ -1427,24 +1447,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const tdActions = document.createElement('td');
                 tdActions.className = 'col-actions';
+                // 🎨 Palette: The actions column repeats the same few labels on every
+                // row, so the visible text alone tells a screen reader user nothing
+                // about which transfer they are about to act on. Name the file in the
+                // accessible name, and mirror it in the tooltip for mouse users.
+                const describeAction = (btn, label) => {
+                    const description = `${label} ${task.file_name}`;
+                    btn.textContent = label;
+                    btn.title = description;
+                    btn.setAttribute('aria-label', description);
+                };
+
                 if (task.status === 'Pending' || task.status === 'Paused') {
+                    const isPaused = task.status === 'Paused';
                     const controlBtn = document.createElement('button');
                     controlBtn.className = 'action-btn';
-                    controlBtn.textContent = task.status === 'Paused' ? 'Resume' : 'Pause';
-                    controlBtn.addEventListener('click', () => controlTask(task.id, task.status === 'Paused' ? 'resume' : 'pause'));
+                    describeAction(controlBtn, isPaused ? 'Resume' : 'Pause');
+                    controlBtn.addEventListener('click', () => controlTask(task.id, isPaused ? 'resume' : 'pause'));
                     tdActions.appendChild(controlBtn);
                 } else if (task.status === 'Failed' || task.status === 'Completed') {
                     if (task.local_file_exists) {
                         const retryBtn = document.createElement('button');
                         retryBtn.className = 'action-btn';
-                        retryBtn.textContent = 'Retry';
+                        describeAction(retryBtn, 'Retry');
                         retryBtn.addEventListener('click', () => controlTask(task.id, 'retry'));
                         tdActions.appendChild(retryBtn);
                     }
                 }
                 const remBtn = document.createElement('button');
                 remBtn.className = 'action-btn btn-danger-text';
-                remBtn.textContent = 'Remove';
+                describeAction(remBtn, 'Remove');
                 remBtn.addEventListener('click', () => controlTask(task.id, 'remove'));
                 tdActions.appendChild(remBtn);
 

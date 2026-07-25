@@ -452,6 +452,13 @@ section { padding: 8px 12px; }
     font-weight: 600;
 }
 
+/* Marks a mandatory field for sighted users. Carries aria-hidden in the markup
+   because screen readers already announce the input's required state. */
+.required-indicator {
+    color: var(--error);
+    margin-left: 2px;
+}
+
 .form-field input {
     width: 100%;
     background: rgba(15, 23, 42, 0.5);
