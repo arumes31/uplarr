@@ -2,7 +2,7 @@ name: Go Security Scan
 
 on:
   push:
-    branches: [ main, v2_test ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   schedule:
