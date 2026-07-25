@@ -139,33 +139,9 @@ Run with: `docker compose up -d`
 | `UPLARR_SFTP_MAX_PACKET` | SFTP payload bytes per request (1024–131072) | `32768` |
 | `UPLARR_SFTP_MAX_REQUESTS` | Concurrent in-flight requests per file (1–1024) | `128` |
 
-*All SFTP parameters are managed dynamically via the Web UI.*
-
-### 🚀 Tuning transfer speed
-
-Uploads pipeline many requests at once, so a single large file is no longer
-limited to one packet per network round trip. On a link with 10 ms latency this
-is the difference between ~2.6 MB/s and ~22 MB/s for one file.
-
-If your server can take it, raising the packet size is the single biggest
-remaining lever — against an in-memory test server, `32768` → `131072` roughly
-doubled single-file throughput again:
-
-```yaml
-environment:
-  - UPLARR_SFTP_MAX_PACKET=131072
-```
-
-`32768` is the default because it is the only payload size the SFTP
-specification requires every server to accept. Servers built on OpenSSH or
-Go's `pkg/sftp` handle far more, but some (certain ProFTPD `mod_sftp` and
-FileZilla Server setups) do not, and an oversized packet shows up as the
-connection dropping mid-transfer. Raise it only against a server you control,
-and drop back to `32768` if transfers start failing. Values above `131072` are
-rejected because the packet header shares SFTP's 256 KiB message limit.
-
-The effective settings are written to the log on every connection, so you can
-confirm what a running container actually negotiated.
+*Connection details (host, credentials, remote path) are managed dynamically via
+the Web UI. The two `UPLARR_SFTP_*` variables tune transport throughput — see
+[SFTP Tuning](#-sftp-tuning) below.*
 
 ---
 
@@ -182,16 +158,43 @@ Uplarr maintains a background queue that survives container and process restarts
 
 ## 🔧 SFTP Tuning
 
-### `MaxConcurrentRequestsPerFile`
+Uploads pipeline many requests at once, so a single large file is not limited
+to one packet per network round trip. Both knobs below are environment
+variables — no rebuild needed — and the values actually in use are written to
+the log on every connection.
 
-The SFTP client uses up to **128** concurrent outstanding requests per file transfer (controlled by the `DefaultMaxConcurrentRequestsPerFile` constant in `internal/sftpclient/client.go`). This was raised from the library default of 64 to improve throughput on high-bandwidth / high-latency links.
+### `UPLARR_SFTP_MAX_PACKET` (default `32768`)
 
-**Compatibility notes:**
-- **OpenSSH sshd**: Works well with 128 concurrent requests (tested).
-- **ProFTPD mod_sftp**: Some configurations with strict per-connection request limits may reject transfers. If you encounter disconnects, reduce to 64.
-- **FileZilla Server**: Generally works, but restrictive configurations may need a lower value.
+Payload bytes per request, and the single biggest throughput lever. Against an
+in-memory test server, raising this from `32768` to `131072` roughly doubled
+single-file throughput.
 
-**To change the value**, edit the `DefaultMaxConcurrentRequestsPerFile` constant in [`internal/sftpclient/client.go`](internal/sftpclient/client.go) and rebuild. A safe fallback value is `64`.
+`32768` is the default because it is the only payload size the SFTP
+specification requires every server to accept. Raise it only against a server
+you control:
+
+```yaml
+environment:
+  - UPLARR_SFTP_MAX_PACKET=131072
+```
+
+Values above `131072` are rejected, because the packet header shares SFTP's
+256 KiB message limit and an oversized packet makes the server drop the
+connection mid-transfer.
+
+### `UPLARR_SFTP_MAX_REQUESTS` (default `128`)
+
+Concurrent outstanding requests per file, raised from the library default of 64
+to improve throughput on high-bandwidth or high-latency links.
+
+**Compatibility notes for both settings:**
+- **OpenSSH sshd**: handles 128 concurrent requests and packets well above 32 KiB.
+- **ProFTPD mod_sftp**: some configurations with strict per-connection request limits may reject transfers. If you see disconnects, drop requests to `64` and keep the packet size at `32768`.
+- **FileZilla Server**: generally works, but restrictive configurations may need lower values.
+
+If transfers begin failing after a change, revert to `UPLARR_SFTP_MAX_PACKET=32768`
+first — an oversized packet is the more likely culprit, and it presents as an
+unhelpful mid-transfer disconnect rather than a clear error.
 
 ---
 
