@@ -18,3 +18,15 @@
 ## 2026-06-04 - Pre-aggregate Task Stats Under Mutexes
 **Learning:** Running an O(T * H) nested loop under a `sync.RWMutex` to aggregate stats can cause high lock contention for frequently polled API endpoints (like `/api/stats`).
 **Action:** Pre-aggregate task data in a single O(T) pass into a map, and then iterate through the map in an O(H) pass to compute host stats. This brings the complexity down to O(T + H) and minimizes time spent under the read lock.
+
+## 2026-07-25 - Derive Sort Keys Once, Not Per Comparison
+**Learning:** The `type` branch of `sortFiles` recomputed each file's extension inside the comparator with `split('.').pop()`, so every one of the O(n log n) comparisons allocated two throwaway arrays. Work done inside a comparator is multiplied by the comparison count, not the element count.
+**Action:** Use decorate-sort-undecorate when a sort key needs deriving: map each element to `{ item, key }` once, sort on the precomputed key, then map back. Extract the extension with `lastIndexOf('.')` and `slice` rather than `split`, which allocates.
+
+## 2026-07-25 - Skip Filter Passes That Cannot Exclude Anything
+**Learning:** `renderLocalFiles` and `renderRemoteFiles` ran `.filter()` on every render even when the search box was empty, walking the whole list and lowercasing every name to rebuild an identical array. The empty query is the common case, since the filter is only populated while the user is typing.
+**Action:** Guard the filter on a non-empty query and pass the source array straight through. This is only safe because `sortFiles` copies its input; verify the downstream consumer does not mutate before removing a defensive copy.
+
+## 2026-07-25 - Verifying a Comparator Refactor Without a Test Suite
+**Learning:** Rewriting sort logic in a repo with no JS tests is where silent behaviour changes hide. Extension parsing in particular has edge cases (`.bashrc`, `file.`, `a.b.c.gz`, no dot at all) where a plausible-looking `split`-to-`slice` swap can diverge.
+**Action:** Before landing, run the old and new implementations side by side over randomized inputs plus a hand-written edge-case list, comparing full output orderings and asserting the input array is not mutated. A throwaway script is enough and it is fast to write.
