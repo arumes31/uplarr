@@ -293,9 +293,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'size':
                     return dirMul * ((a.size || 0) - (b.size || 0));
                 case 'type': {
-                    const extA = a.name.includes('.') ? a.name.split('.').pop().toLowerCase() : '';
-                    const extB = b.name.includes('.') ? b.name.split('.').pop().toLowerCase() : '';
-                    return dirMul * basicCollator.compare(extA, extB);
+                    // Bolt: Optimize file extension parsing in hot loop (avoid intermediate arrays)
+                    const getExt = (name) => {
+                        const i = name.lastIndexOf('.');
+                        return (i > 0) ? name.substring(i + 1).toLowerCase() : '';
+                    };
+                    return dirMul * basicCollator.compare(getExt(a.name), getExt(b.name));
                 }
                 default:
                     return 0;
