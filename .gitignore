@@ -34,3 +34,6 @@ test_data/
 .Jules/
 .Jules
 server.log
+
+# Graphify output directory
+graphify-out/
