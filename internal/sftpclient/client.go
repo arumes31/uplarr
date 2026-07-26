@@ -792,8 +792,16 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	// Use ReadFrom if available (provided by pkg/sftp.File for concurrent writes)
 	if rf, ok := targetWriter.(io.ReaderFrom); ok {
 		_, err = rf.ReadFrom(targetReader)
-		if err != nil {
-			trimPartialUpload(remoteFile, tempRemotePath)
+		if err != nil && !trimPartialUpload(remoteFile, tempRemotePath) {
+			// The tail could not be trimmed back to its last contiguous byte, so
+			// the file may hold a gap that resume would silently accept. Discard
+			// it: restarting from zero is slower than resuming, but correct.
+			_ = closeRemote()
+			if rmErr := s.sftpClient.Remove(tempRemotePath); rmErr != nil {
+				logger.Error(fmt.Sprintf("Could not remove unsafe partial file %s; a later resume may be corrupt: %v", tempRemotePath, rmErr))
+			} else {
+				logger.Warn(fmt.Sprintf("Discarded unsafe partial file %s; the next attempt restarts from zero", tempRemotePath))
+			}
 		}
 	} else {
 		_, err = io.Copy(targetWriter, targetReader)
@@ -860,22 +868,27 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 // gap further in would survive both that check and the final size comparison,
 // producing a corrupt upload. pkg/sftp leaves the file offset at the earliest
 // failed write, which is the last safe length.
-func trimPartialUpload(remoteFile SFTPFile, tempRemotePath string) {
+// It reports whether the file is now a safe resume base. A false result means
+// the remaining bytes cannot be trusted and the caller must discard the file
+// rather than let a later attempt resume from it.
+func trimPartialUpload(remoteFile SFTPFile, tempRemotePath string) bool {
 	truncator, ok := remoteFile.(interface{ Truncate(int64) error })
 	if !ok {
-		return
+		// Cannot trim, so cannot vouch for the tail.
+		return false
 	}
 
 	safeLen, err := remoteFile.Seek(0, io.SeekCurrent)
 	if err != nil {
-		logger.Warn(fmt.Sprintf("Could not determine safe length for %s, discarding partial file: %v", tempRemotePath, err))
-		return
+		logger.Warn(fmt.Sprintf("Could not determine safe length for %s: %v", tempRemotePath, err))
+		return false
 	}
 	if err := truncator.Truncate(safeLen); err != nil {
-		logger.Warn(fmt.Sprintf("Failed to trim partial file %s to %d bytes; a later resume will restart it: %v", tempRemotePath, safeLen, err))
-		return
+		logger.Warn(fmt.Sprintf("Failed to trim partial file %s to %d bytes: %v", tempRemotePath, safeLen, err))
+		return false
 	}
 	logger.Info(fmt.Sprintf("Trimmed partial upload %s to %d contiguous bytes", tempRemotePath, safeLen))
+	return true
 }
 
 func (s *SFTPClient) startLatencySampler(ctx context.Context) {

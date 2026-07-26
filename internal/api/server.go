@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -129,6 +130,24 @@ func evictLoginAttemptsLocked() {
 			break
 		}
 	}
+}
+
+// clientIPFromForwardedFor returns the rightmost non-empty entry of an
+// X-Forwarded-For header, which is the address the nearest trusted proxy
+// appended. Entries further left are client-supplied and trivially spoofed.
+// Returns "" when the header carries nothing usable, so callers keep their
+// RemoteAddr-derived fallback.
+func clientIPFromForwardedFor(header string) string {
+	if header == "" {
+		return ""
+	}
+	entries := strings.Split(header, ",")
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entry := strings.TrimSpace(entries[i]); entry != "" {
+			return entry
+		}
+	}
+	return ""
 }
 
 func generateToken() (string, error) {
@@ -270,10 +289,13 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		if err != nil {
 			ip = r.RemoteAddr
 		}
-		if config.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
-			ips := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
-			if len(ips) > 0 {
-				ip = strings.TrimSpace(ips[0])
+		if config.TrustProxy {
+			// Take the rightmost entry, not the leftmost. Everything to the left
+			// is supplied by the client, so keying the rate limiter on it lets an
+			// attacker rotate a spoofed value and get a fresh bucket per attempt.
+			// The last entry is the one our own trusted proxy appended.
+			if forwarded := clientIPFromForwardedFor(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+				ip = forwarded
 			}
 		}
 
@@ -660,7 +682,26 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(absPath)))
+		// ServeFile renders a directory listing when handed a directory, which
+		// would expose the tree rather than downloading anything.
+		info, err := os.Stat(absPath)
+		if err != nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if info.IsDir() {
+			http.Error(w, "Cannot download a directory", http.StatusBadRequest)
+			return
+		}
+
+		// FormatMediaType quotes and escapes the filename, so a name containing
+		// a quote or backslash cannot break out of the header value. It also
+		// falls back to RFC 2231 encoding for non-ASCII names.
+		disposition := mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(absPath)})
+		if disposition == "" {
+			disposition = "attachment"
+		}
+		w.Header().Set("Content-Disposition", disposition)
 		http.ServeFile(w, r, absPath)
 	}))
 

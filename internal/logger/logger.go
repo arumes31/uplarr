@@ -52,6 +52,10 @@ func LogWithLevel(level, msg string, extra interface{}) {
 		if ferr != nil {
 			return
 		}
+		// Emit to the persistent log too, so the structured record survives for
+		// anything parsing the log stream rather than only reaching live SSE
+		// subscribers.
+		log.Println(string(fallback))
 		BroadcastLog(string(fallback))
 		return
 	}

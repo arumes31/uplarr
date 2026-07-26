@@ -264,6 +264,23 @@
             filter: grayscale(60%);
         }
 
+        /* The rules above clear the default outline, which leaves keyboard users
+           with no focus indicator on either button. :focus-visible restores one
+           for keyboard navigation only, so pointer focus stays unchanged.
+           Uses outline rather than box-shadow because .toggle-password-btn
+           forces box-shadow: none !important. */
+        input:focus-visible,
+        button:focus-visible {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: 3px;
+        }
+
+        .toggle-password-btn:focus-visible {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: 1px;
+            border-radius: 4px;
+        }
+
         .error-msg {
             color: var(--error);
             font-size: 0.85rem;

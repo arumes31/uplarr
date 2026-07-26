@@ -1,6 +1,9 @@
 package sftpclient
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestTunable(t *testing.T) {
 	const env = "UPLARR_TEST_TUNABLE"
@@ -26,6 +29,18 @@ func TestTunable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.set {
 				t.Setenv(env, tc.val)
+			} else {
+				// t.Setenv cannot unset, so clear it by hand and restore whatever
+				// was there. Without this the fallback case would silently pass
+				// against an ambient value instead of exercising the unset path.
+				if prev, ok := os.LookupEnv(env); ok {
+					t.Cleanup(func() { _ = os.Setenv(env, prev) })
+				} else {
+					t.Cleanup(func() { _ = os.Unsetenv(env) })
+				}
+				if err := os.Unsetenv(env); err != nil {
+					t.Fatalf("unset %s: %v", env, err)
+				}
 			}
 			if got := tunable(env, 100, 10, 200); got != tc.want {
 				t.Errorf("tunable(%q=%q) = %d, want %d", env, tc.val, got, tc.want)

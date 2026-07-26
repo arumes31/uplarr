@@ -178,9 +178,10 @@ environment:
   - UPLARR_SFTP_MAX_PACKET=131072
 ```
 
-Values above `131072` are rejected, because the packet header shares SFTP's
-256 KiB message limit and an oversized packet makes the server drop the
-connection mid-transfer.
+Values outside `1024`–`131072` are ignored: a warning is logged and the default
+`32768` is used instead, so a bad value never takes transfers down. The upper
+bound exists because the packet header shares SFTP's 256 KiB message limit, and
+an oversized packet makes the server drop the connection mid-transfer.
 
 ### `UPLARR_SFTP_MAX_REQUESTS` (default `128`)
 

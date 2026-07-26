@@ -535,7 +535,11 @@ func (qm *QueueManager) GetHostStats() []models.HostStats {
 	aggs := make(map[string]*hostAgg)
 
 	for _, t := range qm.tasks {
-		if t.Status == models.TaskRunning || t.Status == models.TaskPending {
+		// Paused counts as active here to match getOrCreateLimiter, which keeps a
+		// host's limiter alive while it has paused tasks. Without it, a host whose
+		// tasks are all paused retains its limiter but reports no stats at all.
+		// Only running tasks contribute to the count and speed.
+		if t.Status == models.TaskRunning || t.Status == models.TaskPending || t.Status == models.TaskPaused {
 			agg, exists := aggs[t.Config.Host]
 			if !exists {
 				agg = &hostAgg{}
