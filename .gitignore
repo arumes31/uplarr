@@ -37,3 +37,4 @@ server.log
 
 # Graphify output directory
 graphify-out/
+node_modules
