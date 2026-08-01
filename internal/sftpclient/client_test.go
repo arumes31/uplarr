@@ -595,13 +595,19 @@ func TestSFTPClient_ValidateRemotePath(t *testing.T) {
 		t.Errorf("Unexpected path: %s", p)
 	}
 
-	// New behavior: absolute paths are allowed anywhere starting from /
-	p2, err := client.validateRemotePath("/etc/passwd")
-	if err != nil {
-		t.Errorf("Expected success for absolute path, got %v", err)
+	// Expected behavior: absolute paths that escape RemoteDir should be rejected
+	_, err = client.validateRemotePath("/etc/passwd")
+	if err == nil || !strings.Contains(err.Error(), "traversal detected") {
+		t.Errorf("Expected traversal error for absolute path escaping RemoteDir, got %v", err)
 	}
-	if p2 != "/etc/passwd" {
-		t.Errorf("Unexpected path: %s", p2)
+
+	// Test absolute path within RemoteDir
+	p3, err := client.validateRemotePath("/upload/sub/file.txt")
+	if err != nil {
+		t.Errorf("Expected success for absolute path within RemoteDir, got %v", err)
+	}
+	if p3 != "/upload/sub/file.txt" {
+		t.Errorf("Unexpected path: %s", p3)
 	}
 
 	// Test relative escape attempt
@@ -625,14 +631,14 @@ func TestSFTPClient_FileSystemActions(t *testing.T) {
 		t.Error(err)
 	}
 
-	if err := client.Mkdir("/root"); err != nil {
-		t.Errorf("Expected success for absolute path, got %v", err)
+	if err := client.Mkdir("/root"); err == nil || !strings.Contains(err.Error(), "traversal detected") {
+		t.Errorf("Expected traversal error for absolute path escaping RemoteDir, got %v", err)
 	}
-	if err := client.Remove("/root"); err != nil {
-		t.Errorf("Expected success for absolute path, got %v", err)
+	if err := client.Remove("/root"); err == nil || !strings.Contains(err.Error(), "traversal detected") {
+		t.Errorf("Expected traversal error for absolute path escaping RemoteDir, got %v", err)
 	}
-	if err := client.Rename("/upload/a", "/root"); err != nil {
-		t.Errorf("Expected success for absolute path, got %v", err)
+	if err := client.Rename("/upload/a", "/root"); err == nil || !strings.Contains(err.Error(), "traversal detected") {
+		t.Errorf("Expected traversal error for absolute path escaping RemoteDir, got %v", err)
 	}
 }
 
@@ -652,8 +658,8 @@ func TestSFTPClient_ReadRemoteDir(t *testing.T) {
 	}
 
 	_, err = client.ReadRemoteDir("/etc")
-	if err != nil {
-		t.Errorf("Expected success for absolute path, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "traversal detected") {
+		t.Errorf("Expected traversal error for absolute path escaping RemoteDir, got %v", err)
 	}
 }
 

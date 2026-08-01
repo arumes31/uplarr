@@ -508,17 +508,18 @@ func (s *SFTPClient) validateRemotePath(p string) (string, error) {
 	p = path.Clean(filepath.ToSlash(p))
 
 	// Determine the security base.
-	// If the path is absolute, we allow navigation anywhere in the SFTP account (base = /).
-	// If the path is relative, we jail it to the configured RemoteDir.
-	base := "/"
+	base := path.Clean(filepath.ToSlash(s.RemoteDir))
+
+	// If the path is relative, we append it to the base.
+	// If the user provides an absolute path, we must still enforce
+	// that it falls within the RemoteDir.
 	if !path.IsAbs(p) {
-		base = path.Clean(filepath.ToSlash(s.RemoteDir))
-		// Join joining the relative path with the base allows filepath.Rel
-		// to correctly detect upward traversal on all platforms.
 		p = path.Join(base, p)
 	}
 
-	rel, err := filepath.Rel(base, p)
+	// filepath.Rel expects OS-specific paths.
+	// base and p are POSIX paths. Convert them to OS paths for filepath.Rel.
+	rel, err := filepath.Rel(filepath.FromSlash(base), filepath.FromSlash(p))
 	if err != nil {
 		return "", fmt.Errorf("invalid remote path")
 	}

@@ -44,3 +44,7 @@
 **Vulnerability:** None in practice, but gosec >= 2.26 reports G124 on the login cookie because `Secure` is assigned from `isSecureRequest(r)` rather than a literal `true`, which it cannot evaluate statically.
 **Learning:** A scanner upgrade can block an otherwise routine dependency bump on a false positive. The finding needs triage, not a blanket suppression of the rule.
 **Prevention:** Annotate the specific statement with `// #nosec G124` and a comment explaining why the attribute is dynamic, matching the existing annotation on the logout cookie.
+## 2025-02-28 - [CRITICAL] Fix Path Traversal in SFTP validateRemotePath
+**Vulnerability:** The `validateRemotePath` logic allowed arbitrary file access on the SFTP server by checking `!path.IsAbs(p)` and explicitly setting the security base to `/` if the user provided an absolute path, bypassing the intended `RemoteDir` jail.
+**Learning:** Trusting absolute paths from user input to determine the jailing directory defeats directory restrictions. User input must always be validated against a strict, predefined base directory.
+**Prevention:** Always use the configured base directory (e.g., `RemoteDir`) as the absolute root constraint. Convert paths to relative against the base directory safely, rejecting anything that escapes (`..` or `../`).
