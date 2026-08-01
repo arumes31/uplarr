@@ -968,6 +968,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const fragment = document.createDocumentFragment();
 
+        let checkboxIndex = 0;
         sorted.forEach(file => {
             const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
             const row = document.createElement('tr');
@@ -1005,14 +1006,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (file.is_dir) {
                 cb.disabled = true;
                 cb.title = 'Directories cannot be selected';
+            } else {
+                cb.dataset.index = checkboxIndex++;
             }
             if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
             cb.addEventListener('click', (e) => {
-                const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));
-                const currentIndex = allCheckboxes.indexOf(cb);
+                // ⚡ Bolt: Optimize click handlers on large lists. O(1) attribute lookup instead of O(N) DOM query + indexOf.
+                const currentIndex = parseInt(cb.dataset.index, 10);
 
                 if (e.shiftKey && lastCheckedIndex >= 0 && lastCheckedIndex !== currentIndex) {
+                    const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));
                     const start = Math.min(lastCheckedIndex, currentIndex);
                     const end = Math.max(lastCheckedIndex, currentIndex);
                     const newState = cb.checked;

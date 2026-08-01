@@ -50,3 +50,7 @@
 ## 2026-07-25 - Benchmark the Environment Before Optimising the Code
 **Learning:** The first measurements said 8.7 MB/s and looked like an application problem. They were not. Running the *same* raw `pkg/sftp` upload with no uplarr involved reproduced 8.7 MB/s inside the container and 61.7 MB/s on the host, which proved uplarr added no measurable overhead. Two Docker Desktop artifacts were responsible: reading through a Windows bind mount (46 MB/s vs 1.5 GB/s from a native volume) and container→host NAT via vpnkit. Fixing the rig moved the same build from 8.7 to 28 MB/s before any code changed.
 **Action:** Before optimising, reproduce the workload with the dependency alone and no application code. If the bare library is equally slow, the bottleneck is the environment. For Docker throughput tests on Windows, put both ends on a user-defined bridge network and keep test data in a native volume, never a host bind mount.
+
+## 2024-05-24 - Optimize large list interaction performance
+**Learning:** In vanilla JS, O(N) DOM operations inside click handlers (like querySelectorAll and indexOf) create significant overhead on large lists. O(1) attribute lookup should be used instead.
+**Action:** Use data-index attributes assigned during generation for O(1) lookups and defer expensive queries to specific code paths (like shift-clicking).
