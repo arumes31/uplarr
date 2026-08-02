@@ -967,6 +967,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const fragment = document.createDocumentFragment();
+        const currentCheckboxes = [];
+        let checkboxIndex = 0;
 
         sorted.forEach(file => {
             const fullRelPath = currentPath ? `${currentPath}/${file.name}` : file.name;
@@ -1002,36 +1004,41 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.dataset.path = fullRelPath;
             cb.dataset.name = file.name;
             cb.setAttribute('aria-label', `Select ${file.name}`);
+
             if (file.is_dir) {
                 cb.disabled = true;
                 cb.title = 'Directories cannot be selected';
-            }
-            if (queuedFiles.has(fullRelPath)) cb.checked = true;
+            } else {
+                const currentIndex = checkboxIndex++;
+                cb.dataset.index = currentIndex;
+                currentCheckboxes.push(cb);
 
-            cb.addEventListener('click', (e) => {
-                const allCheckboxes = Array.from(fileListBody.querySelectorAll('.file-checkbox:not(:disabled)'));
-                const currentIndex = allCheckboxes.indexOf(cb);
+                if (queuedFiles.has(fullRelPath)) cb.checked = true;
 
-                if (e.shiftKey && lastCheckedIndex >= 0 && lastCheckedIndex !== currentIndex) {
-                    const start = Math.min(lastCheckedIndex, currentIndex);
-                    const end = Math.max(lastCheckedIndex, currentIndex);
-                    const newState = cb.checked;
-                    for (let i = start; i <= end; i++) {
-                        const c = allCheckboxes[i];
-                        c.checked = newState;
-                        const p = c.dataset.path;
-                        const n = c.dataset.name;
-                        if (newState) queuedFiles.set(p, { name: n });
-                        else queuedFiles.delete(p);
+                cb.addEventListener('click', (e) => {
+                    const index = parseInt(cb.dataset.index, 10);
+
+                    if (e.shiftKey && lastCheckedIndex >= 0 && lastCheckedIndex !== index) {
+                        const start = Math.min(lastCheckedIndex, index);
+                        const end = Math.max(lastCheckedIndex, index);
+                        const newState = cb.checked;
+                        for (let i = start; i <= end; i++) {
+                            const c = currentCheckboxes[i];
+                            c.checked = newState;
+                            const p = c.dataset.path;
+                            const n = c.dataset.name;
+                            if (newState) queuedFiles.set(p, { name: n });
+                            else queuedFiles.delete(p);
+                        }
+                    } else {
+                        if (cb.checked) queuedFiles.set(fullRelPath, { name: file.name });
+                        else queuedFiles.delete(fullRelPath);
                     }
-                } else {
-                    if (cb.checked) queuedFiles.set(fullRelPath, { name: file.name });
-                    else queuedFiles.delete(fullRelPath);
-                }
-                lastCheckedIndex = currentIndex;
-                updateUploadButtonText();
-                updateSelectionBar();
-            });
+                    lastCheckedIndex = index;
+                    updateUploadButtonText();
+                    updateSelectionBar();
+                });
+            }
             tdCheck.appendChild(cb);
 
             // Name Cell
