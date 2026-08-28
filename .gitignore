@@ -36,6 +36,7 @@ test_data/
 .kimi-code/
 .kimi-code
 server.log
+test_output.txt
 
 # Graphify output directory
 graphify-out/
