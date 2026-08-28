@@ -27,7 +27,7 @@ jobs:
       - name: Install scanners
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
       - name: Run gosec
         run: gosec ./...
       - name: Run govulncheck

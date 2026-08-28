@@ -225,7 +225,9 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 		return "", os.ErrPermission
 	}
 	qm.AddTask("any.txt", models.UploadRequest{})
-	time.Sleep(50 * time.Millisecond)
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		return len(tasks) == 1 && tasks[0].Status == models.TaskFailed
+	}, 2*time.Second)
 
 	// Test second FilepathAbs error
 	callCount := 0
@@ -237,7 +239,9 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 		return oldAbs(path)
 	}
 	qm.AddTask("any2.txt", models.UploadRequest{})
-	time.Sleep(50 * time.Millisecond)
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		return len(tasks) == 2 && tasks[1].Status == models.TaskFailed
+	}, 2*time.Second)
 
 	qm.Shutdown()
 }

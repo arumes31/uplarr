@@ -59,6 +59,7 @@ type QueueManager struct {
 	configDir     string
 	nextID        uint64
 	wg            sync.WaitGroup
+	taskWG        sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
@@ -197,6 +198,7 @@ func (qm *QueueManager) Shutdown() {
 	qm.cancel()
 	qm.trigger()
 	qm.wg.Wait()
+	qm.taskWG.Wait()
 }
 
 func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpclient.Limiter {
@@ -363,6 +365,7 @@ func (qm *QueueManager) processLoop() {
 				nextTask.Progress = 0
 
 				qm.runningTasks++
+				qm.taskWG.Add(1)
 				go qm.runTask(nextTask)
 			}
 			qm.mu.Unlock()
@@ -372,6 +375,7 @@ func (qm *QueueManager) processLoop() {
 }
 
 func (qm *QueueManager) runTask(task *models.Task) {
+	defer qm.taskWG.Done()
 	defer func() {
 		qm.mu.Lock()
 		qm.runningTasks--
