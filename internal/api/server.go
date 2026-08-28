@@ -488,7 +488,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			if err != nil {
 				return nil, err
 			}
-			defer root.Close()
+			defer func() { _ = root.Close() }()
 
 			// Compute rel path from evaluated root
 			rel, err := filepath.Rel(absLocalDir, absFullPath)
@@ -500,7 +500,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			if err != nil {
 				return nil, err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			return f.ReadDir(-1)
 		}()
@@ -582,7 +582,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		defer root.Close()
+		defer func() { _ = root.Close() }()
 
 		var errAct error
 		switch req.Action {
@@ -847,10 +847,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	}))
 
 	mux.HandleFunc("/api/queue", withAuth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(qm.GetTasks())
-		} else if r.Method == http.MethodPost {
+		case http.MethodPost:
 			var req struct {
 				ID     string `json:"id"`
 				Action string `json:"action"`
@@ -869,7 +870,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				return
 			}
 			w.WriteHeader(http.StatusOK)
-		} else {
+		default:
 			w.Header().Set("Allow", "GET, POST")
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

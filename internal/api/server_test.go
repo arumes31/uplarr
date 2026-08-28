@@ -32,7 +32,7 @@ func TestCoverageFlat(t *testing.T) {
 	}()
 
 	tempDir, _ := os.MkdirTemp("", "api_cov_flat")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	qm := queue.NewQueueManager(tempDir, tempDir)
 	defer qm.Shutdown()
 
@@ -154,7 +154,6 @@ func TestCoverageFlat(t *testing.T) {
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=.", nil))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=../secret", nil))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/download?path=a", nil))
-
 
 	// 6. SFTP Handlers (315-414)
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/test-connection", strings.NewReader("!")))

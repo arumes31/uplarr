@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,18 +43,35 @@ func (m *mockClient) Rename(oldpath, newpath string) error              { return
 func (m *mockClient) Mkdir(path string) error                           { return nil }
 func (m *mockClient) SetLimiter(l *sftpclient.Limiter)                  {}
 
+type stalledIOClient struct {
+	mockClient
+	started   chan struct{}
+	unblocked chan struct{}
+	closeOnce sync.Once
+}
+
+func (c *stalledIOClient) Close() {
+	c.closeOnce.Do(func() { close(c.unblocked) })
+}
+
+func (c *stalledIOClient) UploadFileWithRetry(ctx context.Context, _ string, _ int) error {
+	close(c.started)
+	<-c.unblocked
+	return ctx.Err()
+}
+
 func TestQueueManager(t *testing.T) {
 	localDir, err := os.MkdirTemp("", "qm_test_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_test_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	qm := queue.NewQueueManager(localDir, configDir)
 	defer qm.Shutdown()
@@ -66,18 +84,57 @@ func TestQueueManager(t *testing.T) {
 	}
 }
 
+func TestQueueManager_ShutdownInterruptsStalledSFTPIO(t *testing.T) {
+	localDir := t.TempDir()
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(localDir, "stalled.txt"), []byte("data"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	client := &stalledIOClient{
+		started:   make(chan struct{}),
+		unblocked: make(chan struct{}),
+	}
+	t.Cleanup(client.Close)
+
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface { return client }
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	qm := queue.NewQueueManager(localDir, configDir)
+	qm.AddTask("stalled.txt", models.UploadRequest{})
+
+	select {
+	case <-client.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upload did not start")
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		qm.Shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not interrupt stalled SFTP I/O")
+	}
+}
+
 func TestQueueManager_Control(t *testing.T) {
 	localDir, err := os.MkdirTemp("", "qm_ctrl_local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_ctrl_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	// Mock NewClient to block so we can pause a pending task
 	oldNewClient := queue.NewClient
@@ -125,14 +182,15 @@ func TestQueueManager_Control(t *testing.T) {
 	tasks := qm.GetTasks()
 
 	var runningID, pendingID, pendingID2 string
-	for _, t := range tasks {
-		if t.Status == models.TaskRunning {
-			runningID = t.ID
-		} else if t.Status == models.TaskPending {
+	for _, task := range tasks {
+		switch task.Status {
+		case models.TaskRunning:
+			runningID = task.ID
+		case models.TaskPending:
 			if pendingID == "" {
-				pendingID = t.ID
+				pendingID = task.ID
 			} else {
-				pendingID2 = t.ID
+				pendingID2 = task.ID
 			}
 		}
 	}
@@ -206,13 +264,13 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_abs_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	oldAbs := queue.FilepathAbs
 	defer func() { queue.FilepathAbs = oldAbs }()
@@ -224,7 +282,9 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 		return "", os.ErrPermission
 	}
 	qm.AddTask("any.txt", models.UploadRequest{})
-	time.Sleep(50 * time.Millisecond)
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		return len(tasks) == 1 && tasks[0].Status == models.TaskFailed
+	}, 2*time.Second)
 
 	// Test second FilepathAbs error
 	callCount := 0
@@ -236,7 +296,9 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 		return oldAbs(path)
 	}
 	qm.AddTask("any2.txt", models.UploadRequest{})
-	time.Sleep(50 * time.Millisecond)
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		return len(tasks) == 2 && tasks[1].Status == models.TaskFailed
+	}, 2*time.Second)
 
 	qm.Shutdown()
 }
@@ -246,13 +308,13 @@ func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_root_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	oldOpenRoot := queue.OsOpenRoot
 	queue.OsOpenRoot = func(name string) (*os.Root, error) {
@@ -271,13 +333,13 @@ func TestQueueManager_ProcessNext_Traversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_trav_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	qm := queue.NewQueueManager(localDir, configDir)
 	qm.AddTask("../escaped.txt", models.UploadRequest{})
@@ -317,13 +379,13 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_retries_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	testFile := filepath.Join(localDir, "retry.txt")
 	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {

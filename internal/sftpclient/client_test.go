@@ -222,7 +222,7 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 					return
 				}
 				go func(nConn net.Conn) {
-					defer nConn.Close()
+					defer func() { _ = nConn.Close() }()
 					conn, chans, reqs, err := ssh.NewServerConn(nConn, config)
 					if err != nil {
 						return
@@ -252,9 +252,9 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 						server, err := sftp.NewServer(channel, sftp.WithServerWorkingDirectory(uploadDir))
 						if err == nil {
 							_ = server.Serve()
-							server.Close()
+							_ = server.Close()
 						}
-						conn.Close()
+						_ = conn.Close()
 					}
 				}(nConn)
 			}
@@ -263,7 +263,7 @@ func startMockSFTPServer(t *testing.T, user, password, uploadDir string) (string
 
 	return port, func() {
 		close(stop)
-		listener.Close()
+		_ = listener.Close()
 	}
 }
 
@@ -274,7 +274,7 @@ func TestSFTPClientConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 
 	port, cleanup := startMockSFTPServer(t, "user1", "pass1", tempDir)
 	defer cleanup()
@@ -390,7 +390,7 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 	}
 
 	tempDir, _ := os.MkdirTemp("", "full_cov")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("1234567890"), 0644); err != nil {
 		t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -477,7 +477,7 @@ func TestSFTPClient_FullCoverage(t *testing.T) {
 
 func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "adv_network")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("large data chunk for testing network issues"), 0644); err != nil {
 		t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -540,7 +540,7 @@ func TestSFTPClientUpload_AdvancedNetwork(t *testing.T) {
 
 func TestSFTPClient_RateLimiting(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "ratelimit_test")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	// 60KB of data
 	data := make([]byte, 60*1024)
@@ -662,7 +662,7 @@ func TestSFTPClient_OverwriteCheckErrors(t *testing.T) {
 	client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: false}
 
 	tempDir, _ := os.MkdirTemp("", "overwrite_test")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 		t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -725,7 +725,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		mockC := &mockSFTPClient{}
 		client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: true}
 		tempDir, _ := os.MkdirTemp("", "osopen_err")
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 		testFile := filepath.Join(tempDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 			t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -743,7 +743,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		mockC := &mockSFTPClient{}
 		client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: true}
 		tempDir, _ := os.MkdirTemp("", "create_err")
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 		testFile := filepath.Join(tempDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 			t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -759,7 +759,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		mockC := &mockSFTPClient{}
 		client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: true}
 		tempDir, _ := os.MkdirTemp("", "cleanup_err")
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 		testFile := filepath.Join(tempDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 			t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -776,7 +776,7 @@ func TestSFTPClient_UploadFailuresExhaustive(t *testing.T) {
 		mockC := &mockSFTPClient{}
 		client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: true, DeleteAfterVerify: true}
 		tempDir, _ := os.MkdirTemp("", "osremove_err")
-		defer os.RemoveAll(tempDir)
+		t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 		testFile := filepath.Join(tempDir, "test.txt")
 		if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 			t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -797,7 +797,7 @@ func TestSFTPClient_UploadRetryFailureExhaustive(t *testing.T) {
 	mockC := &mockSFTPClient{}
 	client := &SFTPClient{RemoteDir: "/upload", sftpClient: mockC, Overwrite: true}
 	tempDir, _ := os.MkdirTemp("", "retry_fail_test")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
 		t.Fatalf("Failed to write fixture %s: %v", testFile, err)
@@ -811,7 +811,7 @@ func TestSFTPClient_UploadRetryFailureExhaustive(t *testing.T) {
 
 func TestSFTPClient_UploadResumeMismatch(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "resume_mismatch")
-	defer os.RemoveAll(tempDir)
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	testFile := filepath.Join(tempDir, "test.txt")
 	// Local file
 	localContent := []byte("NEW CONTENT")

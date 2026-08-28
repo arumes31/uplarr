@@ -1,30 +1,54 @@
-name: Go Security Scan
+name: Security
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   schedule:
-    - cron: '30 1 * * 1' # Weekly on Mondays
+    - cron: '30 1 * * 1'
+
+permissions:
+  contents: read
 
 jobs:
-  gosec:
+  go-security:
+    name: Go security scanners
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 15
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v7
-
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
           cache: true
+      - name: Install scanners
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      - name: Run gosec
+        run: gosec ./...
+      - name: Run govulncheck
+        run: govulncheck ./...
 
-
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@v2.28.0
+  container:
+    name: Container vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
         with:
-          args: ./...
+          persist-credentials: false
+      - name: Build image
+        run: docker build --tag uplarr:scan .
+      - name: Scan image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.33.1
+        with:
+          image-ref: uplarr:scan
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

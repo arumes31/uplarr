@@ -3,31 +3,36 @@ name: Cleanup Old Artifacts
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 1 * *' # Run monthly
+    - cron: '0 0 1 * *'
+
+permissions:
+  contents: read
 
 jobs:
   cleanup-ghcr:
     name: Cleanup GHCR Images
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       packages: write
     steps:
       - name: Delete old package versions
-        uses: actions/delete-package-versions@v5
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
         with:
-          package-name: 'uplarr'
-          package-type: 'container'
+          package-name: uplarr
+          package-type: container
           min-versions-to-keep: 5
           delete-only-untagged-versions: 'false'
 
   cleanup-releases:
     name: Cleanup Old Releases
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - name: Delete older releases
-        uses: dev-drprasad/delete-older-releases@v0.3.4
+        uses: dev-drprasad/delete-older-releases@dfbe6be2a006e9475dfcbe5b8d201f1824c2a9fe # v0.3.4
         with:
           keep_latest: 5
           delete_tags: true
@@ -37,11 +42,12 @@ jobs:
   cleanup-workflow-runs:
     name: Cleanup Workflow Runs
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:
       - name: Delete old workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
+        uses: Mattraks/delete-workflow-runs@39f0bbed25d76b34de5594dceab824811479e5de # v2.0.6
         with:
           repository: ${{ github.repository }}
           retain_days: 30

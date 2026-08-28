@@ -59,9 +59,11 @@ type QueueManager struct {
 	configDir     string
 	nextID        uint64
 	wg            sync.WaitGroup
+	taskWG        sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
+	activeClosers map[string]func()
 	limiters      map[string]*sftpclient.Limiter
 	maxConcurrent int
 	runningTasks  int
@@ -82,6 +84,7 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 		ctx:           ctx,
 		cancel:        cancel,
 		activeCancels: make(map[string]context.CancelFunc),
+		activeClosers: make(map[string]func()),
 		limiters:      make(map[string]*sftpclient.Limiter),
 		maxConcurrent: 1,
 	}
@@ -117,8 +120,14 @@ func (qm *QueueManager) saveStateLocked() {
 			logger.Error(fmt.Sprintf("failed to open config root for saving state: %v", err))
 			return
 		}
-		defer root.Close()
-		_ = root.WriteFile(".queue_state.json", data, 0600)
+		defer func() {
+			if err := root.Close(); err != nil {
+				logger.Error(fmt.Sprintf("failed to close config root: %v", err))
+			}
+		}()
+		if err := root.WriteFile(".queue_state.json", data, 0600); err != nil {
+			logger.Error(fmt.Sprintf("failed to save queue state: %v", err))
+		}
 	}
 }
 
@@ -133,7 +142,7 @@ func (qm *QueueManager) loadState() {
 	if err != nil {
 		return
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	data, err := root.ReadFile(".queue_state.json")
 	if err == nil {
@@ -191,6 +200,18 @@ func (qm *QueueManager) Shutdown() {
 	qm.cancel()
 	qm.trigger()
 	qm.wg.Wait()
+
+	qm.mu.RLock()
+	closers := make([]func(), 0, len(qm.activeClosers))
+	for _, closeClient := range qm.activeClosers {
+		closers = append(closers, closeClient)
+	}
+	qm.mu.RUnlock()
+	for _, closeClient := range closers {
+		closeClient()
+	}
+
+	qm.taskWG.Wait()
 }
 
 func (qm *QueueManager) getOrCreateLimiter(config models.UploadRequest) *sftpclient.Limiter {
@@ -357,6 +378,7 @@ func (qm *QueueManager) processLoop() {
 				nextTask.Progress = 0
 
 				qm.runningTasks++
+				qm.taskWG.Add(1)
 				go qm.runTask(nextTask)
 			}
 			qm.mu.Unlock()
@@ -366,6 +388,7 @@ func (qm *QueueManager) processLoop() {
 }
 
 func (qm *QueueManager) runTask(task *models.Task) {
+	defer qm.taskWG.Done()
 	defer func() {
 		qm.mu.Lock()
 		qm.runningTasks--
@@ -455,7 +478,7 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		if err != nil {
 			return fmt.Errorf("failed to open root for validation: %v", err)
 		}
-		defer root.Close()
+		defer func() { _ = root.Close() }()
 
 		f, err := root.Open(rel)
 		if err != nil {
@@ -466,7 +489,22 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		if err := client.Connect(); err != nil {
 			return err
 		}
-		defer client.Close()
+
+		closeClient := sync.OnceFunc(client.Close)
+		qm.mu.Lock()
+		if err := taskCtx.Err(); err != nil {
+			qm.mu.Unlock()
+			closeClient()
+			return err
+		}
+		qm.activeClosers[nextTask.ID] = closeClient
+		qm.mu.Unlock()
+		defer func() {
+			qm.mu.Lock()
+			delete(qm.activeClosers, nextTask.ID)
+			qm.mu.Unlock()
+		}()
+		defer closeClient()
 
 		retries := 3
 		if nextTask.Config.MaxRetries > 0 {
