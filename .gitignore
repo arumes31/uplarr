@@ -33,6 +33,8 @@ test_data/
 /queue
 .Jules/
 .Jules
+.kimi-code/
+.kimi-code
 server.log
 
 # Graphify output directory
