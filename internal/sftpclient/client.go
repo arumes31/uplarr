@@ -456,11 +456,13 @@ func (s *SFTPClient) Connect() error {
 }
 
 func (s *SFTPClient) Close() {
-	if s.sftpClient != nil {
-		_ = s.sftpClient.Close() // #nosec G104
-	}
+	// Close the underlying transport first so blocked SFTP requests are
+	// interrupted before the SFTP session waits for its workers to exit.
 	if s.sshClient != nil {
 		_ = s.sshClient.Close() // #nosec G104
+	}
+	if s.sftpClient != nil {
+		_ = s.sftpClient.Close() // #nosec G104
 	}
 }
 

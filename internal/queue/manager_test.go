@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,6 +43,23 @@ func (m *mockClient) Rename(oldpath, newpath string) error              { return
 func (m *mockClient) Mkdir(path string) error                           { return nil }
 func (m *mockClient) SetLimiter(l *sftpclient.Limiter)                  {}
 
+type stalledIOClient struct {
+	mockClient
+	started   chan struct{}
+	unblocked chan struct{}
+	closeOnce sync.Once
+}
+
+func (c *stalledIOClient) Close() {
+	c.closeOnce.Do(func() { close(c.unblocked) })
+}
+
+func (c *stalledIOClient) UploadFileWithRetry(ctx context.Context, _ string, _ int) error {
+	close(c.started)
+	<-c.unblocked
+	return ctx.Err()
+}
+
 func TestQueueManager(t *testing.T) {
 	localDir, err := os.MkdirTemp("", "qm_test_local")
 	if err != nil {
@@ -63,6 +81,45 @@ func TestQueueManager(t *testing.T) {
 	tasks := qm.GetTasks()
 	if len(tasks) != 1 {
 		t.Fatalf("Expected 1 task, got %d", len(tasks))
+	}
+}
+
+func TestQueueManager_ShutdownInterruptsStalledSFTPIO(t *testing.T) {
+	localDir := t.TempDir()
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(localDir, "stalled.txt"), []byte("data"), 0644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	client := &stalledIOClient{
+		started:   make(chan struct{}),
+		unblocked: make(chan struct{}),
+	}
+	t.Cleanup(client.Close)
+
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface { return client }
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	qm := queue.NewQueueManager(localDir, configDir)
+	qm.AddTask("stalled.txt", models.UploadRequest{})
+
+	select {
+	case <-client.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upload did not start")
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		qm.Shutdown()
+		close(shutdownDone)
+	}()
+
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("Shutdown did not interrupt stalled SFTP I/O")
 	}
 }
 

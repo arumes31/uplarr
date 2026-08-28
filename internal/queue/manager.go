@@ -63,6 +63,7 @@ type QueueManager struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	activeCancels map[string]context.CancelFunc
+	activeClosers map[string]func()
 	limiters      map[string]*sftpclient.Limiter
 	maxConcurrent int
 	runningTasks  int
@@ -83,6 +84,7 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 		ctx:           ctx,
 		cancel:        cancel,
 		activeCancels: make(map[string]context.CancelFunc),
+		activeClosers: make(map[string]func()),
 		limiters:      make(map[string]*sftpclient.Limiter),
 		maxConcurrent: 1,
 	}
@@ -198,6 +200,17 @@ func (qm *QueueManager) Shutdown() {
 	qm.cancel()
 	qm.trigger()
 	qm.wg.Wait()
+
+	qm.mu.RLock()
+	closers := make([]func(), 0, len(qm.activeClosers))
+	for _, closeClient := range qm.activeClosers {
+		closers = append(closers, closeClient)
+	}
+	qm.mu.RUnlock()
+	for _, closeClient := range closers {
+		closeClient()
+	}
+
 	qm.taskWG.Wait()
 }
 
@@ -476,7 +489,22 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		if err := client.Connect(); err != nil {
 			return err
 		}
-		defer client.Close()
+
+		closeClient := sync.OnceFunc(client.Close)
+		qm.mu.Lock()
+		if err := taskCtx.Err(); err != nil {
+			qm.mu.Unlock()
+			closeClient()
+			return err
+		}
+		qm.activeClosers[nextTask.ID] = closeClient
+		qm.mu.Unlock()
+		defer func() {
+			qm.mu.Lock()
+			delete(qm.activeClosers, nextTask.ID)
+			qm.mu.Unlock()
+		}()
+		defer closeClient()
 
 		retries := 3
 		if nextTask.Config.MaxRetries > 0 {
