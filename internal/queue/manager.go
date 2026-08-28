@@ -117,8 +117,14 @@ func (qm *QueueManager) saveStateLocked() {
 			logger.Error(fmt.Sprintf("failed to open config root for saving state: %v", err))
 			return
 		}
-		defer root.Close()
-		_ = root.WriteFile(".queue_state.json", data, 0600)
+		defer func() {
+			if err := root.Close(); err != nil {
+				logger.Error(fmt.Sprintf("failed to close config root: %v", err))
+			}
+		}()
+		if err := root.WriteFile(".queue_state.json", data, 0600); err != nil {
+			logger.Error(fmt.Sprintf("failed to save queue state: %v", err))
+		}
 	}
 }
 
@@ -133,7 +139,7 @@ func (qm *QueueManager) loadState() {
 	if err != nil {
 		return
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	data, err := root.ReadFile(".queue_state.json")
 	if err == nil {
@@ -455,7 +461,7 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		if err != nil {
 			return fmt.Errorf("failed to open root for validation: %v", err)
 		}
-		defer root.Close()
+		defer func() { _ = root.Close() }()
 
 		f, err := root.Open(rel)
 		if err != nil {

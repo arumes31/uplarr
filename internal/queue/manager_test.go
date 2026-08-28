@@ -47,13 +47,13 @@ func TestQueueManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_test_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	qm := queue.NewQueueManager(localDir, configDir)
 	defer qm.Shutdown()
@@ -71,13 +71,13 @@ func TestQueueManager_Control(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_ctrl_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	// Mock NewClient to block so we can pause a pending task
 	oldNewClient := queue.NewClient
@@ -125,14 +125,15 @@ func TestQueueManager_Control(t *testing.T) {
 	tasks := qm.GetTasks()
 
 	var runningID, pendingID, pendingID2 string
-	for _, t := range tasks {
-		if t.Status == models.TaskRunning {
-			runningID = t.ID
-		} else if t.Status == models.TaskPending {
+	for _, task := range tasks {
+		switch task.Status {
+		case models.TaskRunning:
+			runningID = task.ID
+		case models.TaskPending:
 			if pendingID == "" {
-				pendingID = t.ID
+				pendingID = task.ID
 			} else {
-				pendingID2 = t.ID
+				pendingID2 = task.ID
 			}
 		}
 	}
@@ -206,13 +207,13 @@ func TestQueueManager_ProcessNext_FilepathAbsErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_abs_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	oldAbs := queue.FilepathAbs
 	defer func() { queue.FilepathAbs = oldAbs }()
@@ -246,13 +247,13 @@ func TestQueueManager_ProcessNext_OpenRootError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_root_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	oldOpenRoot := queue.OsOpenRoot
 	queue.OsOpenRoot = func(name string) (*os.Root, error) {
@@ -271,13 +272,13 @@ func TestQueueManager_ProcessNext_Traversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_trav_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	qm := queue.NewQueueManager(localDir, configDir)
 	qm.AddTask("../escaped.txt", models.UploadRequest{})
@@ -317,13 +318,13 @@ func TestQueueManager_RetriesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(localDir)
+	t.Cleanup(func() { _ = os.RemoveAll(localDir) })
 
 	configDir, err := os.MkdirTemp("", "qm_retries_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(configDir)
+	t.Cleanup(func() { _ = os.RemoveAll(configDir) })
 
 	testFile := filepath.Join(localDir, "retry.txt")
 	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
