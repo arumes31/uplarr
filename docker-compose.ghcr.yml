@@ -17,6 +17,9 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       # PERSISTENT CONFIG: Store your background queue and settings here.
-      - ./uplarr_config:/config:rw
+      - uplarr_config:/config
       # DATA: Mount your media/files here. Can be read-only for security.
       - /path/to/your/media:/data:ro
+
+volumes:
+  uplarr_config:

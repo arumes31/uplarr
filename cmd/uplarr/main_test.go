@@ -5,12 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"uplarr/internal/models"
 	"uplarr/internal/queue"
 )
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	t.Setenv(key, "")
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("unset %s: %v", key, err)
+	}
+}
 
 func stubRunContext(t *testing.T) context.CancelFunc {
 	t.Helper()
@@ -39,21 +48,27 @@ func stubHTTPFunctions(t *testing.T) {
 }
 
 func TestGetEnv(t *testing.T) {
+	const missingKey = "UPLARR_TEST_GET_ENV_MISSING"
+
 	t.Setenv("TEST_VAR", "value")
+	unsetEnv(t, missingKey)
 	if getEnv("TEST_VAR", "fallback") != "value" {
 		t.Error("Expected value")
 	}
-	if getEnv("MISSING_VAR", "fallback") != "fallback" {
+	if getEnv(missingKey, "fallback") != "fallback" {
 		t.Error("Expected fallback")
 	}
 }
 
 func TestGetEnvInt(t *testing.T) {
+	const missingKey = "UPLARR_TEST_GET_ENV_INT_MISSING"
+
 	t.Setenv("TEST_INT", "123")
+	unsetEnv(t, missingKey)
 	if getEnvInt("TEST_INT", 0) != 123 {
 		t.Error("Expected 123")
 	}
-	if getEnvInt("MISSING_INT", 456) != 456 {
+	if getEnvInt(missingKey, 456) != 456 {
 		t.Error("Expected 456")
 	}
 	t.Setenv("INVALID_INT", "abc")

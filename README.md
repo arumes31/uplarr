@@ -109,8 +109,11 @@ services:
       - CONFIG_DIR=/config
       - AUTH_PASSWORD=your_secure_password
     volumes:
-      - ./config:/config:rw
+      - uplarr_config:/config
       - /path/to/local/data:/data:ro
+
+volumes:
+  uplarr_config:
 ```
 
 

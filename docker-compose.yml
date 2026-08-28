@@ -20,6 +20,9 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       # Application state (queue) is stored here. Must be writable.
-      - ./config:/config
+      - uplarr_config:/config
       # Your local files to be uploaded. Can be read-only.
       - /path/to/your/local/files:/data:ro
+
+volumes:
+  uplarr_config:
