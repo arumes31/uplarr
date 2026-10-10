@@ -5,7 +5,7 @@ go 1.27.2
 require (
 	github.com/pkg/sftp v1.13.11
 	golang.org/x/crypto v0.57.0
-	golang.org/x/time v0.15.0
+	golang.org/x/time v0.16.0
 )
 
 require (
