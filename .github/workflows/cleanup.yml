@@ -1,30 +1,43 @@
-name: Cleanup Old Artifacts
-
+name: GHCR cleanup
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 1 * *'
-
+    inputs:
+      dry_run:
+        description: Report candidates without deleting images
+        type: boolean
+        default: true
+        required: true
 permissions:
   contents: read
-
+concurrency:
+  group: ghcr-retention
+  cancel-in-progress: false
 jobs:
-  cleanup-ghcr:
-    name: Cleanup GHCR Images
-    runs-on: ubuntu-latest
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       packages: write
     steps:
-      - name: Delete old package versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+      - name: Prune only old unreferenced untagged manifests
+        # v3.1 preserves platform/SBOM/provenance children of retained OCI indexes.
+        # Tagged versions and commit tags remain available for rollback.
+        uses: docker://ghcr.io/snok/container-retention-policy@sha256:884037f146d6ef574b61fbcc59bef490f887322e6b9dc2eefcf364cb4e9b4112
         with:
-          package-name: uplarr
-          package-type: container
-          min-versions-to-keep: 5
-          delete-only-untagged-versions: 'false'
+          args: >-
+            --account=user
+            --token=${{ secrets.GITHUB_TOKEN }}
+            --image-names=${{ github.event.repository.name }}
+            --tag-selection=untagged
+            --timestamp-to-use=updated_at
+            --cut-off=30d
+            --dry-run=${{ inputs.dry_run }}
+        env:
+          RUST_LOG: container_retention_policy=INFO
 
   cleanup-releases:
+    if: ${{ !inputs.dry_run }}
     name: Cleanup Old Releases
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -40,6 +53,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   cleanup-workflow-runs:
+    if: ${{ !inputs.dry_run }}
     name: Cleanup Workflow Runs
     runs-on: ubuntu-latest
     timeout-minutes: 10
