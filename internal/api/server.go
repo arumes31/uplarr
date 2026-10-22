@@ -699,7 +699,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		if !filepath.IsLocal(relPath) {
+		if !filepath.IsLocal(rel) {
 			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
 			return
 		}
@@ -714,7 +714,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 		defer func() { _ = root.Close() }()
 
-		f, err := root.Open(relPath)
+		f, err := root.Open(rel)
 		if err != nil {
 			http.Error(w, "Not found", http.StatusNotFound)
 			return

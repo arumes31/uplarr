@@ -492,3 +492,33 @@ func TestQueueManager_SecretKeyFromEnv(t *testing.T) {
 		t.Fatalf("expected no generated key file when UPLARR_SECRET_KEY is set, got %v", err)
 	}
 }
+
+func TestQueueManager_KeepsCredentialsItCannotDecrypt(t *testing.T) {
+	localDir := t.TempDir()
+	configDir := t.TempDir()
+
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface {
+		return &mockClient{connectErr: os.ErrPermission}
+	}
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	t.Setenv("UPLARR_SECRET_KEY", "key-a")
+	qm := queue.NewQueueManager(localDir, configDir)
+	qm.AddTask("missing.txt", models.UploadRequest{Host: "h", Password: "keep-me"})
+	qm.Shutdown()
+
+	// A different key cannot decrypt the password; saving must not drop it.
+	t.Setenv("UPLARR_SECRET_KEY", "key-b")
+	qm = queue.NewQueueManager(localDir, configDir)
+	qm.AddTask("other.txt", models.UploadRequest{Host: "h"})
+	qm.Shutdown()
+
+	t.Setenv("UPLARR_SECRET_KEY", "key-a")
+	qm = queue.NewQueueManager(localDir, configDir)
+	defer qm.Shutdown()
+	tasks := qm.GetTasks()
+	if len(tasks) != 2 || tasks[0].Config.Password != "keep-me" {
+		t.Fatalf("expected original password to survive a save with the wrong key, got %+v", tasks)
+	}
+}

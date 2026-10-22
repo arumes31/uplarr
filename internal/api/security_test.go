@@ -204,6 +204,13 @@ func TestDownloadServesThroughRoot(t *testing.T) {
 		t.Errorf("unexpected Content-Disposition %q", cd)
 	}
 
+	// The UI builds "//a.txt" after navigating to the root as "/".
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest("GET", "/api/files/download?path=%2F%2Fa.txt", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "hello" {
+		t.Fatalf("download of root-prefixed path: got %d %q", rec.Code, rec.Body.String())
+	}
+
 	for path, want := range map[string]int{
 		"sub":     http.StatusBadRequest,
 		"missing": http.StatusNotFound,
