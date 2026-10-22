@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -572,7 +573,9 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		_ = f.Close()
 
 		if err := client.Connect(); err != nil {
-			return err
+			// The task error is visible through /api/queue, so only a generic
+			// reason is kept; details go to the server log.
+			return errors.New(sftpclient.PublicConnectError(err))
 		}
 
 		closeClient := sync.OnceFunc(client.Close)

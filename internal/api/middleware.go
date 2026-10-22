@@ -1,8 +1,6 @@
 package api
 
 import (
-	"errors"
-	"log"
 	"mime"
 	"net/http"
 	"strings"
@@ -82,26 +80,7 @@ func secureHandler(next http.Handler) http.Handler {
 }
 
 // connectErrorMessage maps an SFTP connection error to a message that is safe
-// to return to the client. Raw dial errors are only logged server side so the
-// endpoints cannot be used to fingerprint internal hosts and ports.
+// to return to the client.
 func connectErrorMessage(err error) string {
-	log.Printf("SFTP connection failed: %v", err)
-	switch {
-	case errors.Is(err, sftpclient.ErrHostKeyMismatch):
-		return "Host key verification failed: the server key does not match the pinned key"
-	case errors.Is(err, sftpclient.ErrHostKeyUnknown):
-		return "Host key verification failed: the server key is not trusted"
-	case errors.Is(err, sftpclient.ErrHostKeyRequired):
-		return "Host key verification required"
-	case errors.Is(err, sftpclient.ErrPrivateKey):
-		return "Private key could not be loaded from the keys directory"
-	case errors.Is(err, sftpclient.ErrNoAuthMethods):
-		return "No authentication methods available"
-	case errors.Is(err, sftpclient.ErrDialTargetDenied):
-		return "Connection target is not allowed"
-	case strings.Contains(err.Error(), "unable to authenticate"):
-		return "Authentication failed"
-	default:
-		return "Connection failed"
-	}
+	return sftpclient.PublicConnectError(err)
 }

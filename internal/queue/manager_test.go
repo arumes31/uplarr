@@ -2,6 +2,7 @@ package queue_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -520,5 +521,28 @@ func TestQueueManager_KeepsCredentialsItCannotDecrypt(t *testing.T) {
 	tasks := qm.GetTasks()
 	if len(tasks) != 2 || tasks[0].Config.Password != "keep-me" {
 		t.Fatalf("expected original password to survive a save with the wrong key, got %+v", tasks)
+	}
+}
+
+func TestQueueManager_ConnectErrorIsGeneric(t *testing.T) {
+	localDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(localDir, "f.txt"), []byte("d"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface {
+		return &mockClient{connectErr: errors.New("failed to dial: dial tcp 10.1.2.3:2222: connect: connection refused")}
+	}
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	qm := queue.NewQueueManager(localDir, t.TempDir())
+	defer qm.Shutdown()
+	qm.AddTask("f.txt", models.UploadRequest{Host: "10.1.2.3", Port: 2222})
+
+	waitForTaskStatus(t, qm, func(tasks []*models.Task) bool {
+		return len(tasks) == 1 && tasks[0].Status == models.TaskFailed
+	}, 5*time.Second)
+	if got := qm.GetTasks()[0].Error; got != "Connection failed" {
+		t.Fatalf("task error = %q, want generic message", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -197,4 +198,29 @@ func dialSSH(addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 	return ssh.NewClient(c, chans, reqs), nil
+}
+
+// PublicConnectError maps an SFTP connection error to a message that is safe
+// to return to the client. Raw dial errors are only logged server side so the
+// endpoints cannot be used to fingerprint internal hosts and ports.
+func PublicConnectError(err error) string {
+	log.Printf("SFTP connection failed: %v", err)
+	switch {
+	case errors.Is(err, ErrHostKeyMismatch):
+		return "Host key verification failed: the server key does not match the pinned key"
+	case errors.Is(err, ErrHostKeyUnknown):
+		return "Host key verification failed: the server key is not trusted"
+	case errors.Is(err, ErrHostKeyRequired):
+		return "Host key verification required"
+	case errors.Is(err, ErrPrivateKey):
+		return "Private key could not be loaded from the keys directory"
+	case errors.Is(err, ErrNoAuthMethods):
+		return "No authentication methods available"
+	case errors.Is(err, ErrDialTargetDenied):
+		return "Connection target is not allowed"
+	case strings.Contains(err.Error(), "unable to authenticate"):
+		return "Authentication failed"
+	default:
+		return "Connection failed"
+	}
 }
