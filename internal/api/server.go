@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -106,7 +107,47 @@ var (
 	// before it is safe to forget. Tracking it for longer serves no purpose,
 	// since the attempt count only matters within the blocking window.
 	limiterIdleTimeout = 15 * time.Minute
+
+	// The per-IP limiter alone cannot stop a distributed guessing attack, so
+	// failures are also counted globally. Once the budget is spent, logins
+	// are refused for the rest of the window; existing sessions keep working.
+	globalLoginFailures      int
+	globalLoginWindowStart   time.Time
+	maxGlobalLoginFailures   = 100
+	globalLoginFailureWindow = 15 * time.Minute
 )
+
+// globalLoginBlockedLocked reports whether the global failure budget is spent.
+// Callers must hold loginAttemptsMu.
+func globalLoginBlockedLocked(now time.Time) bool {
+	if now.Sub(globalLoginWindowStart) > globalLoginFailureWindow {
+		globalLoginFailures = 0
+		globalLoginWindowStart = now
+	}
+	return globalLoginFailures >= maxGlobalLoginFailures
+}
+
+// clientIP returns the address used to rate-limit logins. Behind a trusted
+// proxy it takes the rightmost X-Forwarded-For entry, which is the one the
+// proxy appended itself; entries further left are client-controlled.
+func clientIP(r *http.Request, trustProxy bool) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if !trustProxy {
+		return ip
+	}
+	values := r.Header.Values("X-Forwarded-For")
+	if len(values) == 0 {
+		return ip
+	}
+	parts := strings.Split(values[len(values)-1], ",")
+	if last := strings.TrimSpace(parts[len(parts)-1]); last != "" {
+		return last
+	}
+	return ip
+}
 
 // evictLoginAttemptsLocked bounds the rate-limiter map, preferring to drop
 // entries that are neither blocked nor recently active. Callers must hold
@@ -218,7 +259,11 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		return nil, err
 	}
 
+	// Every route is registered on mux and served through secureHandler, which
+	// adds CSRF checks, body limits and security headers.
 	mux := http.NewServeMux()
+	outer := http.NewServeMux()
+	outer.Handle("/", secureHandler(mux))
 
 	withAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -266,16 +311,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
-		if config.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
-			ips := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
-			if len(ips) > 0 {
-				ip = strings.TrimSpace(ips[0])
-			}
-		}
+		ip := clientIP(r, config.TrustProxy)
 
 		loginAttemptsMu.Lock()
 		attempt, exists := loginAttempts[ip]
@@ -286,7 +322,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		}
 		attempt.lastAttempt = time.Now()
 
-		isBlocked := time.Now().Before(attempt.blockedUntil)
+		isBlocked := time.Now().Before(attempt.blockedUntil) || globalLoginBlockedLocked(time.Now())
 		loginAttemptsMu.Unlock()
 
 		if isBlocked {
@@ -313,6 +349,9 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 			if currentAttempt.count >= maxLoginAttempts {
 				currentAttempt.blockedUntil = time.Now().Add(loginBlockDuration)
+			}
+			if !globalLoginBlockedLocked(time.Now()) {
+				globalLoginFailures++
 			}
 			loginAttemptsMu.Unlock()
 
@@ -660,8 +699,44 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(absPath)))
-		http.ServeFile(w, r, absPath)
+		if !filepath.IsLocal(relPath) {
+			http.Error(w, "Unauthorized path", http.StatusUnauthorized)
+			return
+		}
+
+		// Serve through os.Root so a symlink swapped in after the check above
+		// still cannot reach outside LocalDir.
+		root, err := OsOpenRoot(absLocalDir)
+		if err != nil {
+			logger.Error(fmt.Sprintf("OsOpenRoot error: %v", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		defer func() { _ = root.Close() }()
+
+		f, err := root.Open(relPath)
+		if err != nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		defer func() { _ = f.Close() }()
+
+		content, ok := f.(interface {
+			io.ReadSeeker
+			Stat() (os.FileInfo, error)
+		})
+		if !ok {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		info, err := content.Stat()
+		if err != nil || info.IsDir() {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name()}))
+		http.ServeContent(w, r, info.Name(), info.ModTime(), content)
 	}))
 
 	mux.HandleFunc("/api/test-connection", withAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -676,7 +751,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		if err := client.Connect(); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": connectErrorMessage(err)})
 			return
 		}
 		defer client.Close()
@@ -697,7 +772,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 
 		if err := client.Connect(); err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": connectErrorMessage(err)})
 			return
 		}
 		defer client.Close()
@@ -733,7 +808,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		if err := client.Connect(); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": connectErrorMessage(err)})
 			return
 		}
 		defer client.Close()
@@ -793,6 +868,16 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 
+		// Stat through os.Root so symlinks pointing outside LocalDir are
+		// rejected here as well as in the upload worker.
+		localRoot, err := os.OpenRoot(baseDirAbs)
+		if err != nil {
+			logger.Error(fmt.Sprintf("os.OpenRoot error for config.LocalDir: %v", err))
+			http.Error(w, "Server configuration error", http.StatusInternalServerError)
+			return
+		}
+		defer func() { _ = localRoot.Close() }()
+
 		var invalidFiles []string
 		var validFiles []string
 		for _, file := range req.Files {
@@ -809,7 +894,7 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 				continue
 			}
 
-			if _, err := os.Stat(fullPathAbs); err != nil {
+			if _, err := localRoot.Stat(rel); err != nil {
 				invalidFiles = append(invalidFiles, file)
 				continue
 			}
@@ -885,5 +970,5 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(qm.GetHostStats())
 	}))
-	return mux, nil
+	return outer, nil
 }

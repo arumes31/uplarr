@@ -422,3 +422,73 @@ func (b *blockingClient) Connect() error {
 	<-b.block
 	return nil
 }
+
+func TestQueueManager_PersistsPasswordEncrypted(t *testing.T) {
+	localDir := t.TempDir()
+	configDir := t.TempDir()
+
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface {
+		return &mockClient{connectErr: os.ErrPermission}
+	}
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	qm := queue.NewQueueManager(localDir, configDir)
+	qm.AddTask("missing.txt", models.UploadRequest{Host: "h", Password: "s3cret-pass"})
+	qm.Shutdown()
+
+	data, err := os.ReadFile(filepath.Join(configDir, ".queue_state.json"))
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if strings.Contains(string(data), "s3cret-pass") {
+		t.Fatal("queue state contains the plaintext password")
+	}
+	if !strings.Contains(string(data), "password_enc") {
+		t.Fatal("queue state does not contain the encrypted password")
+	}
+
+	qm2 := queue.NewQueueManager(localDir, configDir)
+	defer qm2.Shutdown()
+	tasks := qm2.GetTasks()
+	if len(tasks) != 1 || tasks[0].Config.Password != "s3cret-pass" {
+		t.Fatalf("expected password to be restored after reload, got %+v", tasks)
+	}
+}
+
+func TestQueueManager_MigratesPlaintextPassword(t *testing.T) {
+	localDir := t.TempDir()
+	configDir := t.TempDir()
+	statePath := filepath.Join(configDir, ".queue_state.json")
+	legacy := `{"tasks":[{"task":{"id":"1","file_name":"a.txt","status":"Paused"},"config":{"host":"h","password":"old-plain"}}],"max_concurrent":1}`
+	if err := os.WriteFile(statePath, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	qm := queue.NewQueueManager(localDir, configDir)
+	defer qm.Shutdown()
+
+	tasks := qm.GetTasks()
+	if len(tasks) != 1 || tasks[0].Config.Password != "old-plain" {
+		t.Fatalf("expected legacy password to load, got %+v", tasks)
+	}
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "old-plain") {
+		t.Fatal("legacy plaintext password was not re-encrypted on load")
+	}
+}
+
+func TestQueueManager_SecretKeyFromEnv(t *testing.T) {
+	t.Setenv("UPLARR_SECRET_KEY", "operator-supplied-key")
+	configDir := t.TempDir()
+
+	qm := queue.NewQueueManager(t.TempDir(), configDir)
+	qm.Shutdown()
+
+	if _, err := os.Stat(filepath.Join(configDir, ".secret_key")); !os.IsNotExist(err) {
+		t.Fatalf("expected no generated key file when UPLARR_SECRET_KEY is set, got %v", err)
+	}
+}

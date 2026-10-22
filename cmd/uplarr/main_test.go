@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -214,5 +215,79 @@ func TestMainFunc(t *testing.T) {
 	main()
 	if !exitCalled {
 		t.Error("Expected osExit to be called")
+	}
+}
+
+func TestResolveAuthPassword(t *testing.T) {
+	t.Run("explicit password wins", func(t *testing.T) {
+		t.Setenv("AUTH_PASSWORD", "configured")
+		got, err := resolveAuthPassword(t.TempDir())
+		if err != nil || got != "configured" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+	})
+
+	t.Run("no auth requires explicit opt-in", func(t *testing.T) {
+		unsetEnv(t, "AUTH_PASSWORD")
+		t.Setenv("ALLOW_NO_AUTH", "true")
+		dir := t.TempDir()
+		got, err := resolveAuthPassword(dir)
+		if err != nil || got != "" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, authPasswordFile)); !os.IsNotExist(err) {
+			t.Fatalf("no password file expected with ALLOW_NO_AUTH, got %v", err)
+		}
+	})
+
+	t.Run("generates and reuses a password", func(t *testing.T) {
+		unsetEnv(t, "AUTH_PASSWORD")
+		unsetEnv(t, "ALLOW_NO_AUTH")
+		dir := filepath.Join(t.TempDir(), "config")
+		first, err := resolveAuthPassword(dir)
+		if err != nil || len(first) < 16 {
+			t.Fatalf("got %q, %v", first, err)
+		}
+		second, err := resolveAuthPassword(dir)
+		if err != nil || second != first {
+			t.Fatalf("expected stored password to be reused, got %q, %v", second, err)
+		}
+	})
+}
+
+func TestRunBindsLoopbackByDefault(t *testing.T) {
+	oldSetup := apiSetupApp
+	t.Cleanup(func() { apiSetupApp = oldSetup })
+	stubRunContext(t)
+	stubHTTPFunctions(t)
+	unsetEnv(t, "BIND_ADDR")
+	unsetEnv(t, "AUTH_PASSWORD")
+	unsetEnv(t, "ALLOW_NO_AUTH")
+	t.Setenv("WEB_PORT", "8080")
+
+	apiSetupApp = func(config models.Config, qm *queue.QueueManager) (*http.ServeMux, error) {
+		if config.AuthPassword == "" {
+			t.Error("expected a generated password when AUTH_PASSWORD is unset")
+		}
+		return http.NewServeMux(), nil
+	}
+	var addr string
+	httpServe = func(s *http.Server) error {
+		addr = s.Addr
+		return nil
+	}
+	if err := Run(); err != nil {
+		t.Fatal(err)
+	}
+	if addr != "127.0.0.1:8080" {
+		t.Fatalf("default bind address = %q, want 127.0.0.1:8080", addr)
+	}
+
+	t.Setenv("BIND_ADDR", "0.0.0.0")
+	if err := Run(); err != nil {
+		t.Fatal(err)
+	}
+	if addr != "0.0.0.0:8080" {
+		t.Fatalf("BIND_ADDR override = %q, want 0.0.0.0:8080", addr)
 	}
 }

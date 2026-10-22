@@ -374,7 +374,6 @@ func (cr *contextReader) Size() int64 {
 	return 0
 }
 
-var osReadFile = os.ReadFile
 var sshParsePrivateKey = ssh.ParsePrivateKey
 
 func (s *SFTPClient) SetLimiter(l *Limiter) {
@@ -385,13 +384,13 @@ func (s *SFTPClient) Connect() error {
 	var authMethods []ssh.AuthMethod
 
 	if s.KeyPath != "" {
-		key, err := osReadFile(s.KeyPath)
+		key, err := loadPrivateKey(s.KeyPath)
 		if err != nil {
-			return fmt.Errorf("unable to read private key: %v", err)
+			return err
 		}
 		signer, err := sshParsePrivateKey(key)
 		if err != nil {
-			return fmt.Errorf("unable to parse private key: %v", err)
+			return fmt.Errorf("%w: %v", ErrPrivateKey, err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
@@ -401,7 +400,7 @@ func (s *SFTPClient) Connect() error {
 	}
 
 	if len(authMethods) == 0 {
-		return fmt.Errorf("no authentication methods available")
+		return ErrNoAuthMethods
 	}
 
 	var hostKeyCallback ssh.HostKeyCallback
@@ -413,8 +412,10 @@ func (s *SFTPClient) Connect() error {
 		hostKeyCallback = cb
 	} else if s.SkipHostKeyVerification {
 		hostKeyCallback = ssh.InsecureIgnoreHostKey() // #nosec G106
+	} else if path, tofu, _ := hostSecuritySettings(); path != "" {
+		hostKeyCallback = tofuHostKeyCallback(path, tofu)
 	} else {
-		return fmt.Errorf("host key verification required (provide KnownHostsPath or SkipHostKeyVerification)")
+		return fmt.Errorf("%w (configure SSH_KNOWN_HOSTS or enable SkipHostKeyVerification)", ErrHostKeyRequired)
 	}
 
 	config := &ssh.ClientConfig{
@@ -425,9 +426,9 @@ func (s *SFTPClient) Connect() error {
 	}
 
 	addr := net.JoinHostPort(s.Host, s.Port)
-	client, err := ssh.Dial("tcp", addr, config)
+	client, err := dialSSH(addr, config)
 	if err != nil {
-		return fmt.Errorf("failed to dial: %v", err)
+		return fmt.Errorf("failed to dial: %w", err)
 	}
 	s.sshClient = client
 
