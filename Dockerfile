@@ -28,6 +28,10 @@ WORKDIR /app
 
 COPY --from=builder --chown=10001:10001 /uplarr /app/uplarr
 
+# Inside the container the app must listen on all interfaces for the published
+# port to work; the binary itself defaults to 127.0.0.1.
+ENV BIND_ADDR=0.0.0.0
+
 EXPOSE 8080
 
 USER 10001:10001

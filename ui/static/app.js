@@ -867,7 +867,6 @@ document.addEventListener('DOMContentLoaded', () => {
             user: formData.get('user'),
             password: formData.get('password'),
             key_path: formData.get('key_path'),
-            known_hosts_path: formData.get('known_hosts_path'),
             remote_dir: formData.get('remote_dir'),
             delete_after_verify: formData.get('delete_after_verify') === 'on',
             overwrite: formData.get('overwrite') === 'on',

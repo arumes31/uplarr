@@ -17,6 +17,9 @@ services:
       - LOCAL_DIR=/data
       - CONFIG_DIR=/config
       - WEB_PORT=8080
+      # If empty, a random password is generated on first start, logged once
+      # and stored in /config/.auth_password. Set ALLOW_NO_AUTH=true only if
+      # access is restricted by other means.
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       # Application state (queue) is stored here. Must be writable.
