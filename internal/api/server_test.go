@@ -102,17 +102,17 @@ func TestCoverageFlat(t *testing.T) {
 	OsOpenRoot = oldOpenRoot
 
 	// 5. Action Handler (233-310)
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader("!")))
 	FilepathAbs = func(p string) (string, error) {
 		if p == config.LocalDir {
 			return "", errors.New("f")
 		}
 		return oldAbs(p)
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
 	FilepathAbs = oldAbs
 	FilepathEvalSymlinks = func(p string) (string, error) { return "", errors.New("f") }
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
 	FilepathEvalSymlinks = oldEval
 	FilepathAbs = func(p string) (string, error) {
 		if strings.Contains(p, "o") {
@@ -120,104 +120,104 @@ func TestCoverageFlat(t *testing.T) {
 		}
 		return oldAbs(p)
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"o"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"o"}`)))
 	FilepathAbs = oldAbs
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"delete","path":"."}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"delete","path":"."}`)))
 	OsOpenRoot = func(n string) (Root, error) { return nil, errors.New("f") }
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
 	OsOpenRoot = oldOpenRoot
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":""}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":""}`)))
 	FilepathAbs = func(p string) (string, error) {
 		if strings.Contains(p, "f") {
 			return "", errors.New("f")
 		}
 		return oldAbs(p)
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":"f"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":"f"}`)))
 	FilepathAbs = func(p string) (string, error) {
 		if strings.Contains(p, "r") {
 			return "/o", nil
 		}
 		return oldAbs(p)
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":"r"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"rename","path":"a","new_name":"r"}`)))
 	FilepathAbs = oldAbs
 	OsOpenRoot = func(n string) (Root, error) {
 		return &MockRoot{MkdirAllFunc: func(p string, perm os.FileMode) error { return errors.New("f") }, CloseFunc: func() error { return nil }}, nil
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
 	OsOpenRoot = oldOpenRoot
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/action", strings.NewReader(`{"action":"invalid"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"mkdir","path":"a"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/action", strings.NewReader(`{"action":"invalid"}`)))
 
 	// 5.5 Download Handler
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=.", nil))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/files/download?path=../secret", nil))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/files/download?path=a", nil))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/files/download?path=a", nil))
 
 	// 6. SFTP Handlers (315-414)
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/test-connection", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/test-connection", strings.NewReader("!")))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return errors.New("f") }}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/test-connection", strings.NewReader(`{"host":"h"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/test-connection", strings.NewReader(`{"host":"h"}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/test-connection", strings.NewReader(`{"host":"h"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/test-connection", strings.NewReader(`{"host":"h"}`)))
 
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files", strings.NewReader("!")))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return errors.New("f") }}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, ReadRemoteDirFunc: func(p string) ([]models.FileInfo, error) { return nil, errors.New("f") }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, ReadRemoteDirFunc: func(p string) ([]models.FileInfo, error) { return []models.FileInfo{}, nil }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files", strings.NewReader(`{"host":"h"}`)))
 
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader("!")))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return errors.New("f") }}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"config":{"host":"h"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"config":{"host":"h"}}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, GetRemoteDirFunc: func() string { return "/r" }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"mkdir","path":"/o","config":{"host":"h","remote_dir":"/r"}}`)))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"rename","path":"/r/a","new_name":"","config":{"host":"h","remote_dir":"/r"}}`)))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"rename","path":"/r/a","new_name":"b/c","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"mkdir","path":"/o","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"rename","path":"/r/a","new_name":"","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"rename","path":"/r/a","new_name":"b/c","config":{"host":"h","remote_dir":"/r"}}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, GetRemoteDirFunc: func() string { return "/r" }, RemoveFunc: func(p string) error { return errors.New("f") }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"delete","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"delete","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, GetRemoteDirFunc: func() string { return "/r" }, RemoveFunc: func(p string) error { return nil }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"delete","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"delete","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
 	NewSFTPClient = func(req models.UploadRequest) SFTPClient {
 		return &MockSFTPClient{ConnectFunc: func() error { return nil }, GetRemoteDirFunc: func() string { return "/r" }, CloseFunc: func() {}}
 	}
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"invalid","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/remote/files/action", strings.NewReader(`{"action":"invalid","path":"/r/a","config":{"host":"h","remote_dir":"/r"}}`)))
 	NewSFTPClient = oldNewSFTP
 
 	// 7. Upload & Queue (419-457)
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/upload", strings.NewReader("!")))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/upload", strings.NewReader(`{"files":["f"]}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/upload", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/upload", strings.NewReader(`{"files":["f"]}`)))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/queue", nil))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader("!")))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"none","action":"pause"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/queue", strings.NewReader("!")))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/queue", strings.NewReader(`{"id":"none","action":"pause"}`)))
 	if err := os.WriteFile(filepath.Join(tempDir, "real.txt"), []byte("d"), 0644); err != nil {
 		t.Fatalf("Failed to write fixture: %v", err)
 	}
 	qm.AddTask("real.txt", models.UploadRequest{})
 	taskID := qm.GetTasks()[len(qm.GetTasks())-1].ID
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"pause"}`)))
-	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"invalid"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"pause"}`)))
+	mux.ServeHTTP(httptest.NewRecorder(), newJSONRequest("POST", "/api/queue", strings.NewReader(`{"id":"`+taskID+`","action":"invalid"}`)))
 	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("PUT", "/api/queue", nil))
 
 	// 8. Wrappers (44-64)

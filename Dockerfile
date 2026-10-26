@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
-FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS builder
 
 WORKDIR /app
 
@@ -27,6 +27,10 @@ RUN apk --no-cache upgrade \
 WORKDIR /app
 
 COPY --from=builder --chown=10001:10001 /uplarr /app/uplarr
+
+# Inside the container the app must listen on all interfaces for the published
+# port to work; the binary itself defaults to 127.0.0.1.
+ENV BIND_ADDR=0.0.0.0
 
 EXPOSE 8080
 

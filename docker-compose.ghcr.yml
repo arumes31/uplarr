@@ -13,7 +13,8 @@ services:
       - LOCAL_DIR=/data
       # The directory for application state (queue, etc.)
       - CONFIG_DIR=/config
-      # Optional: set a password for Web UI authentication
+      # Web UI password. If empty, a random one is generated on first start,
+      # logged once and stored in /config/.auth_password.
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
     volumes:
       # PERSISTENT CONFIG: Store your background queue and settings here.

@@ -324,6 +324,8 @@ func TestSFTPClientConnect(t *testing.T) {
 		t.Fatalf("Failed to write fixture %s: %v", keyPath, err)
 	}
 
+	SetKeysDir(tempDir)
+	t.Cleanup(func() { SetKeysDir("") })
 	clientKey := SFTPClient{
 		Host:                    "127.0.0.1",
 		Port:                    port,
@@ -341,22 +343,24 @@ func TestSFTPClientConnect_MockErrors(t *testing.T) {
 	client := &SFTPClient{KeyPath: "somepath", User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
 
 	// 1. ReadFile fail
-	oldRead := osReadFile
-	osReadFile = func(name string) ([]byte, error) { return nil, fmt.Errorf("read fail") }
+	SetKeysDir(t.TempDir())
+	t.Cleanup(func() { SetKeysDir("") })
+	oldRead := readKeyFile
+	readKeyFile = func(dir, name string) ([]byte, error) { return nil, fmt.Errorf("read fail") }
 	if err := client.Connect(); err == nil || !strings.Contains(err.Error(), "read fail") {
 		t.Errorf("Expected read fail, got %v", err)
 	}
-	osReadFile = oldRead
+	readKeyFile = oldRead
 
 	// 2. ParsePrivateKey fail
 	oldParse := sshParsePrivateKey
 	sshParsePrivateKey = func(b []byte) (ssh.Signer, error) { return nil, fmt.Errorf("parse fail") }
-	osReadFile = func(name string) ([]byte, error) { return []byte("key"), nil }
+	readKeyFile = func(dir, name string) ([]byte, error) { return []byte("key"), nil }
 	if err := client.Connect(); err == nil || !strings.Contains(err.Error(), "parse fail") {
 		t.Errorf("Expected parse fail, got %v", err)
 	}
 	sshParsePrivateKey = oldParse
-	osReadFile = oldRead
+	readKeyFile = oldRead
 
 	// 3. No auth methods
 	clientNoAuth := &SFTPClient{User: "u", Host: "h", Port: "p", SkipHostKeyVerification: true}
@@ -700,12 +704,12 @@ func TestSFTPClient_ConnectFailuresExhaustive(t *testing.T) {
 		KeyPath: "invalid", KnownHostsPath: "invalid",
 	}
 
-	oldRead := osReadFile
-	osReadFile = func(name string) ([]byte, error) { return nil, os.ErrPermission }
+	oldRead := readKeyFile
+	readKeyFile = func(dir, name string) ([]byte, error) { return nil, os.ErrPermission }
 	if err := client.Connect(); err == nil {
 		t.Error("Expected error for osReadFile")
 	}
-	osReadFile = oldRead
+	readKeyFile = oldRead
 
 	client.KeyPath = ""
 	if err := client.Connect(); err == nil {

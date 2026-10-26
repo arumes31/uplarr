@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,12 +68,30 @@ type QueueManager struct {
 	limiters      map[string]*sftpclient.Limiter
 	maxConcurrent int
 	runningTasks  int
+	// secretKey encrypts SFTP passwords in the queue state file. When it is
+	// nil, passwords are not persisted at all.
+	secretKey []byte
+	// retained keeps persisted credentials this process cannot re-encrypt
+	// (wrong or missing key), keyed by task ID, so saving the queue never
+	// silently discards them. Written only by loadState.
+	retained map[string]retainedSecret
+}
+
+type retainedSecret struct {
+	enc   string
+	plain string
 }
 
 func NewQueueManager(localDir, configDir string) *QueueManager {
 	// Ensure config directory exists
 	if err := os.MkdirAll(configDir, 0750); err != nil {
 		logger.Error(fmt.Sprintf("failed to create config directory %q: %v — queue persistence will be unavailable", configDir, err))
+	}
+
+	secretKey, err := loadSecretKey(configDir)
+	if err != nil {
+		logger.Error(fmt.Sprintf("failed to load queue encryption key: %v — SFTP passwords will not be persisted", err))
+		secretKey = nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -87,6 +106,8 @@ func NewQueueManager(localDir, configDir string) *QueueManager {
 		activeClosers: make(map[string]func()),
 		limiters:      make(map[string]*sftpclient.Limiter),
 		maxConcurrent: 1,
+		secretKey:     secretKey,
+		retained:      make(map[string]retainedSecret),
 	}
 	qm.loadState()
 	qm.wg.Add(1)
@@ -102,12 +123,66 @@ type diskState struct {
 type diskTask struct {
 	Task   *models.Task         `json:"task"`
 	Config models.UploadRequest `json:"config"`
+	// PasswordEnc holds Config.Password encrypted with the queue secret key;
+	// Config.Password itself is never written to disk.
+	PasswordEnc string `json:"password_enc,omitempty"`
+}
+
+// sealConfig returns a copy of the task's config that is safe to persist, with
+// the password moved into its encrypted form.
+func (qm *QueueManager) sealConfig(t *models.Task) (models.UploadRequest, string) {
+	cfg := t.Config
+	if r, ok := qm.retained[t.ID]; ok && (cfg.Password == "" || qm.secretKey == nil) {
+		cfg.Password = r.plain
+		return cfg, r.enc
+	}
+	if cfg.Password == "" {
+		return cfg, ""
+	}
+	password := cfg.Password
+	cfg.Password = ""
+	if qm.secretKey == nil {
+		return cfg, ""
+	}
+	enc, err := encryptSecret(qm.secretKey, password)
+	if err != nil {
+		logger.Error(fmt.Sprintf("failed to encrypt queued credentials: %v", err))
+		return cfg, ""
+	}
+	return cfg, enc
+}
+
+// openConfig restores the password of a persisted task. Plaintext passwords
+// written by older versions are accepted and re-encrypted on the next save.
+// Credentials that cannot be decrypted or re-encrypted are retained as stored.
+func (qm *QueueManager) openConfig(d diskTask) models.UploadRequest {
+	cfg := d.Config
+	if d.PasswordEnc == "" {
+		if cfg.Password != "" && qm.secretKey == nil {
+			qm.retained[d.Task.ID] = retainedSecret{plain: cfg.Password}
+		}
+		return cfg
+	}
+	if qm.secretKey == nil {
+		logger.Error("cannot decrypt queued credentials: no encryption key available")
+		qm.retained[d.Task.ID] = retainedSecret{enc: d.PasswordEnc}
+		return cfg
+	}
+	password, err := decryptSecret(qm.secretKey, d.PasswordEnc)
+	if err != nil {
+		logger.Error(fmt.Sprintf("cannot decrypt queued credentials (was UPLARR_SECRET_KEY changed?): %v", err))
+		qm.retained[d.Task.ID] = retainedSecret{enc: d.PasswordEnc}
+		return cfg
+	}
+	cfg.Password = password
+	return cfg
 }
 
 func (qm *QueueManager) saveStateLocked() {
 	var dt []diskTask
 	for _, t := range qm.tasks {
-		dt = append(dt, diskTask{Task: t, Config: t.Config})
+		cfg, enc := qm.sealConfig(t)
+		dt = append(dt, diskTask{Task: t, Config: cfg, PasswordEnc: enc})
 	}
 	state := diskState{
 		Tasks:         dt,
@@ -144,6 +219,15 @@ func (qm *QueueManager) loadState() {
 	}
 	defer func() { _ = root.Close() }()
 
+	// Rewrite state files from older versions straight away so plaintext
+	// passwords do not linger on disk until the queue next changes.
+	legacyPlaintext := false
+	defer func() {
+		if legacyPlaintext && qm.secretKey != nil {
+			qm.saveStateLocked()
+		}
+	}()
+
 	data, err := root.ReadFile(".queue_state.json")
 	if err == nil {
 		var state diskState
@@ -151,7 +235,8 @@ func (qm *QueueManager) loadState() {
 			var loaded []*models.Task
 			for _, d := range state.Tasks {
 				if d.Task != nil {
-					d.Task.Config = d.Config
+					d.Task.Config = qm.openConfig(d)
+					legacyPlaintext = legacyPlaintext || (d.PasswordEnc == "" && d.Config.Password != "")
 					if d.Task.Status == models.TaskRunning {
 						d.Task.Status = models.TaskPending
 					}
@@ -176,7 +261,8 @@ func (qm *QueueManager) loadState() {
 				var loaded []*models.Task
 				for _, d := range dt {
 					if d.Task != nil {
-						d.Task.Config = d.Config
+						d.Task.Config = qm.openConfig(d)
+						legacyPlaintext = legacyPlaintext || (d.PasswordEnc == "" && d.Config.Password != "")
 						if d.Task.Status == models.TaskRunning {
 							d.Task.Status = models.TaskPending
 						}
@@ -487,7 +573,9 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 		_ = f.Close()
 
 		if err := client.Connect(); err != nil {
-			return err
+			// The task error is visible through /api/queue, so only a generic
+			// reason is kept; details go to the server log.
+			return errors.New(sftpclient.PublicConnectError(err))
 		}
 
 		closeClient := sync.OnceFunc(client.Close)

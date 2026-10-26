@@ -54,7 +54,7 @@ graph TD
 - 🛠 **Dynamic Configuration**: Configure and test SFTP connections, including host key verification toggles and advanced latency floor tuning.
 - 📉 **Compact View Mode**: Toggleable high-density interface for managing large file structures with horizontal layout optimization.
 - 📡 **Real-time SSE Logs**: Integrated Server-Sent Events (SSE) provide live terminal-style feedback for all operations.
-- 🔐 **Encrypted Storage**: All persistent settings (including credentials) are AES-GCM encrypted in the browser with secure master-key management.
+- 🔐 **Encrypted Storage**: Settings saved in the browser are AES-GCM encrypted with secure master-key management, and SFTP passwords in the server-side queue state are AES-GCM encrypted at rest.
 - 🤖 **Automated CI/CD**: Pushes to `main` trigger automated semantic versioning and cross-platform builds.
 - 🐳 **Enterprise Ready**: Multi-arch Docker images (`amd64`, `arm64`) and automated security scanning via GitHub Container Registry.
 
@@ -138,7 +138,15 @@ Run with: `docker compose up -d`
 | `LOCAL_DIR` | Directory to monitor for files | `./test_data` |
 | `CONFIG_DIR` | Directory for application state (queue) | `./config` |
 | `WEB_PORT` | Port for the Web GUI | `8080` |
-| `AUTH_PASSWORD` | Password for Web UI authentication | (None) |
+| `BIND_ADDR` | Interface the Web GUI listens on (the Docker image sets `0.0.0.0`) | `127.0.0.1` |
+| `AUTH_PASSWORD` | Password for Web UI authentication. If empty, a random password is generated on first start, logged once and stored in `CONFIG_DIR/.auth_password` | (generated) |
+| `ALLOW_NO_AUTH` | Set to `true` to run without any Web UI password (not recommended) | `false` |
+| `TRUST_PROXY` | Trust `X-Forwarded-Proto`/`X-Forwarded-For` from a single reverse proxy in front of Uplarr | `false` |
+| `SSH_KNOWN_HOSTS` | known_hosts file used to verify SFTP host keys | `CONFIG_DIR/known_hosts` |
+| `SSH_TOFU` | Pin the host key of unknown servers on first connect (`false` = only keys already in `SSH_KNOWN_HOSTS` are accepted) | `true` |
+| `SSH_KEYS_DIR` | Only directory private keys can be loaded from; the UI's key field takes a file name inside it | `CONFIG_DIR/keys` |
+| `UPLARR_SECRET_KEY` | Key used to encrypt queued SFTP passwords at rest. If unset, a random key is generated in `CONFIG_DIR/.secret_key` | (generated) |
+| `UPLARR_ALLOW_LINK_LOCAL` | Allow SFTP connections to link-local addresses such as `169.254.169.254` (blocked by default) | `false` |
 | `UPLARR_SFTP_MAX_PACKET` | SFTP payload bytes per request (1024–131072) | `32768` |
 | `UPLARR_SFTP_MAX_REQUESTS` | Concurrent in-flight requests per file (1–1024) | `128` |
 
@@ -148,11 +156,21 @@ the Web UI. The two `UPLARR_SFTP_*` variables tune transport throughput — see
 
 ---
 
+## 🔒 Security Notes
+
+- **Authentication is on by default.** Without `AUTH_PASSWORD`, Uplarr generates a password on first start; read it from the container log or with `docker exec uplarr cat /config/.auth_password`. Set `ALLOW_NO_AUTH=true` to opt out explicitly.
+- **CSRF protection.** State-changing API requests must be `application/json` and same-origin (checked through `Sec-Fetch-Site`/`Origin`), whether or not authentication is enabled.
+- **Host key verification.** Untick *Skip Host Key Verification* to verify SFTP servers: the first key seen for a host is pinned in `SSH_KNOWN_HOSTS` (its fingerprint is written to the log) and a changed key is refused. To trust a changed key, remove the host's line from that file. Pre-populate the file and set `SSH_TOFU=false` for strict verification.
+- **Private keys** must live in `SSH_KEYS_DIR` (mount them read-only, e.g. `./keys:/config/keys:ro`); enter only the file name in the UI.
+- **Reverse proxies.** With `TRUST_PROXY=true`, the login rate limiter uses the rightmost `X-Forwarded-For` entry (the one your proxy appends). Failed logins are also limited globally.
+
+---
+
 ## 💾 Storage & Persistence
 
 Uplarr maintains a background queue that survives container and process restarts.
 
-- **State File**: `.queue_state.json`
+- **State File**: `.queue_state.json` (SFTP passwords are stored AES-GCM encrypted with the key from `UPLARR_SECRET_KEY` or `.secret_key`)
 - **Location**: Stored in your configured `CONFIG_DIR` (defaults to `./config`).
 - **Isolation**: Keeping state in a separate directory allows you to mount `LOCAL_DIR` as **read-only** (`:ro`), improving overall security for your media files.
 - **Persistence**: The `CONFIG_DIR` mount **must be writable** (`:rw`) for the application to save its queue.
