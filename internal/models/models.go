@@ -2,6 +2,10 @@ package models
 
 import "time"
 
+// MaxRetriesLimit caps the per-task upload retry budget accepted from clients
+// and restored from saved queue state.
+const MaxRetriesLimit = 100
+
 type Config struct {
 	LocalDir     string
 	ConfigDir    string

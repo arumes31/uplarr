@@ -392,6 +392,13 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 	})
 
 	mux.HandleFunc("/api/logout", func(w http.ResponseWriter, r *http.Request) {
+		// Only POST is covered by the cross-origin check, so a cross-site GET
+		// navigation must not be able to end the session.
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		cookie, err := r.Cookie("uplarr_session")
 		if err == nil {
 			sessionsMu.Lock()
@@ -856,6 +863,10 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 		var req models.UploadRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		if req.MaxRetries < 0 || req.MaxRetries > models.MaxRetriesLimit {
+			http.Error(w, fmt.Sprintf("max_retries must be between 0 and %d", models.MaxRetriesLimit), http.StatusBadRequest)
 			return
 		}
 

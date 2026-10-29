@@ -115,10 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const setSecureItem = async (key, value) => {
+    // Sensitive values are never written in plaintext: without a key, or if
+    // encryption fails, the stored item is removed instead.
+    const setSecureItem = async (key, value, { sensitive = false } = {}) => {
         if (!masterKey) masterKey = await SecureStorage.getKey();
         if (!masterKey) {
-            localStorage.setItem(key, value);
+            if (sensitive) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
             return;
         }
         try {
@@ -126,7 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(key, encrypted);
         } catch (e) {
             console.error(`Failed to encrypt ${key}`, e);
-            localStorage.setItem(key, value);
+            if (sensitive) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
         }
     };
 
@@ -753,8 +757,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (action === 'rename') {
                 // Reuse existing rename modal logic
-                renameSearch.value = name;
-                renameReplace.value = name;
+                // Match the filename literally: it may come from a remote
+                // server and must not be evaluated as a regular expression.
+                renameSearch.value = escapeRegExp(name);
+                renameReplace.value = name.replace(/\$/g, '$$$$');
                 queuedFiles.clear();
                 queuedFiles.set(path, { name });
                 updateRenamePreview();
@@ -850,6 +856,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     };
 
+    const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';
         const k = 1024;
@@ -884,7 +892,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = getFormData();
         // Remove transient/large data
         delete data.files;
-        await setSecureItem('uplarr_form_data', JSON.stringify(data));
+        if (!masterKey) masterKey = await SecureStorage.getKey();
+        // Without an encryption key (e.g. auth disabled) the SFTP password is
+        // never persisted; the remaining settings are still remembered.
+        if (!masterKey) delete data.password;
+        await setSecureItem('uplarr_form_data', JSON.stringify(data), { sensitive: !!data.password });
     };
 
     const restoreFormData = async () => {
@@ -892,6 +904,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!saved) return;
         try {
             const data = JSON.parse(saved);
+            if (!masterKey && data.password) {
+                // Scrub plaintext credentials left behind by older versions.
+                const { password, ...rest } = data;
+                localStorage.setItem('uplarr_form_data', JSON.stringify(rest));
+            }
             for (const key in data) {
                 const el = sftpForm.elements[key];
                 if (!el) continue;

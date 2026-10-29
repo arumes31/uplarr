@@ -277,3 +277,32 @@ func TestConnectErrorsAreGeneric(t *testing.T) {
 		t.Fatalf("raw dial error leaked: %s", rec.Body.String())
 	}
 }
+
+func TestLogoutRequiresPost(t *testing.T) {
+	app, _ := newSecurityTestApp(t, "")
+
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, httptest.NewRequest("GET", "/api/logout", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET logout: got %d, want 405", rec.Code)
+	}
+	if len(rec.Result().Cookies()) != 0 {
+		t.Fatal("GET logout must not touch the session cookie")
+	}
+}
+
+func TestUploadRejectsExcessiveRetries(t *testing.T) {
+	app, dir := newSecurityTestApp(t, "")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, n := range []int{-1, models.MaxRetriesLimit + 1} {
+		rec := httptest.NewRecorder()
+		body := fmt.Sprintf(`{"host":"example.invalid","files":["a.txt"],"max_retries":%d}`, n)
+		app.ServeHTTP(rec, newJSONRequest("POST", "/api/upload", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("max_retries=%d: got %d, want 400", n, rec.Code)
+		}
+	}
+}

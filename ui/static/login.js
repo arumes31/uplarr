@@ -91,7 +91,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                         localStorage.setItem(key, encrypted);
                                     }
                                 } catch (e) {
-                                    // Silent failure for non-encrypted or incompatible items
+                                    // Not V1 ciphertext. Records saved while no key was
+                                    // available are plaintext JSON: encrypt them now. Form
+                                    // data that is neither is dropped so a plaintext
+                                    // credential never survives a login.
+                                    let isJSON = false;
+                                    try { JSON.parse(raw); isJSON = true; } catch (_) {}
+                                    try {
+                                        if (isJSON) {
+                                            localStorage.setItem(key, await SecureStorage.encrypt(raw, masterKey));
+                                        } else if (key === 'uplarr_form_data') {
+                                            localStorage.removeItem(key);
+                                        }
+                                    } catch (_) {
+                                        if (key === 'uplarr_form_data') localStorage.removeItem(key);
+                                    }
                                 }
                             }
                         }
