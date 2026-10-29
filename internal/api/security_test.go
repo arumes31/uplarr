@@ -304,5 +304,8 @@ func TestUploadRejectsExcessiveRetries(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("max_retries=%d: got %d, want 400", n, rec.Code)
 		}
+		if !strings.Contains(rec.Body.String(), `"error":"Retries must be between 0 and 100"`) {
+			t.Fatalf("max_retries=%d: want JSON error, got %q", n, rec.Body.String())
+		}
 	}
 }

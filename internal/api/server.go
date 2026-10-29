@@ -866,7 +866,12 @@ func SetupApp(config models.Config, qm *queue.QueueManager) (*http.ServeMux, err
 			return
 		}
 		if req.MaxRetries < 0 || req.MaxRetries > models.MaxRetriesLimit {
-			http.Error(w, fmt.Sprintf("max_retries must be between 0 and %d", models.MaxRetriesLimit), http.StatusBadRequest)
+			// JSON so the upload UI can show the allowed range.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": fmt.Sprintf("Retries must be between 0 and %d", models.MaxRetriesLimit),
+			})
 			return
 		}
 
