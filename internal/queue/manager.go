@@ -157,6 +157,8 @@ func (qm *QueueManager) sealConfig(t *models.Task) (models.UploadRequest, string
 // Credentials that cannot be decrypted or re-encrypted are retained as stored.
 func (qm *QueueManager) openConfig(d diskTask) models.UploadRequest {
 	cfg := d.Config
+	// State written by older versions stored the whole batch list per task.
+	cfg.Files = nil
 	if d.PasswordEnc == "" {
 		if cfg.Password != "" && qm.secretKey == nil {
 			qm.retained[d.Task.ID] = retainedSecret{plain: cfg.Password}
@@ -399,6 +401,9 @@ func (qm *QueueManager) UpdateHostLimiter(host string, rateLimitKBps, minLimitKB
 
 // ⚡ Bolt: Batch adding tasks prevents O(N) disk writes to the state file
 func (qm *QueueManager) AddTasks(fileNames []string, config models.UploadRequest) {
+	// Each task carries its own FileName; keeping the whole batch list on every
+	// task would make state files and snapshots grow quadratically.
+	config.Files = nil
 	qm.mu.Lock()
 	for _, fileName := range fileNames {
 		qm.nextID++
@@ -596,7 +601,7 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 
 		retries := 3
 		if nextTask.Config.MaxRetries > 0 {
-			retries = nextTask.Config.MaxRetries
+			retries = min(nextTask.Config.MaxRetries, models.MaxRetriesLimit)
 		}
 
 		return client.UploadFileWithRetry(taskCtx, candidatePath, retries)
@@ -626,11 +631,6 @@ func (qm *QueueManager) GetTasks() []*models.Task {
 	snapshot := make([]*models.Task, len(qm.tasks))
 	for i, t := range qm.tasks {
 		copyTask := *t
-		// Deep-copy mutable reference fields so snapshot doesn't share state
-		if t.Config.Files != nil {
-			copyTask.Config.Files = make([]string, len(t.Config.Files))
-			copy(copyTask.Config.Files, t.Config.Files)
-		}
 		snapshot[i] = &copyTask
 	}
 	qm.mu.RUnlock()

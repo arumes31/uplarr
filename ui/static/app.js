@@ -115,10 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const setSecureItem = async (key, value) => {
+    // Sensitive values are never written in plaintext: without a key, or if
+    // encryption fails, the stored item is removed instead.
+    const setSecureItem = async (key, value, { sensitive = false } = {}) => {
         if (!masterKey) masterKey = await SecureStorage.getKey();
         if (!masterKey) {
-            localStorage.setItem(key, value);
+            if (sensitive) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
             return;
         }
         try {
@@ -126,7 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem(key, encrypted);
         } catch (e) {
             console.error(`Failed to encrypt ${key}`, e);
-            localStorage.setItem(key, value);
+            if (sensitive) localStorage.removeItem(key);
+            else localStorage.setItem(key, value);
         }
     };
 
@@ -621,6 +625,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Bulk Renaming
+    // Single-file rename from the context menu inserts the replacement
+    // literally; bulk rename expands $idx and regex replacement patterns.
+    let literalRename = false;
+    const applyRename = (oldName, re, replace, idx) => literalRename
+        ? oldName.replace(re, () => replace)
+        : oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+
     const updateRenamePreview = () => {
         const search = renameSearch.value;
         const replace = renameReplace.value;
@@ -634,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 if (search) {
                     const re = new RegExp(search, 'g');
-                    newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+                    newName = applyRename(oldName, re, replace, idx);
                 }
             } catch (e) {}
 
@@ -653,6 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selectionRenameBtn.addEventListener('click', () => {
             if (queuedFiles.size === 0) return showToast("Select files to rename", "warn");
             if (renameCountBadge) renameCountBadge.textContent = queuedFiles.size;
+            literalRename = false;
             if (renameSearch) renameSearch.value = '';
             if (renameReplace) renameReplace.value = '';
             updateRenamePreview();
@@ -683,7 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const dir = path.substring(0, lastSlash + 1);
                     const oldName = path.substring(lastSlash + 1);
                     const re = new RegExp(search, 'g');
-                    const newName = oldName.replace(re, replace.replace(/\$idx/g, (idx + 1).toString()));
+                    const newName = applyRename(oldName, re, replace, idx);
                     return { old: path, new: dir + newName };
                 });
 
@@ -753,7 +765,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (action === 'rename') {
                 // Reuse existing rename modal logic
-                renameSearch.value = name;
+                // Match the filename literally: it may come from a remote
+                // server and must not be evaluated as a regular expression.
+                literalRename = true;
+                renameSearch.value = escapeRegExp(name);
                 renameReplace.value = name;
                 queuedFiles.clear();
                 queuedFiles.set(path, { name });
@@ -850,6 +865,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     };
 
+    const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';
         const k = 1024;
@@ -884,7 +901,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = getFormData();
         // Remove transient/large data
         delete data.files;
-        await setSecureItem('uplarr_form_data', JSON.stringify(data));
+        if (!masterKey) masterKey = await SecureStorage.getKey();
+        // Without an encryption key (e.g. auth disabled) the SFTP password is
+        // never persisted; the remaining settings are still remembered.
+        if (!masterKey) delete data.password;
+        await setSecureItem('uplarr_form_data', JSON.stringify(data), { sensitive: !!data.password });
     };
 
     const restoreFormData = async () => {
@@ -892,6 +913,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!saved) return;
         try {
             const data = JSON.parse(saved);
+            if (!masterKey && data.password) {
+                // Scrub plaintext credentials left behind by older versions.
+                delete data.password;
+                localStorage.setItem('uplarr_form_data', JSON.stringify(data));
+            }
+            // Older versions accepted any retry count; keep the field valid so
+            // form validation does not block browsing or uploads.
+            if (data.max_retries !== undefined) {
+                const n = parseInt(data.max_retries);
+                data.max_retries = Number.isNaN(n) ? 3 : Math.min(Math.max(n, 0), 100);
+            }
             for (const key in data) {
                 const el = sftpForm.elements[key];
                 if (!el) continue;

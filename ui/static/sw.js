@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uplarr-cache-v8';
+const CACHE_NAME = 'uplarr-cache-v9';
 const OFFLINE_URL = '/static/offline.html';
 const ASSETS = [
     '/static/style.css',

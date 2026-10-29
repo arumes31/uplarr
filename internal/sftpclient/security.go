@@ -204,7 +204,8 @@ func dialSSH(addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
 // to return to the client. Raw dial errors are only logged server side so the
 // endpoints cannot be used to fingerprint internal hosts and ports.
 func PublicConnectError(err error) string {
-	log.Printf("SFTP connection failed: %v", err)
+	// %q escapes newlines from resolver errors that echo the requested host.
+	log.Printf("SFTP connection failed: %q", err.Error())
 	switch {
 	case errors.Is(err, ErrHostKeyMismatch):
 		return "Host key verification failed: the server key does not match the pinned key"

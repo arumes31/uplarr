@@ -471,13 +471,28 @@ func (s *SFTPClient) GetRemoteDir() string {
 	return s.RemoteDir
 }
 
+// retryDelay returns the exponential backoff with ±25% jitter after the given
+// failed attempt. The base delay is doubled step by step and stops at the cap,
+// so large attempt counts cannot overflow the duration.
+func retryDelay(attempt int) time.Duration {
+	const baseDelay = 100 * time.Millisecond
+	const maxDelay = 5 * time.Second
+	delay := baseDelay
+	for i := 1; i < attempt && delay < maxDelay; i++ {
+		delay *= 2
+	}
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+	jitter := time.Duration(rand.Int63n(int64(delay)/2)) - delay/4 // #nosec G404
+	return delay + jitter
+}
+
 func (s *SFTPClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error {
 	if maxRetries <= 0 {
 		maxRetries = 1
 	}
 	var lastErr error
-	const baseDelay = 100 * time.Millisecond
-	const maxDelay = 5 * time.Second
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := s.UploadFile(ctx, localPath)
 		if err == nil {
@@ -486,17 +501,10 @@ func (s *SFTPClient) UploadFileWithRetry(ctx context.Context, localPath string, 
 		lastErr = err
 		logger.Error(fmt.Sprintf("Upload attempt %d failed for %s: %v", attempt, filepath.Base(localPath), err))
 		if attempt < maxRetries {
-			// Exponential backoff with jitter
-			delay := baseDelay * time.Duration(1<<uint(attempt-1))
-			if delay > maxDelay {
-				delay = maxDelay
-			}
-			// Add jitter: ±25% of the delay
-			jitter := time.Duration(rand.Int63n(int64(delay)/2)) - delay/4 // #nosec G404
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(delay + jitter):
+			case <-time.After(retryDelay(attempt)):
 			}
 		}
 	}

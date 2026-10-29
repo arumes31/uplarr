@@ -546,3 +546,16 @@ func TestQueueManager_ConnectErrorIsGeneric(t *testing.T) {
 		t.Fatalf("task error = %q, want generic message", got)
 	}
 }
+
+func TestAddTasksDropsBatchFileList(t *testing.T) {
+	qm := queue.NewQueueManager(t.TempDir(), t.TempDir())
+	defer qm.Shutdown()
+
+	files := []string{"a.txt", "b.txt", "c.txt"}
+	qm.AddTasks(files, models.UploadRequest{Files: files})
+	for _, task := range qm.GetTasks() {
+		if task.Config.Files != nil {
+			t.Fatalf("task %s retained the batch file list: %v", task.ID, task.Config.Files)
+		}
+	}
+}

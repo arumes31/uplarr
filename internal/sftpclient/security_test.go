@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -126,5 +127,14 @@ func TestConnectUsesConfiguredKnownHosts(t *testing.T) {
 	c := &SFTPClient{Host: "169.254.169.254", Port: "22", User: "u", Password: "p"}
 	if err := c.Connect(); !errors.Is(err, ErrDialTargetDenied) {
 		t.Fatalf("expected dial target denial, got %v", err)
+	}
+}
+
+func TestRetryDelayStaysBounded(t *testing.T) {
+	for _, attempt := range []int{1, 2, 10, 63, 64, 65, 1000, 1 << 30} {
+		d := retryDelay(attempt)
+		if d <= 0 || d > 5*time.Second*5/4 {
+			t.Fatalf("attempt %d: delay %v out of range", attempt, d)
+		}
 	}
 }

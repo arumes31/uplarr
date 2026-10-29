@@ -82,16 +82,37 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (key.startsWith('uplarr_') && !key.endsWith('_salt')) {
                             const raw = localStorage.getItem(key);
                             if (raw && !raw.startsWith('v2:')) {
+                                // Try to decrypt legacy V1 using the plaintext password
+                                let decrypted = null;
+                                let isV1 = false;
                                 try {
-                                    // Try to decrypt legacy V1 using the plaintext password
-                                    const decrypted = await SecureStorage.decrypt(raw, masterKey, password);
-                                    if (decrypted) {
-                                        // Re-encrypt to V2
-                                        const encrypted = await SecureStorage.encrypt(decrypted, masterKey);
-                                        localStorage.setItem(key, encrypted);
-                                    }
+                                    decrypted = await SecureStorage.decrypt(raw, masterKey, password);
+                                    isV1 = true;
                                 } catch (e) {
-                                    // Silent failure for non-encrypted or incompatible items
+                                    // Not V1 ciphertext, handled below
+                                }
+                                let isJSON = false;
+                                if (!isV1) {
+                                    try { JSON.parse(raw); isJSON = true; } catch (_) {}
+                                }
+                                try {
+                                    if (isV1) {
+                                        // Re-encrypt to V2. On failure the V1 ciphertext is kept.
+                                        if (decrypted) {
+                                            localStorage.setItem(key, await SecureStorage.encrypt(decrypted, masterKey));
+                                        }
+                                    } else if (isJSON) {
+                                        // Records saved while no key was available are
+                                        // plaintext JSON: encrypt them now.
+                                        localStorage.setItem(key, await SecureStorage.encrypt(raw, masterKey));
+                                    } else if (key === 'uplarr_form_data') {
+                                        // Unreadable form data is dropped so a plaintext
+                                        // credential never survives a login.
+                                        localStorage.removeItem(key);
+                                    }
+                                } catch (_) {
+                                    // A plaintext credential must not survive a failed encryption.
+                                    if (!isV1 && key === 'uplarr_form_data') localStorage.removeItem(key);
                                 }
                             }
                         }
