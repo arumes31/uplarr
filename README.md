@@ -25,7 +25,7 @@ graph TD
     User([User]) <--> WebGUI[Modern Web GUI - Vanilla JS/CSS]
     WebGUI <--> API[Go HTTP API]
     
-    subgraph Backend [Go Backend - 1.26]
+    subgraph Backend [Go Backend - 1.27.3]
         API <--> Broadcaster[SSE Log Broadcaster]
         API <--> Queue[File Queue Manager]
         Queue --> SFTP[SFTP Client - golang.org/x/crypto/ssh]
@@ -121,11 +121,11 @@ Run with: `docker compose up -d`
 
 ### Local Development
 
-1. **Prerequisites**: Go 1.26+ installed.
+1. **Prerequisites**: Go 1.27.3+ installed.
 2. **Install & Run**:
    ```bash
    go mod download
-   go run .
+   go run ./cmd/uplarr
    ```
 3. **Access**: Open [http://localhost:8080](http://localhost:8080).
 
@@ -242,7 +242,7 @@ We welcome contributions! Please follow our streamlined workflow:
 2. Create a Feature Branch (`git checkout -b feature/AmazingFeature`).
 3. Commit Changes (`git commit -m 'Add some AmazingFeature'`).
 4. Push to the Branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request to the `v2.2` branch.
+5. Open a Pull Request to the `main` branch.
 
 ---
 
