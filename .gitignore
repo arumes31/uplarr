@@ -40,3 +40,9 @@ test_output.txt
 
 # Graphify output directory
 graphify-out/
+
+# Documentation
+docs/
+
+# Local PoC tests
+internal/sftpclient/poc_*.go
