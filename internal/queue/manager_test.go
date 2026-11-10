@@ -559,3 +559,87 @@ func TestAddTasksDropsBatchFileList(t *testing.T) {
 		}
 	}
 }
+
+type rootRecordingClient struct {
+	mockClient
+	done     chan struct{}
+	rootName string
+	name     string
+	content  string
+	swapErr  error
+	swap     func() error
+}
+
+func (c *rootRecordingClient) UploadRootFileWithRetry(_ context.Context, root *os.Root, name string, _ int) error {
+	defer close(c.done)
+	c.rootName, c.name = root.Name(), name
+	if data, err := root.ReadFile(name); err == nil {
+		c.content = string(data)
+	}
+	// Simulate the entry being swapped for an escaping symlink after the
+	// worker's validation: reads through the handed-over root must fail.
+	if err := c.swap(); err != nil {
+		c.swapErr = err
+		return err
+	}
+	if _, err := root.Open(name); err == nil {
+		c.swapErr = errors.New("escaping symlink was opened through the root")
+	}
+	return nil
+}
+
+func TestQueueManager_UploadsThroughValidatedRoot(t *testing.T) {
+	localDir := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(localDir, "file.txt")
+	if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	symlinksOK := true
+	client := &rootRecordingClient{done: make(chan struct{})}
+	client.swap = func() error {
+		if err := os.Remove(target); err != nil {
+			return err
+		}
+		if err := os.Symlink(secret, target); err != nil {
+			symlinksOK = false
+		}
+		return nil
+	}
+
+	oldNewClient := queue.NewClient
+	queue.NewClient = func(models.UploadRequest) queue.ClientInterface { return client }
+	t.Cleanup(func() { queue.NewClient = oldNewClient })
+
+	qm := queue.NewQueueManager(localDir, t.TempDir())
+	t.Cleanup(qm.Shutdown)
+	qm.AddTask("file.txt", models.UploadRequest{})
+
+	select {
+	case <-client.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upload was not started")
+	}
+
+	wantRoot, err := filepath.EvalSymlinks(localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.rootName != wantRoot || client.name != "file.txt" {
+		t.Fatalf("upload got root %q name %q, want root %q name %q", client.rootName, client.name, wantRoot, "file.txt")
+	}
+	if client.content != "payload" {
+		t.Fatalf("read %q through the root, want %q", client.content, "payload")
+	}
+	if !symlinksOK {
+		t.Skip("symlinks unavailable; escaping-swap check skipped")
+	}
+	if client.swapErr != nil {
+		t.Fatal(client.swapErr)
+	}
+}
