@@ -27,7 +27,7 @@ var (
 type ClientInterface interface {
 	Connect() error
 	Close()
-	UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error
+	UploadRootFileWithRetry(ctx context.Context, root *os.Root, name string, maxRetries int) error
 	ReadRemoteDir(p string) ([]models.FileInfo, error)
 	Remove(path string) error
 	Rename(oldpath, newpath string) error
@@ -560,11 +560,10 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 			return fmt.Errorf("invalid file path: traversal detected")
 		}
 
-		// TOCTOU mitigation: Open and verify file immediately before connecting.
-		// Uses OsOpenRoot (Go 1.24+) to strictly scope access to baseDir.
-		// NOTE: The file handle is closed before upload to allow UploadFileWithRetry
-		// to reopen it by path. This is a best-effort mitigation; a small TOCTOU
-		// window remains between this check and the actual upload read.
+		// Open and verify the file through an os.Root scoped to baseDir before
+		// connecting. The upload itself reopens (and optionally deletes) the
+		// file through the same root, so an entry swapped for an escaping
+		// symlink after this check is still rejected instead of being read.
 		root, err := OsOpenRoot(baseDir)
 		if err != nil {
 			return fmt.Errorf("failed to open root for validation: %v", err)
@@ -604,7 +603,7 @@ func (qm *QueueManager) processTask(nextTask *models.Task) {
 			retries = min(nextTask.Config.MaxRetries, models.MaxRetriesLimit)
 		}
 
-		return client.UploadFileWithRetry(taskCtx, candidatePath, retries)
+		return client.UploadRootFileWithRetry(taskCtx, root, rel, retries)
 	}()
 
 	qm.mu.Lock()
