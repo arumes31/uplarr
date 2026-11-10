@@ -35,7 +35,7 @@ type mockClient struct {
 
 func (m *mockClient) Connect() error { return m.connectErr }
 func (m *mockClient) Close()         {}
-func (m *mockClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error {
+func (m *mockClient) UploadRootFileWithRetry(ctx context.Context, root *os.Root, name string, maxRetries int) error {
 	return m.uploadErr
 }
 func (m *mockClient) ReadRemoteDir(p string) ([]models.FileInfo, error) { return nil, nil }
@@ -55,7 +55,7 @@ func (c *stalledIOClient) Close() {
 	c.closeOnce.Do(func() { close(c.unblocked) })
 }
 
-func (c *stalledIOClient) UploadFileWithRetry(ctx context.Context, _ string, _ int) error {
+func (c *stalledIOClient) UploadRootFileWithRetry(ctx context.Context, _ *os.Root, _ string, _ int) error {
 	close(c.started)
 	<-c.unblocked
 	return ctx.Err()

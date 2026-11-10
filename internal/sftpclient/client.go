@@ -489,12 +489,25 @@ func retryDelay(attempt int) time.Duration {
 }
 
 func (s *SFTPClient) UploadFileWithRetry(ctx context.Context, localPath string, maxRetries int) error {
+	return s.uploadWithRetry(ctx, pathSource(localPath), maxRetries)
+}
+
+// UploadRootFileWithRetry uploads name, resolved inside root, with retries.
+// Every open and the optional delete-after-verify go through root, so the
+// file cannot be swapped for a symlink that escapes root between the caller's
+// validation and the bytes being read.
+func (s *SFTPClient) UploadRootFileWithRetry(ctx context.Context, root *os.Root, name string, maxRetries int) error {
+	return s.uploadWithRetry(ctx, rootSource(root, name), maxRetries)
+}
+
+func (s *SFTPClient) uploadWithRetry(ctx context.Context, src localSource, maxRetries int) error {
+	localPath := src.path
 	if maxRetries <= 0 {
 		maxRetries = 1
 	}
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := s.UploadFile(ctx, localPath)
+		err := s.upload(ctx, src)
 		if err == nil {
 			return nil
 		}
@@ -606,7 +619,42 @@ var osOpen = func(name string) (File, error) {
 
 var osRemove = os.Remove
 
-func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err error) {
+// localSource describes how an upload opens, and optionally deletes, the
+// local file. path is used for logging and to derive the remote file name.
+type localSource struct {
+	path   string
+	open   func() (File, error)
+	remove func() error
+}
+
+func pathSource(localPath string) localSource {
+	return localSource{
+		path:   localPath,
+		open:   func() (File, error) { return osOpen(localPath) },
+		remove: func() error { return osRemove(localPath) },
+	}
+}
+
+func rootSource(root *os.Root, name string) localSource {
+	return localSource{
+		path: filepath.Join(root.Name(), name),
+		open: func() (File, error) {
+			f, err := root.Open(name)
+			if err != nil {
+				return nil, err
+			}
+			return f, nil
+		},
+		remove: func() error { return root.Remove(name) },
+	}
+}
+
+func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) error {
+	return s.upload(ctx, pathSource(localPath))
+}
+
+func (s *SFTPClient) upload(ctx context.Context, src localSource) (err error) {
+	localPath := src.path
 	fileName := filepath.Base(localPath)
 	// Ensure remote directory is normalized
 	remoteDir := path.Clean(filepath.ToSlash(s.RemoteDir))
@@ -631,7 +679,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 		}
 	}
 
-	localFile, err := osOpen(localPath)
+	localFile, err := src.open()
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %v", err)
 	}
@@ -853,7 +901,7 @@ func (s *SFTPClient) UploadFile(ctx context.Context, localPath string) (err erro
 	closed = true
 
 	if s.DeleteAfterVerify {
-		if err := osRemove(localPath); err != nil {
+		if err := src.remove(); err != nil {
 			logger.Error(fmt.Sprintf("Failed to delete local file %s: %v", localPath, err))
 		} else {
 			logger.Info(fmt.Sprintf("Deleted local file %s", fileName))
