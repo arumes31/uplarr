@@ -15,9 +15,22 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # init/analyze/upload-sarif must move together; split PRs failed CodeQL.
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
+      github-actions:
+        exclude-patterns:
+          - "github/codeql-action/*"
+        update-types: ["minor", "patch"]
 
   # Maintain dependencies for Docker
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker-images:
+        patterns:
+          - "*"

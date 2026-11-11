@@ -2,6 +2,13 @@ name: Dependency Review
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile'
+      - 'docker-compose*.yml'
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
 permissions:
   contents: read
 concurrency:

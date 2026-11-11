@@ -2,7 +2,13 @@ name: OpenRabbit Reviewer
 
 on:
   pull_request:
-    types: [opened, reopened, edited, synchronize]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
 
 permissions:
   contents: read
@@ -14,6 +20,8 @@ concurrency:
 jobs:
   review:
     name: OpenRabbit (advisory)
+    # Skip drafts and Dependabot PRs (no secrets there; Dependabot body edits re-fired `edited`).
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]' }}
     permissions:
       contents: read
       # Required only for posting COMMENT reviews and inline suggestions via the API.
